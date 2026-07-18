@@ -141,3 +141,11 @@ vite.config.ts.timestamp-*
 
 # jscpd reports
 reports/
+
+# documents-processing: real (private) document data must never be committed.
+# Only the *.example.json templates are tracked; copy them and fill in locally.
+src/match-checks-data.json
+src/ocr-overrides.json
+# Debug/render artifacts and any real scanned documents kept alongside the code.
+src/tests/out/
+tests/out/

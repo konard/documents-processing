@@ -1,12 +1,11 @@
 {
-  "name": "@link-foundation/example-package-name",
-  "version": "0.11.16",
-  "description": "A JavaScript/TypeScript package template for AI-driven development",
+  "name": "documents-processing",
+  "version": "0.1.0",
+  "description": "A toolkit of command-line scripts for reading, verifying, combining and compressing scanned travel/immigration documents (passports, visas, Form C, tickets) into upload-ready PDFs.",
   "type": "module",
   "main": "src/index.js",
-  "types": "src/index.d.ts",
   "bin": {
-    "example-package-name": "./bin/example-package-name.js"
+    "documents-processing": "./bin/documents-processing.js"
   },
   "files": [
     "bin/",
@@ -17,7 +16,6 @@
   ],
   "exports": {
     ".": {
-      "types": "./src/index.d.ts",
       "import": "./src/index.js"
     }
   },
@@ -43,10 +41,13 @@
     "changeset:status": "changeset status --since=origin/main"
   },
   "keywords": [
-    "template",
-    "javascript",
-    "typescript",
-    "ai-driven"
+    "pdf",
+    "ocr",
+    "passport",
+    "visa",
+    "documents",
+    "immigration",
+    "cli"
   ],
   "author": "",
   "license": "Unlicense",
@@ -55,10 +56,18 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/link-foundation/js-ai-driven-development-pipeline-template.git"
+    "url": "git+https://github.com/konard/documents-processing.git"
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.2",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "pako": "^1.0.11",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.6.205",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",

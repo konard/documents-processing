@@ -33,6 +33,11 @@ export default [
         // Node.js 18+ globals
         fetch: 'readonly',
         AbortController: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        globalThis: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         // Runtime-specific globals
         Bun: 'readonly',
         Deno: 'readonly',
@@ -95,7 +100,7 @@ export default [
   },
   {
     // Test files have different requirements
-    files: ['tests/**/*.js', '**/*.test.js'],
+    files: ['tests/**/*.js', 'src/tests/**/*.js', '**/*.test.js'],
     rules: {
       'require-await': 'off', // Async functions without await are common in tests
     },
@@ -110,8 +115,6 @@ export default [
       '**/out/**',
       '*.min.js',
       '.eslintcache',
-      // Case study raw data files (downloaded from external sources)
-      'docs/case-studies/*/data/**',
     ],
   },
 ];

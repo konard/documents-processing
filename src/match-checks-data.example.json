@@ -1,0 +1,104 @@
+{
+  "_readme": "EXAMPLE fixture for write-visual-transcripts.mjs. Copy to match-checks-data.json and replace with your own visually-read document data. All values below are SYNTHETIC and do not describe any real person. Keys under 'people' are <SURNAME-GIVEN> ids; each holds the careful human read of that person's scans, which the pipeline cross-checks against OCR / text-layer reads.",
+  "people": {
+    "DOE-JOHN": {
+      "passport": {
+        "surname": "DOE",
+        "given": "JOHN",
+        "number": "000000001",
+        "dob": "01.01.1990",
+        "sex": "M",
+        "issue": "01.01.2020",
+        "expiry": "01.01.2030",
+        "nationality": "EXAMPLELAND",
+        "mrz_name": "DOE<<JOHN",
+        "mrz_number": "000000001"
+      },
+      "formC": {
+        "surname": "DOE",
+        "given": "JOHN",
+        "sex": "Male",
+        "dob": "01/01/1990",
+        "passport": "00N0000001",
+        "passportIssue": "01/01/2020",
+        "passportExpiry": "01/01/2030",
+        "nationality": "EXAMPLELAND",
+        "visaNumber": "900A0000X",
+        "visaIssue": "01/02/2024",
+        "visaValidTill": "01/02/2029",
+        "visaType": "e-VISA",
+        "arrivalIndia": "15/02/2024"
+      },
+      "indiaVisa": {
+        "type": "ETA",
+        "name": "JOHN DOE",
+        "passport": "000000001",
+        "eta": "900A0000X",
+        "app": "A000X0A0FB00",
+        "issue": "01/FEB/2024",
+        "expiry": "01/FEB/2029",
+        "nationality": "EXAMPLELAND"
+      },
+      "indiaEntryStamp": {
+        "passportOnPage": "00N0000001",
+        "visaNo": "900A0000X",
+        "issue": "15 FEB 2024",
+        "expiry": "01 FEB 2029"
+      },
+      "ticket": {
+        "passenger": "DOE JOHN",
+        "passport": "000000001",
+        "dob": "01.01.1990",
+        "ticketNo": "0000000000001",
+        "pnr": "AAA000"
+      }
+    },
+    "ROE-JANE": {
+      "passport": {
+        "surname": "ROE",
+        "given": "JANE",
+        "number": "000000002",
+        "dob": "02.02.1992",
+        "sex": "F",
+        "issue": "02.02.2021",
+        "expiry": "02.02.2031",
+        "nationality": "EXAMPLELAND",
+        "mrz_name": "ROE<<JANE",
+        "mrz_number": "000000002"
+      },
+      "formC": {
+        "surname": "ROE",
+        "given": "JANE",
+        "sex": "Female",
+        "dob": "02/02/1992",
+        "passport": "00N0000002",
+        "passportIssue": "02/02/2021",
+        "passportExpiry": "02/02/2031",
+        "nationality": "EXAMPLELAND",
+        "visaNumber": "VL0000000",
+        "visaIssue": "03/02/2024",
+        "visaValidTill": "02/08/2024",
+        "visaType": "TOURIST VISA",
+        "arrivalIndia": "15/02/2024"
+      },
+      "indiaVisa": {
+        "type": "VL",
+        "name": "ROE JANE",
+        "passport": "00N0000002",
+        "visaNo": "VL0000000",
+        "issue": "03/02/2024",
+        "expiry": "02/08/2024",
+        "visaType": "T",
+        "mrz": "VTEXAROE<<JANE / VL00000000EXA9202029F2408029"
+      },
+      "indiaEntryStamp": null,
+      "ticket": {
+        "passenger": "ROE JANE",
+        "passport": "000000002",
+        "dob": "02.02.1992",
+        "ticketNo": "0000000000002",
+        "pnr": "AAA000"
+      }
+    }
+  }
+}

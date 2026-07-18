@@ -1,0 +1,13 @@
+{
+  "_readme": "EXAMPLE. Copy to ocr-overrides.json. Fields that OCR cannot currently read reliably. Each entry supplies the human/visual value and WHY OCR fails, so the pipeline can fill the gap honestly (never a guessed OCR value) and it can be revisited later. Keyed by <PERSON>/<DOCUMENT>/<field>.",
+  "_howToUse": "ocr-passports.mjs (and other OCR scripts) consult this file: if a field is null after OCR and an override exists, the override value is used and the transcript records _source as 'override (visual, OCR blocked)'.",
+  "overrides": {
+    "DOE-JOHN/PASSPORT/issue": {
+      "value": "01.01.2020",
+      "reason": "SYNTHETIC EXAMPLE ONLY. Describe here why OCR could not read the field (e.g. the issue-date digits are overprinted on the label text and overlap it), so the manual value is recorded honestly rather than guessed.",
+      "confirmedBy": "visual read, cross-checked against the expiry on the same row",
+      "status": "blocked-overprint",
+      "revisit": "Try: (a) higher-resolution rescan, (b) hue-specific channel math to separate ink from label, (c) a different OCR engine tolerant of overlapping glyphs."
+    }
+  }
+}

@@ -12,9 +12,9 @@ import {
   ocrCanvas,
   parseMrzLine1,
   parseMrzLine2,
-} from '../ocr-lib.js';
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const PP = `${BASE}passports-photos/`;
 const MRZ_WL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
 const MRZ_BOX = box(0.0, 0.883, 1.0, 0.112, { scale: 3 });

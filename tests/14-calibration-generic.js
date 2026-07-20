@@ -20,9 +20,9 @@ import {
   keepBlack,
   ocrCanvas,
   parseSaneDate,
-} from '../ocr-lib.js';
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const PP = `${BASE}passports-photos/`;
 
 // A field spec: rough search area + how to read + validator.

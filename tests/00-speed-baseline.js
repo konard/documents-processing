@@ -12,9 +12,9 @@ import {
   upscale,
   box,
   readFieldConsensus,
-} from '../ocr-lib.js';
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const cform = `${BASE}c-forms/EXAMPLE-PERSON-FORM-C.pdf`;
 
 const ta = async (label, fn) => {

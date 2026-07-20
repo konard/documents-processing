@@ -6,9 +6,9 @@ how to reproduce each. Nothing here is thrown away — the ones that failed are
 kept as starting points for later.
 
 All scripts live in `src/`: `src/ocr-lib.mjs` (the reusable toolkit) and
-`src/tests/` (one dedicated `.mjs` per idea). Document folders (`passports/`,
+`tests/` (one dedicated `.js` per idea). Document folders (`passports/`,
 `c-forms/`, `visas/`, `transcripts/`, …) live in the project root, one level up.
-Run any test from the project root with `node src/tests/<file>`.
+Run any test from the project root with `node tests/<file>`.
 
 ---
 
@@ -152,7 +152,7 @@ src/write-visual-transcripts.mjs   Claude's visual reads (authoritative for imag
 src/build-markdown-transcripts.mjs full human-readable Markdown, tables, per doc
 src/match-checks.mjs    reconcile machine vs visual; cross-check passport + visa details
 src/ocr-overrides.json  fields OCR can't read yet (tracked for later)
-src/tests/              one .mjs per idea above — run `node src/tests/<file>`
+tests/              one .js per idea above — run `node tests/<file>`
 ```
 
 ## Speed note
@@ -160,6 +160,6 @@ src/tests/              one .mjs per idea above — run `node src/tests/<file>`
 The issue-date reader is the slow step (~9 s/passport) because of the perspective
 grid × red-channel preprocessing. It only runs when (re)generating the OCR
 transcripts, not interactively. The fast/thorough tradeoff is documented in
-`src/tests/13` (small grid: 2 s, 2/5) vs the current grid (9 s, 4/5). A future
+`tests/13` (small grid: 2 s, 2/5) vs the current grid (9 s, 4/5). A future
 two-tier reader (fast grid first, escalate only on empty) would get the best of
 both.

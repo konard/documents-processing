@@ -14,9 +14,9 @@ import {
   upscale,
   keepBlack,
   ocrCanvas,
-} from '../ocr-lib.js';
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const PP = `${BASE}passports-photos/`;
 // Corrected truths (re-read from the scans this session).
 const TRUTH = {

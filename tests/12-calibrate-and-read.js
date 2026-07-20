@@ -22,9 +22,9 @@ import {
   dropChannel,
   contrast,
   ocrCanvas,
-} from '../ocr-lib.js';
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const PP = `${BASE}passports-photos/`;
 const TRUTH = {
   'DOE-JOHN': '01.01.2020',

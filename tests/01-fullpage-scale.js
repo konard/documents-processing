@@ -9,9 +9,9 @@ import {
   regionCanvas,
   upscale,
   box,
-} from '../ocr-lib.js';
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const img = await renderImage(`${BASE}c-forms/EXAMPLE-PERSON-FORM-C.pdf`);
 console.log(`image ${img.width}x${img.height}\n`);
 

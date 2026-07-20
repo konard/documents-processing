@@ -147,5 +147,4 @@ reports/
 src/match-checks-data.json
 src/ocr-overrides.json
 # Debug/render artifacts and any real scanned documents kept alongside the code.
-src/tests/out/
 tests/out/

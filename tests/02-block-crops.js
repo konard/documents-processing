@@ -10,9 +10,9 @@ import {
   regionCanvas,
   upscale,
   box,
-} from '../ocr-lib.js';
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const FC = `${BASE}c-forms/`;
 
 // Single-column value-region blocks (fractions). Kept generous for scan variance.

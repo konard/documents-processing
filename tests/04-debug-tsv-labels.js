@@ -3,9 +3,9 @@
 // which labels are found and how legible the value cells are.
 // Run: node tests/04-debug-tsv-labels.js
 import { fileURLToPath, URL } from 'node:url';
-import { renderImage, ocrData, createCanvas } from '../ocr-lib.js';
+import { renderImage, ocrData, createCanvas } from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const img = await renderImage(`${BASE}c-forms/EXAMPLE-PERSON-FORM-C.pdf`);
 console.log(`image ${img.width}x${img.height}`);
 

@@ -7,9 +7,13 @@
 // Run: node tests/13-issue-date-fast.js
 import { fileURLToPath, URL } from 'node:url';
 import fs from 'node:fs';
-import { renderImage, readIssueDate, calibrateIssueDateY } from '../ocr-lib.js';
+import {
+  renderImage,
+  readIssueDate,
+  calibrateIssueDateY,
+} from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const PP = `${BASE}passports-photos/`;
 const TRUTH = {
   'DOE-JOHN': '01.01.2020',

@@ -6,9 +6,9 @@
 // Run: node tests/10-issue-date-keepblack.js
 import { fileURLToPath, URL } from 'node:url';
 import fs from 'node:fs';
-import { renderImage, box, readFieldConsensus } from '../ocr-lib.js';
+import { renderImage, box, readFieldConsensus } from '../src/ocr-lib.js';
 
-const BASE = fileURLToPath(new URL('../../', import.meta.url)); // project root (scripts are in src/tests/)
+const BASE = fileURLToPath(new URL('../', import.meta.url)); // project root (scripts are in tests/)
 const PP = `${BASE}passports-photos/`;
 
 const TRUTH = {

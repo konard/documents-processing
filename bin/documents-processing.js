@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 // documents-processing — a small dispatcher over the document-processing
-// commands in src/. Each command is a standalone script named <command>.js;
-// running `documents-processing <command> [args...]` executes that script with
-// the remaining arguments forwarded verbatim.
+// commands in src/. Each command is a standalone script named <command>.mjs
+// (directly runnable with `node src/<command>.mjs`); running
+// `documents-processing <command> [args...]` executes that script with the
+// remaining arguments forwarded verbatim.
 
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
@@ -14,12 +15,16 @@ const binDir = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.join(binDir, '..', 'src');
 
 // The library modules are imported by the commands, not run directly.
-const NON_COMMANDS = new Set(['index.js', 'ocr-lib.js', 'pdf-image-tools.js']);
+const NON_COMMANDS = new Set([
+  'index.mjs',
+  'ocr-lib.mjs',
+  'pdf-image-tools.mjs',
+]);
 
 function listCommands() {
   return readdirSync(srcDir)
-    .filter((file) => file.endsWith('.js') && !NON_COMMANDS.has(file))
-    .map((file) => file.replace(/\.js$/, ''))
+    .filter((file) => file.endsWith('.mjs') && !NON_COMMANDS.has(file))
+    .map((file) => file.replace(/\.mjs$/, ''))
     .sort();
 }
 
@@ -65,7 +70,7 @@ export function runCli(argv) {
     return 1;
   }
 
-  const script = path.join(srcDir, `${command}.js`);
+  const script = path.join(srcDir, `${command}.mjs`);
   const result = spawnSync(process.execPath, [script, ...rest], {
     stdio: 'inherit',
   });

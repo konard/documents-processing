@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A toolkit of command-line scripts for reading, verifying, combining and compressing scanned travel/immigration documents (passports, visas, Form C, tickets) into upload-ready PDFs.",
   "type": "module",
-  "main": "src/index.js",
+  "main": "src/index.mjs",
   "bin": {
     "documents-processing": "./bin/documents-processing.js"
   },
@@ -16,7 +16,7 @@
   ],
   "exports": {
     ".": {
-      "import": "./src/index.js"
+      "import": "./src/index.mjs"
     }
   },
   "scripts": {

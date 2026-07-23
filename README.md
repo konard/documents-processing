@@ -42,7 +42,7 @@ documents-processing --help          # list all commands
 documents-processing <command>       # run with no args to see that command's usage
 ```
 
-You can also run any script directly, e.g. `node src/compress-pdf.js in.pdf`.
+You can also run any script directly, e.g. `node src/compress-pdf.mjs in.pdf`.
 
 ### Commands
 
@@ -51,6 +51,7 @@ You can also run any script directly, e.g. `node src/compress-pdf.js in.pdf`.
 | `jpg-to-pdf`                 | Convert every image in a folder into a full-page PDF with the same basename.  |
 | `split-cforms`               | Split a combined Form C PDF (one page per person) into one PDF per person.    |
 | `split-tickets`              | Split a multi-passenger booking PDF into one ticket PDF per passenger.        |
+| `first-page-tickets`         | Keep only the first page of each per-passenger ticket PDF, named per person.  |
 | `rename-passport-entries`    | Rename scanned entry-stamp pages to the person they belong to (mapping file). |
 | `cforms-to-json`             | Read each Form C into a structured JSON transcript (text layer, else OCR).    |
 | `ocr-passports`              | OCR each passport data page (MRZ + check digits + issue date).                |
@@ -81,8 +82,8 @@ import {
 } from 'documents-processing';
 ```
 
-- `src/ocr-lib.js` — image I/O, preprocessing, tesseract OCR, MRZ parsing.
-- `src/pdf-image-tools.js` — extract / re-encode the images inside a PDF page.
+- `src/ocr-lib.mjs` — image I/O, preprocessing, tesseract OCR, MRZ parsing.
+- `src/pdf-image-tools.mjs` — extract / re-encode the images inside a PDF page.
 
 ## Notes on PDF compatibility
 

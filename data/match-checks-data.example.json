@@ -1,5 +1,5 @@
 {
-  "_readme": "EXAMPLE fixture for write-visual-transcripts.mjs. Copy to match-checks-data.json and replace with your own visually-read document data. All values below are SYNTHETIC and do not describe any real person. Keys under 'people' are <SURNAME-GIVEN> ids; each holds the careful human read of that person's scans, which the pipeline cross-checks against OCR / text-layer reads.",
+  "_readme": "EXAMPLE fixture for write-visual-transcripts.mjs. Copy to data/match-checks-data.json and replace with your own visually-read document data. All values below are SYNTHETIC and do not describe any real person. Keys under 'people' are <SURNAME-GIVEN> ids; each holds the careful human read of that person's scans, which the pipeline cross-checks against OCR / text-layer reads.",
   "people": {
     "DOE-JOHN": {
       "passport": {

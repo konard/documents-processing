@@ -39,8 +39,9 @@ const outputDir = path.join(baseDir, 'transcripts');
 fs.mkdirSync(outputDir, { recursive: true });
 
 // Load overrides (fields OCR cannot read; filled from the visual read).
-// The overrides file lives next to the scripts in src/, not with the documents.
-const overridesPath = path.join(scriptDir, 'ocr-overrides.json');
+// Local data lives in <baseDir>/data/, never in src/. Copy the tracked
+// data/ocr-overrides.example.json to data/ocr-overrides.json and fill it in.
+const overridesPath = path.join(baseDir, 'data', 'ocr-overrides.json');
 const overrides = fs.existsSync(overridesPath)
   ? JSON.parse(fs.readFileSync(overridesPath, 'utf8')).overrides || {}
   : {};

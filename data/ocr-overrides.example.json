@@ -1,5 +1,5 @@
 {
-  "_readme": "EXAMPLE. Copy to ocr-overrides.json. Fields that OCR cannot currently read reliably. Each entry supplies the human/visual value and WHY OCR fails, so the pipeline can fill the gap honestly (never a guessed OCR value) and it can be revisited later. Keyed by <PERSON>/<DOCUMENT>/<field>.",
+  "_readme": "EXAMPLE. Copy to data/ocr-overrides.json. Fields that OCR cannot currently read reliably. Each entry supplies the human/visual value and WHY OCR fails, so the pipeline can fill the gap honestly (never a guessed OCR value) and it can be revisited later. Keyed by <PERSON>/<DOCUMENT>/<field>.",
   "_howToUse": "ocr-passports.mjs (and other OCR scripts) consult this file: if a field is null after OCR and an override exists, the override value is used and the transcript records _source as 'override (visual, OCR blocked)'.",
   "overrides": {
     "DOE-JOHN/PASSPORT/issue": {

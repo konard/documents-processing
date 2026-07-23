@@ -9,10 +9,12 @@ portal: extract each field from every scan, cross-check that the passport, visa,
 Form C and ticket all agree, then produce compact per-person PDFs that strict
 portal parsers actually accept.
 
-> **Privacy:** this repository contains **no personal data**. The data files the
-> scripts consume (`src/match-checks-data.json`, `src/ocr-overrides.json`) are
-> git-ignored; only `*.example.json` templates with synthetic values are
-> tracked. Copy an example to its real name and fill it in locally.
+> **Privacy:** this repository contains **no personal data**. Real data and
+> fonts live in a `data/` folder in your working tree, never in `src/`. The
+> files the scripts consume (`data/match-checks-data.json`,
+> `data/ocr-overrides.json`, `data/fonts/`) are git-ignored; only the
+> `data/*.example.json` templates with synthetic values are tracked. Copy an
+> example to its real name and fill it in locally.
 
 ## Requirements
 

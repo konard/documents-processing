@@ -29,13 +29,13 @@ describe('documents-processing package metadata', () => {
 
 describe('documents-processing commands', () => {
   const NON_COMMANDS = new Set([
-    'index.js',
-    'ocr-lib.js',
-    'pdf-image-tools.js',
+    'index.mjs',
+    'ocr-lib.mjs',
+    'pdf-image-tools.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(
-    (file) => file.endsWith('.js') && !NON_COMMANDS.has(file)
+    (file) => file.endsWith('.mjs') && !NON_COMMANDS.has(file)
   );
 
   it('ships at least one runnable command script in src/', () => {
@@ -50,8 +50,8 @@ describe('documents-processing commands', () => {
   });
 
   it('keeps the CLI dispatcher and library entry point in place', () => {
-    expect(existsSync('src/index.js')).toBe(true);
-    expect(existsSync('src/ocr-lib.js')).toBe(true);
-    expect(existsSync('src/pdf-image-tools.js')).toBe(true);
+    expect(existsSync('src/index.mjs')).toBe(true);
+    expect(existsSync('src/ocr-lib.mjs')).toBe(true);
+    expect(existsSync('src/pdf-image-tools.mjs')).toBe(true);
   });
 });

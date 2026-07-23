@@ -6,7 +6,7 @@ how to reproduce each. Nothing here is thrown away — the ones that failed are
 kept as starting points for later.
 
 All scripts live in `src/`: `src/ocr-lib.mjs` (the reusable toolkit) and
-`tests/` (one dedicated `.js` per idea). Document folders (`passports/`,
+`tests/` (one dedicated `.mjs` per idea). Document folders (`passports/`,
 `c-forms/`, `visas/`, `transcripts/`, …) live in the project root, one level up.
 Run any test from the project root with `node tests/<file>`.
 
@@ -152,7 +152,7 @@ src/write-visual-transcripts.mjs   Claude's visual reads (authoritative for imag
 src/build-markdown-transcripts.mjs full human-readable Markdown, tables, per doc
 src/match-checks.mjs    reconcile machine vs visual; cross-check passport + visa details
 src/ocr-overrides.json  fields OCR can't read yet (tracked for later)
-tests/              one .js per idea above — run `node tests/<file>`
+tests/              one .mjs per idea above — run `node tests/<file>`
 ```
 
 ## Speed note

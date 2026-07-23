@@ -19,6 +19,7 @@ const NON_COMMANDS = new Set([
   'index.mjs',
   'ocr-lib.mjs',
   'pdf-image-tools.mjs',
+  'font-tools.mjs',
 ]);
 
 function listCommands() {

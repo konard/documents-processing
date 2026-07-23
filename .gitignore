@@ -143,8 +143,11 @@ vite.config.ts.timestamp-*
 reports/
 
 # documents-processing: real (private) document data must never be committed.
-# Only the *.example.json templates are tracked; copy them and fill in locally.
-src/match-checks-data.json
-src/ocr-overrides.json
+# It lives in the data/ folder of your working tree; only the *.example.json
+# templates there are tracked. Copy them and fill in locally.
+data/match-checks-data.json
+data/ocr-overrides.json
+# Cached / downloaded fonts (never shipped in this repo).
+data/fonts/
 # Debug/render artifacts and any real scanned documents kept alongside the code.
 tests/out/

@@ -19,12 +19,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { resolveUnicodeFont } from './font-tools.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASE = process.argv[2] || path.dirname(__dirname);
 const PERSON_ROOT = path.join(BASE, 'documents-by-person');
 const LETTERS_DIR = path.join(BASE, 'letters');
-const FONT_PATH = path.join(__dirname, 'fonts', 'ArialUnicode.ttf');
+// Local data (config + fonts cache) lives in <baseDir>/data/, never in src/.
+const DATA_DIR = path.join(BASE, 'data');
+// A wide-coverage font is needed only for the Russian (Cyrillic) letters; it is
+// located in the system, the data cache, or fetched on demand (never in src/).
+const FONT_PATH = await resolveUnicodeFont(DATA_DIR);
 
 const run = (script, args) =>
   execFileSync('node', [path.join(__dirname, script), ...args], {
@@ -78,12 +83,19 @@ for (const person of people) {
   // 3) Russian reference letter, when a -RU.md exists (only when a -RU.md translation exists).
   const letterMdRu = path.join(letterDir, 'EXPLANATION-LETTER-RU.md');
   if (fs.existsSync(letterMdRu)) {
-    run('markdown-to-pdf.mjs', [
+    const ruArgs = [
       letterMdRu,
       path.join(letterDir, 'EXPLANATION-LETTER-RU.pdf'),
       '--fit-one-page',
-      `--font=${FONT_PATH}`,
-    ]);
+    ];
+    if (FONT_PATH) {
+      ruArgs.push(`--font=${FONT_PATH}`);
+    } else {
+      console.warn(
+        `⚠ ${person}: no Unicode font available — Cyrillic may not render`
+      );
+    }
+    run('markdown-to-pdf.mjs', ruArgs);
   }
 
   // 4) copy the clean English letter into the central letters/ folder.

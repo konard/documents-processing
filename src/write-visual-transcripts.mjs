@@ -16,14 +16,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Scripts live in src/; document folders (transcripts/) live one level up in
-// the project root, but the visual-read data file lives next to the scripts.
+// Scripts live in src/; document folders (transcripts/) and the local data/
+// folder both live one level up in the project root (the base dir).
 const BASE = process.argv[2] || path.dirname(__dirname);
-const DATA_PATH = path.join(__dirname, 'match-checks-data.json');
+const DATA_PATH = path.join(BASE, 'data', 'match-checks-data.json');
 if (!fs.existsSync(DATA_PATH)) {
   console.error(`Missing ${DATA_PATH}`);
   console.error(
-    'Copy match-checks-data.example.json to match-checks-data.json and fill in your own visual-read document data.'
+    'Copy data/match-checks-data.example.json to data/match-checks-data.json and fill in your own visual-read document data.'
   );
   process.exit(1);
 }

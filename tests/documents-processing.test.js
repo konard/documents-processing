@@ -32,6 +32,7 @@ describe('documents-processing commands', () => {
     'index.mjs',
     'ocr-lib.mjs',
     'pdf-image-tools.mjs',
+    'font-tools.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

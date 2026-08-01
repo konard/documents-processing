@@ -54,19 +54,35 @@ function searchUrl(query) {
   return `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(query)}`;
 }
 
-// Collect the result rows' stable thread ids (from the child element that
-// carries data-legacy-thread-id) plus the listed subject, top to bottom.
+// Collect each result row's metadata WITHOUT opening the message: the stable
+// thread id, sender (name + email), subject, and the listed date — read
+// straight from the list row, top to bottom.
 async function collectResultRows(page) {
-  return await page.locator('tr.zA').evaluateAll((rows) =>
-    rows
+  // The callback runs in the browser page context.
+  return await page.locator('tr.zA').evaluateAll((rows) => {
+    const attr = (element, name) => element?.getAttribute(name) || '';
+    const text = (element) => element?.textContent?.trim() || '';
+    return rows
       .map((row) => {
-        const idNode = row.querySelector('[data-legacy-thread-id]');
-        const threadId = idNode?.getAttribute('data-legacy-thread-id') || null;
-        const subject = row.querySelector('.bog')?.textContent?.trim() || '';
-        return threadId ? { threadId, subject } : null;
+        const threadId = attr(
+          row.querySelector('[data-legacy-thread-id]'),
+          'data-legacy-thread-id'
+        );
+        if (!threadId) {
+          return null;
+        }
+        const sender = row.querySelector('.yW span[email], .yX span[email]');
+        const dateNode = row.querySelector('.xW span[title], td.xW span');
+        return {
+          threadId,
+          subject: text(row.querySelector('.bog')),
+          fromEmail: attr(sender, 'email'),
+          fromName: attr(sender, 'name'),
+          dateText: attr(dateNode, 'title') || text(dateNode),
+        };
       })
-      .filter(Boolean)
-  );
+      .filter(Boolean);
+  });
 }
 
 // Read the currently-open message's fields from the Gmail DOM.
@@ -194,8 +210,29 @@ async function runSearch(page, query) {
   return collectResultRows(page);
 }
 
-// Search Gmail and yield one synthesized .eml (Buffer) per matching message.
-// options: { dataDir, query, limit, strategy, cacheDir, refresh, onProgress }
+// Phase 1: list result metadata (threadId, sender, subject, date) WITHOUT
+// opening any message — cheap and gentle on rate limits. Returns the rows so a
+// caller can decide which to fetch in full.
+// options: { dataDir, query, strategy }
+export async function listMetadata(options = {}) {
+  const { dataDir, query, strategy = 'cookies' } = options;
+  const { browser, page } = await openGmail({
+    dataDir,
+    strategy,
+    headless: true,
+  });
+  try {
+    return await runSearch(page, query);
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+// Phase 2 (or one-shot): search Gmail and yield one synthesized .eml (Buffer)
+// per matching message. Pass options.threadIds to fetch only those threads
+// (the curated selection from listMetadata); omit it to fetch everything.
+// options: { dataDir, query, limit, strategy, cacheDir, refresh, threadIds,
+//            onProgress }
 export async function searchAndExtract(options = {}) {
   const {
     dataDir,
@@ -204,8 +241,10 @@ export async function searchAndExtract(options = {}) {
     strategy = 'cookies',
     cacheDir,
     refresh = false,
+    threadIds = null,
     onProgress = () => {},
   } = options;
+  const allowed = threadIds ? new Set(threadIds) : null;
   if (cacheDir) {
     fs.mkdirSync(cacheDir, { recursive: true });
   }
@@ -218,42 +257,62 @@ export async function searchAndExtract(options = {}) {
   const messages = [];
   try {
     const rows = await runSearch(page, query);
-    const selected = limit > 0 ? rows.slice(0, limit) : rows;
+    const filtered = allowed
+      ? rows.filter((row) => allowed.has(row.threadId))
+      : rows;
+    const selected = limit > 0 ? filtered.slice(0, limit) : filtered;
     onProgress({ phase: 'listed', total: selected.length });
 
     for (let index = 0; index < selected.length; index += 1) {
-      const { threadId, subject } = selected[index];
-      const cacheFile = cacheDir ? messageCachePath(cacheDir, threadId) : null;
-      const result = await fetchOneThread(
+      const outcome = await processOneRow({
         page,
         query,
-        threadId,
-        cacheFile,
-        refresh
-      );
-
-      if (result.rateLimited) {
-        onProgress({ phase: 'backoff', index });
-        await wait(15000); // Google asked us to slow down — back off hard.
-        index -= 1; // retry this message once after backing off
-        continue;
-      }
-
-      const finalSubject = result.fields?.subject || subject;
-      messages.push({ eml: result.eml, threadId, subject: finalSubject });
-      onProgress({
-        phase: result.cached ? 'cached' : 'extracted',
+        row: selected[index],
         index,
-        subject: finalSubject,
+        cacheDir,
+        refresh,
+        onProgress,
       });
-
-      // Respect rate limits: pace only real fetches (cache hits are free).
-      if (!result.cached) {
-        await wait(pacedDelay(index));
+      if (outcome.retry) {
+        index -= 1; // backed off; retry this row once
+      } else if (outcome.message) {
+        messages.push(outcome.message);
       }
     }
   } finally {
     await browser.close().catch(() => {});
   }
   return messages;
+}
+
+// Fetch one selected row (honoring cache + backoff + pacing) and report
+// progress. Returns { message } on success, or { retry: true } after a backoff.
+async function processOneRow(context) {
+  const { page, query, row, index, cacheDir, refresh, onProgress } = context;
+  const cacheFile = cacheDir ? messageCachePath(cacheDir, row.threadId) : null;
+  const result = await fetchOneThread(
+    page,
+    query,
+    row.threadId,
+    cacheFile,
+    refresh
+  );
+
+  if (result.rateLimited) {
+    onProgress({ phase: 'backoff', index });
+    await wait(15000); // Google asked us to slow down — back off hard.
+    return { retry: true };
+  }
+
+  const subject = result.fields?.subject || row.subject;
+  onProgress({
+    phase: result.cached ? 'cached' : 'extracted',
+    index,
+    subject,
+  });
+  // Respect rate limits: pace only real fetches (cache hits are free).
+  if (!result.cached) {
+    await wait(pacedDelay(index));
+  }
+  return { message: { eml: result.eml, threadId: row.threadId, subject } };
 }

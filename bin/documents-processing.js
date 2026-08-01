@@ -20,6 +20,8 @@ const NON_COMMANDS = new Set([
   'ocr-lib.mjs',
   'pdf-image-tools.mjs',
   'font-tools.mjs',
+  'gmail-lib.mjs',
+  'eml-to-pdf.mjs',
 ]);
 
 function listCommands() {

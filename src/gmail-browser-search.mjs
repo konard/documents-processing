@@ -137,12 +137,33 @@ function messageCachePath(cacheDir, threadId) {
   return path.join(cacheDir, `${threadId}.eml`);
 }
 
+// True when the cached .eml's From: header contains the expected sender address
+// — a cheap integrity check that a cache entry belongs to the right message.
+function cacheMatchesSender(emlBuffer, expectedFrom) {
+  const head = emlBuffer.slice(0, 2048).toString('utf8');
+  const fromLine = head.match(/^From:.*$/im)?.[0]?.toLowerCase() || '';
+  return fromLine.includes(expectedFrom.toLowerCase());
+}
+
 // Open one thread and extract its synthesized .eml, honoring the resume cache
 // and a rate-limit backoff. Returns { eml, fields } on success, or
 // { rateLimited: true } when Google served an error page (caller retries).
-async function fetchOneThread(page, query, threadId, cacheFile, refresh) {
+async function fetchOneThread(
+  page,
+  query,
+  threadId,
+  cacheFile,
+  refresh,
+  expectedFrom
+) {
   if (cacheFile && !refresh && fs.existsSync(cacheFile)) {
-    return { eml: fs.readFileSync(cacheFile), cached: true };
+    const cached = fs.readFileSync(cacheFile);
+    // Guard against a stale/mismatched cache entry: only trust it when its
+    // From: header matches the sender we expect for this thread. Otherwise
+    // fall through and re-fetch (and overwrite the bad cache below).
+    if (!expectedFrom || cacheMatchesSender(cached, expectedFrom)) {
+      return { eml: cached, cached: true };
+    }
   }
 
   // Open the thread by changing only the URL hash. A full goto() would hang
@@ -295,7 +316,8 @@ async function processOneRow(context) {
     query,
     row.threadId,
     cacheFile,
-    refresh
+    refresh,
+    row.fromEmail
   );
 
   if (result.rateLimited) {

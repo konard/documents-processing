@@ -29,6 +29,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   makeGmailClient,
@@ -36,7 +37,9 @@ import {
   listMessageIds,
   fetchRawEml,
 } from './gmail-lib.mjs';
+import { simpleParser } from 'mailparser';
 import { emlToPdfs } from './eml-to-pdf.mjs';
+import { searchAndExtract } from './gmail-browser-search.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -96,60 +99,53 @@ function dateStamp(parsedDate) {
   return parsedDate.toISOString().slice(0, 10);
 }
 
-function baseName(parsed, index) {
+// A short, content-derived suffix so the same message always maps to the same
+// filename (letting a resume detect and skip already-written output).
+function shortHash(buffer) {
+  return createHash('sha1').update(buffer).digest('hex').slice(0, 8);
+}
+
+function baseName(parsed, eml) {
   const from = sanitize(
     parsed.from?.value?.[0]?.address || parsed.from?.text,
     40
   );
   const subject = sanitize(parsed.subject, 60);
-  return `${dateStamp(parsed.date)}-${from}-${subject}-${String(index).padStart(3, '0')}`;
+  return `${dateStamp(parsed.date)}-${from}-${subject}-${shortHash(eml)}`;
 }
 
-// ---- main -----------------------------------------------------------------
+// Save one email: its .eml original, a PDF per working engine, and any real
+// attachments — all named from the message content. Shared by both sources.
+// Idempotent: if the .eml for this message already exists (same content hash),
+// the whole email is skipped so a resumed run does no duplicate work.
+async function saveEmail(eml, index, total) {
+  const parsedForName = await simpleParser(eml);
+  const base = baseName(parsedForName, eml);
 
-console.log(`Gmail query: ${query}\n`);
+  if (fs.existsSync(path.join(OUT_DIR, `${base}.eml`)) && !flags.refresh) {
+    console.log(`• [${index}/${total}] ${base} — already saved, skipped`);
+    return;
+  }
 
-const gmail = await makeGmailClient(BASE);
-const ids = await listMessageIds(gmail, query);
-const limited = flags.limit ? ids.slice(0, Number(flags.limit)) : ids;
-console.log(
-  `Matched ${ids.length} message(s); processing ${limited.length}.\n`
-);
-
-if (limited.length === 0) {
-  console.log('Nothing to do.');
-  process.exit(0);
-}
-
-fs.mkdirSync(OUT_DIR, { recursive: true });
-
-let index = 0;
-for (const id of limited) {
-  index += 1;
-  const eml = await fetchRawEml(gmail, id);
   const { parsed, results } = await emlToPdfs(
     eml,
     path.join(OUT_DIR, 'tmp'),
     DATA_DIR
   );
 
-  const base = baseName(parsed, index);
+  fs.writeFileSync(path.join(OUT_DIR, `${base}.eml`), eml);
 
-  // 1) original .eml
-  const emlPath = path.join(OUT_DIR, `${base}.eml`);
-  fs.writeFileSync(emlPath, eml);
-
-  // 2) rename each engine's PDF to the content-derived base name
   const madePdfs = [];
   for (const result of results) {
     if (result.path && fs.existsSync(result.path)) {
-      const finalPath = path.join(OUT_DIR, `${base}-${result.engine}.pdf`);
-      fs.renameSync(result.path, finalPath);
+      fs.renameSync(
+        result.path,
+        path.join(OUT_DIR, `${base}-${result.engine}.pdf`)
+      );
       madePdfs.push(result.engine);
     }
   }
 
-  // 3) real attachments (skip inline cid images already embedded in the PDF)
   let attachmentCount = 0;
   for (const attachment of parsed.attachments || []) {
     if (attachment.related) {
@@ -167,11 +163,66 @@ for (const id of limited) {
     .filter((result) => result.error)
     .map((result) => `${result.engine}:${result.error}`);
   console.log(
-    `✓ [${index}/${limited.length}] ${base}\n` +
+    `✓ [${index}/${total}] ${base}\n` +
       `    PDF engines ok: ${madePdfs.join(', ') || '(none)'}${
         failed.length ? `  | failed: ${failed.join(' ; ')}` : ''
       }\n    .eml + ${attachmentCount} attachment(s)`
   );
 }
 
-console.log(`\nDone. Saved ${limited.length} email(s) to:\n  ${OUT_DIR}`);
+// ---- main -----------------------------------------------------------------
+
+const source = flags.source || 'api';
+console.log(`Source: ${source}\nGmail query: ${query}\n`);
+fs.mkdirSync(OUT_DIR, { recursive: true });
+
+if (source === 'browser') {
+  // Browser path: reuse the logged-in Chrome session (no OAuth client needed).
+  // searchAndExtract paces itself to respect Gmail's rate limits.
+  const messages = await searchAndExtract({
+    dataDir: DATA_DIR,
+    query,
+    limit: flags.limit ? Number(flags.limit) : 0,
+    strategy: flags.strategy || 'cookies',
+    cacheDir: path.join(DATA_DIR, 'flight-cancellations-cache'),
+    refresh: flags.refresh === true,
+    onProgress: (event) => {
+      if (event.phase === 'listed') {
+        console.log(`Matched ${event.total} message(s) via browser.\n`);
+      } else if (event.phase === 'cached') {
+        console.log(`  (resume) reused cached message #${event.index + 1}`);
+      } else if (event.phase === 'backoff') {
+        console.log('  … rate-limited by Gmail; backing off 15s and retrying');
+      }
+    },
+  });
+  if (messages.length === 0) {
+    console.log('Nothing to do.');
+    process.exit(0);
+  }
+  let index = 0;
+  for (const message of messages) {
+    index += 1;
+    await saveEmail(message.eml, index, messages.length);
+  }
+  console.log(`\nDone. Saved ${messages.length} email(s) to:\n  ${OUT_DIR}`);
+} else {
+  // API path: Gmail API with an OAuth client; downloads the byte-exact raw MIME.
+  const gmail = await makeGmailClient(BASE);
+  const ids = await listMessageIds(gmail, query);
+  const limited = flags.limit ? ids.slice(0, Number(flags.limit)) : ids;
+  console.log(
+    `Matched ${ids.length} message(s); processing ${limited.length}.\n`
+  );
+  if (limited.length === 0) {
+    console.log('Nothing to do.');
+    process.exit(0);
+  }
+  let index = 0;
+  for (const id of limited) {
+    index += 1;
+    const eml = await fetchRawEml(gmail, id);
+    await saveEmail(eml, index, limited.length);
+  }
+  console.log(`\nDone. Saved ${limited.length} email(s) to:\n  ${OUT_DIR}`);
+}

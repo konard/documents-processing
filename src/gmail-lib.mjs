@@ -154,6 +154,10 @@ export async function authorize(baseDir) {
 
 // Default query: only the two airlines, only cancellation-related mail, last 90
 // days. Every part is overridable via buildQuery() options.
+//
+// `exclude` drops noise: a bare term becomes a Gmail negative (-term); a value
+// that looks like a domain/address becomes -from:value. This keeps unrelated
+// senders (e.g. redditmail.com) out of the results.
 export function buildQuery(options = {}) {
   const {
     airlines = ['indigo', 'airindia', '"air india"'],
@@ -167,12 +171,18 @@ export function buildQuery(options = {}) {
       'reschedule',
     ],
     days = 90,
+    exclude = [],
     extra = '',
   } = options;
 
   const airlineClause = `(${airlines.join(' OR ')})`;
   const keywordClause = `(${keywords.join(' OR ')})`;
-  return `${airlineClause} ${keywordClause} newer_than:${days}d ${extra}`.trim();
+  const excludeClause = exclude
+    .map((term) => (term.includes('.') ? `-from:${term}` : `-${term}`))
+    .join(' ');
+  return `${airlineClause} ${keywordClause} newer_than:${days}d ${excludeClause} ${extra}`
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // List every message id matching the query (following pagination).

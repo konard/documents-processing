@@ -69,6 +69,7 @@ You can also run any script directly, e.g. `node src/compress-pdf.mjs in.pdf`.
 | `split-person-documents`     | Split & compress each person's combined PDF into upload-ready pieces.         |
 | `compress-pdf`               | Shrink a PDF under a size cap without rebuilding pages or rasterizing text.   |
 | `rebuild-letters`            | Rebuild all explanation-letter PDFs from their Markdown sources.              |
+| `gmail-setup`                | Automate the one-time Gmail API setup (gcloud project, API, guidance).        |
 | `fetch-flight-cancellations` | Fetch airline cancellation emails from Gmail and save each as .eml + PDF(s).  |
 
 Run any command with `--help` (or no arguments) for its exact arguments.
@@ -80,16 +81,24 @@ saves each one to `flight-cancellations-originals/` as the byte-exact `.eml`
 original, one or more PDFs, and any real attachments. Filenames are derived from
 the message content (date, sender, subject), never from Gmail internals.
 
-Set up an OAuth client once (no personal data is stored in the repo):
+Set up an OAuth client once (no personal data is stored in the repo). Run
+`gmail-setup` to automate everything Google allows — with the gcloud CLI it
+creates/enables the project and Gmail API for you — and to print the single
+step that has no API. Gmail is a **restricted** scope, so a custom OAuth client
+is mandatory; only two things can never be automated, because Google protects
+them: signing in to your own account and clicking **Allow**.
 
-1. In Google Cloud Console: enable the **Gmail API**, configure an OAuth consent
-   screen, then create an OAuth client of type **Desktop app**.
+1. `documents-processing gmail-setup` — signs in via gcloud (optional), creates
+   the project, and enables the **Gmail API**. It then links the credentials
+   page where you create an OAuth client of type **Desktop app** (the one
+   manual step) and tells you where to save the JSON.
 2. Provide the client either as env vars / a `.env` file
    (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` — see `data/.env.example`) or as
    `data/gmail-credentials.json` (see `data/gmail-credentials.example.json`).
-3. Run the command; it opens a consent URL, captures the redirect on a local
-   port, issues a **read-only** (`gmail.readonly`) token and caches it at
-   `data/gmail-token.json` (git-ignored, refreshed automatically thereafter).
+3. Run `fetch-flight-cancellations`; it opens a consent URL, captures the
+   redirect on a local port, issues a **read-only** (`gmail.readonly`) token and
+   caches it at `data/gmail-token.json` (git-ignored, refreshed automatically
+   thereafter).
 
 By default it searches the last 90 days for the two airlines (IndiGo, Air India)
 and cancellation-related keywords; override with `--days=`, `--airlines=`,

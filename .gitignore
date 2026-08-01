@@ -151,6 +151,10 @@ data/ocr-overrides.json
 data/gmail-credentials.json
 data/gmail-token.json
 .env
+# Browser session for the browser-commander Gmail path (cookies, profile).
+data/gmail-browser-profile/
+data/gmail-state.json
+data/chrome-cookies-*.json
 # Cached / downloaded fonts (never shipped in this repo).
 data/fonts/
 # Debug/render artifacts and any real scanned documents kept alongside the code.

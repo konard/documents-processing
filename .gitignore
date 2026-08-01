@@ -147,6 +147,10 @@ reports/
 # templates there are tracked. Copy them and fill in locally.
 data/match-checks-data.json
 data/ocr-overrides.json
+# Gmail OAuth secrets and issued token — never commit.
+data/gmail-credentials.json
+data/gmail-token.json
+.env
 # Cached / downloaded fonts (never shipped in this repo).
 data/fonts/
 # Debug/render artifacts and any real scanned documents kept alongside the code.

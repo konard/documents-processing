@@ -34,6 +34,8 @@ describe('documents-processing commands', () => {
     'pdf-image-tools.mjs',
     'font-tools.mjs',
     'gmail-lib.mjs',
+    'gmail-browser.mjs',
+    'chrome-cookies.mjs',
     'eml-to-pdf.mjs',
   ]);
 

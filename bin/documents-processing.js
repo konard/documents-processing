@@ -24,6 +24,7 @@ const NON_COMMANDS = new Set([
   'gmail-browser.mjs',
   'gmail-browser-search.mjs',
   'chrome-cookies.mjs',
+  'flight-relevance.mjs',
   'eml-to-pdf.mjs',
 ]);
 

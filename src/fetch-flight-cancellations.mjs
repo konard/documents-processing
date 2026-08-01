@@ -23,9 +23,20 @@
 // No personal data is stored in code: OAuth credentials and token live in the
 // environment / .env / data/ (git-ignored). See gmail-lib.mjs.
 //
-// Usage:  node fetch-flight-cancellations.mjs [baseDir] [--days=90]
-//           [--airlines=indigo,"air india"] [--keywords=cancel,refund]
-//           [--query="<full raw Gmail query>"] [--out=<dir>] [--limit=N]
+// Usage:  node fetch-flight-cancellations.mjs [baseDir] [--source=api|browser]
+//           [--days=90] [--airlines=indigo,"air india"] [--keywords=cancel,refund]
+//           [--exclude=redditmail.com,term] [--query="<full raw Gmail query>"]
+//           [--out=<dir>] [--limit=N] [--refresh]
+//
+// Browser source is two-phase and curated: it first lists message metadata
+// (no messages opened), auto-selects the ones that look like genuine flight
+// cancellation / change / refund originals (airline/agent sender + matching
+// subject) and drops noise (social mail, promos, mail you sent yourself), then
+// fetches only the chosen ones. A MANIFEST.txt records chosen vs skipped.
+//   --list           list metadata + write the manifest, fetch nothing
+//   --select=<ids>   fetch exactly these thread ids (comma-separated), instead
+//                    of the auto-curation
+// Set USER_EMAILS=you@example.com (env/.env) so mail from yourself is skipped.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,7 +50,8 @@ import {
 } from './gmail-lib.mjs';
 import { simpleParser } from 'mailparser';
 import { emlToPdfs } from './eml-to-pdf.mjs';
-import { searchAndExtract } from './gmail-browser-search.mjs';
+import { listMetadata, searchAndExtract } from './gmail-browser-search.mjs';
+import { curate } from './flight-relevance.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -65,12 +77,19 @@ const OUT_DIR = flags.out
   : path.join(BASE, 'flight-cancellations-originals');
 const DATA_DIR = path.join(BASE, 'data');
 
+// Default exclusions keep obvious non-flight noise out (social mail, and mail
+// you sent yourself); --exclude=a,b appends more (domains → -from:, else -term).
+const DEFAULT_EXCLUDE = ['redditmail.com', 'reddit.com'];
 const query =
   flags.query ||
   buildQuery({
     days: flags.days ? Number(flags.days) : 90,
     airlines: flags.airlines ? splitList(flags.airlines) : undefined,
     keywords: flags.keywords ? splitList(flags.keywords) : undefined,
+    exclude: [
+      ...DEFAULT_EXCLUDE,
+      ...(flags.exclude ? splitList(flags.exclude) : []),
+    ],
   });
 
 function splitList(value) {
@@ -170,6 +189,86 @@ async function saveEmail(eml, index, total) {
   );
 }
 
+// Print and persist the curation decision so it is auditable.
+function reportCuration(chosen, skipped) {
+  const line = (entry) =>
+    `  ${entry.threadId}  ${entry.from || '?'}  |  ${(entry.subject || '').slice(0, 60)}  [${entry.reasons.join('; ')}]`;
+  const manifest = [
+    `Query: ${query}`,
+    '',
+    `CHOSEN (${chosen.length}) — flight-cancellation originals:`,
+    ...chosen.map(line),
+    '',
+    `SKIPPED (${skipped.length}) — not flight-cancellation:`,
+    ...skipped.map(line),
+    '',
+  ].join('\n');
+  fs.writeFileSync(path.join(OUT_DIR, 'MANIFEST.txt'), manifest);
+  console.log(manifest);
+}
+
+// Browser source: list metadata, curate for FRRO relevance (or honor an
+// explicit --select), then fetch only the chosen messages in full.
+async function runBrowserSource() {
+  const strategy = flags.strategy || 'cookies';
+  const cacheDir = path.join(DATA_DIR, 'flight-cancellations-cache');
+  const selfAddresses = (process.env.USER_EMAILS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  console.log('Listing message metadata (no messages opened yet)…\n');
+  const rows = await listMetadata({ dataDir: DATA_DIR, query, strategy });
+  console.log(`Found ${rows.length} message(s).\n`);
+
+  // Decide which threads to fetch: an explicit --select wins; otherwise curate.
+  let chosen;
+  let skipped = [];
+  if (flags.select) {
+    const wanted = new Set(splitList(String(flags.select)));
+    chosen = rows.filter((row) => wanted.has(row.threadId));
+    skipped = rows.filter((row) => !wanted.has(row.threadId));
+    chosen.forEach((row) => (row.reasons = ['manually selected']));
+    skipped.forEach((row) => (row.reasons = ['not selected']));
+  } else {
+    ({ chosen, skipped } = curate(rows, selfAddresses));
+  }
+
+  reportCuration(chosen, skipped);
+
+  if (flags.list) {
+    console.log('\n--list: metadata + manifest written; nothing fetched.');
+    return;
+  }
+  if (chosen.length === 0) {
+    console.log('No flight-cancellation messages to fetch.');
+    return;
+  }
+
+  const messages = await searchAndExtract({
+    dataDir: DATA_DIR,
+    query,
+    strategy,
+    cacheDir,
+    refresh: flags.refresh === true,
+    threadIds: chosen.map((row) => row.threadId),
+    onProgress: (event) => {
+      if (event.phase === 'listed') {
+        console.log(`\nFetching ${event.total} chosen message(s)…\n`);
+      } else if (event.phase === 'backoff') {
+        console.log('  … rate-limited by Gmail; backing off 15s and retrying');
+      }
+    },
+  });
+
+  let index = 0;
+  for (const message of messages) {
+    index += 1;
+    await saveEmail(message.eml, index, messages.length);
+  }
+  console.log(`\nDone. Saved ${messages.length} email(s) to:\n  ${OUT_DIR}`);
+}
+
 // ---- main -----------------------------------------------------------------
 
 const source = flags.source || 'api';
@@ -177,35 +276,7 @@ console.log(`Source: ${source}\nGmail query: ${query}\n`);
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 if (source === 'browser') {
-  // Browser path: reuse the logged-in Chrome session (no OAuth client needed).
-  // searchAndExtract paces itself to respect Gmail's rate limits.
-  const messages = await searchAndExtract({
-    dataDir: DATA_DIR,
-    query,
-    limit: flags.limit ? Number(flags.limit) : 0,
-    strategy: flags.strategy || 'cookies',
-    cacheDir: path.join(DATA_DIR, 'flight-cancellations-cache'),
-    refresh: flags.refresh === true,
-    onProgress: (event) => {
-      if (event.phase === 'listed') {
-        console.log(`Matched ${event.total} message(s) via browser.\n`);
-      } else if (event.phase === 'cached') {
-        console.log(`  (resume) reused cached message #${event.index + 1}`);
-      } else if (event.phase === 'backoff') {
-        console.log('  … rate-limited by Gmail; backing off 15s and retrying');
-      }
-    },
-  });
-  if (messages.length === 0) {
-    console.log('Nothing to do.');
-    process.exit(0);
-  }
-  let index = 0;
-  for (const message of messages) {
-    index += 1;
-    await saveEmail(message.eml, index, messages.length);
-  }
-  console.log(`\nDone. Saved ${messages.length} email(s) to:\n  ${OUT_DIR}`);
+  await runBrowserSource();
 } else {
   // API path: Gmail API with an OAuth client; downloads the byte-exact raw MIME.
   const gmail = await makeGmailClient(BASE);

@@ -69,8 +69,38 @@ You can also run any script directly, e.g. `node src/compress-pdf.mjs in.pdf`.
 | `split-person-documents`     | Split & compress each person's combined PDF into upload-ready pieces.         |
 | `compress-pdf`               | Shrink a PDF under a size cap without rebuilding pages or rasterizing text.   |
 | `rebuild-letters`            | Rebuild all explanation-letter PDFs from their Markdown sources.              |
+| `fetch-flight-cancellations` | Fetch airline cancellation emails from Gmail and save each as .eml + PDF(s).  |
 
 Run any command with `--help` (or no arguments) for its exact arguments.
+
+## Fetching emails from Gmail
+
+`fetch-flight-cancellations` pulls airline cancellation emails from Gmail and
+saves each one to `flight-cancellations-originals/` as the byte-exact `.eml`
+original, one or more PDFs, and any real attachments. Filenames are derived from
+the message content (date, sender, subject), never from Gmail internals.
+
+Set up an OAuth client once (no personal data is stored in the repo):
+
+1. In Google Cloud Console: enable the **Gmail API**, configure an OAuth consent
+   screen, then create an OAuth client of type **Desktop app**.
+2. Provide the client either as env vars / a `.env` file
+   (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` — see `data/.env.example`) or as
+   `data/gmail-credentials.json` (see `data/gmail-credentials.example.json`).
+3. Run the command; it opens a consent URL, captures the redirect on a local
+   port, issues a **read-only** (`gmail.readonly`) token and caches it at
+   `data/gmail-token.json` (git-ignored, refreshed automatically thereafter).
+
+By default it searches the last 90 days for the two airlines (IndiGo, Air India)
+and cancellation-related keywords; override with `--days=`, `--airlines=`,
+`--keywords=`, or a full `--query=`.
+
+Each email is rendered to PDF by several independent engines so a single failure
+never loses an email — the system Chrome (DevTools "Print to PDF", highest
+fidelity), the optional
+[`browser-commander`](https://github.com/link-foundation/browser-commander)
+package, the optional `wkhtmltopdf` CLI, and a pure `pdf-lib` text fallback that
+always works. Every engine that succeeds writes its own `…-<engine>.pdf`.
 
 ## As a library
 

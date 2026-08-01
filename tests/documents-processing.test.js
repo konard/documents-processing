@@ -33,6 +33,8 @@ describe('documents-processing commands', () => {
     'ocr-lib.mjs',
     'pdf-image-tools.mjs',
     'font-tools.mjs',
+    'gmail-lib.mjs',
+    'eml-to-pdf.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

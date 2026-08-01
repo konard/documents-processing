@@ -129,25 +129,48 @@ async function fetchOneThread(page, query, threadId, cacheFile, refresh) {
     return { eml: fs.readFileSync(cacheFile), cached: true };
   }
 
-  await page.goto(`${searchUrl(query)}/${threadId}`, {
-    waitUntil: 'domcontentloaded',
-  });
-  if (await looksRateLimited(page)) {
-    return { rateLimited: true };
+  // Open the thread by changing only the URL hash. A full goto() would hang
+  // (a fragment change fires no document load), so set location.hash directly
+  // and then wait for the message body to render. Gmail can lag on the first
+  // open, so re-open and re-read once if the body comes back empty.
+  const threadHash = `#search/${encodeURIComponent(query)}/${threadId}`;
+  let fields = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    // Runs in the browser page context, where globalThis is the window. On the
+    // retry, bounce via the list first so the hash change definitely re-renders.
+    if (attempt === 1) {
+      await page.evaluate(
+        (hash) => {
+          globalThis.location.hash = hash;
+        },
+        `#search/${encodeURIComponent(query)}`
+      );
+      await wait(1200);
+    }
+    await page.evaluate((hash) => {
+      globalThis.location.hash = hash;
+    }, threadHash);
+
+    if (await looksRateLimited(page)) {
+      return { rateLimited: true };
+    }
+
+    await page
+      .locator('.a3s')
+      .first()
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .catch(() => {});
+    await wait(800);
+
+    fields = await readOpenMessage(page);
+    if (fields.bodyHtml && fields.bodyHtml.length > 0) {
+      break; // got the body; no retry needed
+    }
   }
 
-  // Wait for the message body to actually render (Gmail loads it via JS, so a
-  // fixed sleep is unreliable); a short pause covers the timeout case.
-  await page
-    .locator('.a3s')
-    .first()
-    .waitFor({ state: 'visible', timeout: 20000 })
-    .catch(() => {});
-  await wait(500);
-
-  const fields = await readOpenMessage(page);
   const eml = Buffer.from(synthesizeEml(fields), 'utf8');
-  if (cacheFile) {
+  // Only cache a real extraction, so an empty first-open isn't cached as final.
+  if (cacheFile && fields.bodyHtml && fields.bodyHtml.length > 0) {
     fs.writeFileSync(cacheFile, eml);
   }
   return { eml, fields };
@@ -161,12 +184,12 @@ async function runSearch(page, query) {
         'window (strategy "profile") to sign in, or refresh the cookie cache.'
     );
   }
-  await page.goto(searchUrl(query), { waitUntil: 'domcontentloaded' });
+  await page.goto(searchUrl(query), { waitUntil: 'commit' }).catch(() => {});
   // Wait for the result rows to render (JS-driven), not a fixed sleep.
   await page
     .locator('tr.zA')
     .first()
-    .waitFor({ state: 'visible', timeout: 20000 })
+    .waitFor({ state: 'visible', timeout: 30000 })
     .catch(() => {});
   return collectResultRows(page);
 }

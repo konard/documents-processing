@@ -173,6 +173,9 @@ async function chromePrintToPdf(chromePath, html, outPath) {
       '--no-default-browser-check',
       '--disable-gpu',
       '--hide-scrollbars',
+      // Route this throwaway profile's password store to Chrome's basic
+      // backend, not the OS credential store, so no macOS Keychain dialog pops.
+      '--password-store=basic',
     ],
     { stdio: 'ignore' }
   );

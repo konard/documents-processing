@@ -13,6 +13,10 @@
 //   - storageState to reuse a saved session .......... bc-58
 //   - content extraction (content/innerText/evaluate)  bc-59
 //   - setContent to load an in-memory HTML string .... bc-60
+//   - connect to a running real browser over CDP ..... bc-66
+//   - drive the real installed browser, authenticated  bc-68
+//   - import cookies from an installed browser ........ bc-69
+//   - automation-friendly launch defaults (no prompts)  bc-70
 // As those land, the corresponding workaround here can be removed.
 //
 // Session strategies (choose via the `strategy` option):
@@ -27,7 +31,10 @@
 // (git-ignored).
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
+import { spawn } from 'node:child_process';
 import { readChromeCookies } from './chrome-cookies.mjs';
 
 // browser-commander is an optional dependency; import lazily so the rest of the
@@ -43,32 +50,185 @@ async function loadBrowserCommander() {
   }
 }
 
+// ---- connect to the real, installed browser over CDP ----------------------
+//
+// Some Google surfaces (e.g. Google Cloud Console) refuse to sign in from a
+// Playwright-launched Chromium — Google flags it "This browser or app may not
+// be secure" and rejects the session, even with valid injected cookies. The
+// clean workaround is to attach to the user's ACTUAL Chrome (already signed in)
+// via the DevTools protocol, so Google sees a genuine browser.
+//
+// This capability is missing from browser-commander (its launchBrowser neither
+// takes executablePath/channel for the system browser nor a connect/CDP
+// endpoint for a running one). Filed as bc-66 (connectBrowser over CDP) and
+// bc-68 (drive the real installed browser, authenticated — genuine browser +
+// dedicated profile + cookie seeding, the combination validated here). Until
+// they land, we drive the raw Playwright `connectOverCDP` here.
+
+const SYSTEM_CHROME_PATHS = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+];
+
+function findSystemChrome() {
+  return (
+    SYSTEM_CHROME_PATHS.find((candidate) => fs.existsSync(candidate)) || null
+  );
+}
+
+// Poll the DevTools JSON endpoint until the debugging port is answering.
+function waitForDebugPort(port, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const attempt = () => {
+      const request = http.get(
+        { host: '127.0.0.1', port, path: '/json/version' },
+        (response) => {
+          const chunks = [];
+          response.on('data', (chunk) => chunks.push(chunk));
+          response.on('end', () => {
+            try {
+              resolve(JSON.parse(Buffer.concat(chunks).toString()));
+            } catch (error) {
+              reject(error);
+            }
+          });
+        }
+      );
+      request.on('error', () => {
+        if (Date.now() > deadline) {
+          reject(new Error('Chrome debug port did not open in time'));
+        } else {
+          setTimeout(attempt, 400);
+        }
+      });
+    };
+    attempt();
+  });
+}
+
+// Launch the REAL system Chrome with a debugging port and attach to it over CDP.
+//
+// Two things matter for Google to accept the session:
+//  1. It must be genuine Chrome (not Playwright's Chromium) — Google rejects the
+//     latter on Cloud Console ("browser may not be secure").
+//  2. The debug port must be on a DEDICATED user-data-dir, NOT the default
+//     profile — Chrome 136+ refuses to open the debug port on the default
+//     profile (anti session-theft). A separate profile opens the port fine.
+//
+// Because a separate profile has no login, pass options.injectCookies=true to
+// copy the decrypted Chrome cookies (chrome-cookies.mjs) into it via CDP, so the
+// genuine-Chrome session is authenticated without a manual sign-in.
+//
+// Returns { browser, page, commander, close }. close() quits the spawned Chrome
+// (closing the local debug port). `url` is opened in the connected context.
+export async function connectSystemChrome(url, options = {}) {
+  const {
+    port = 9222,
+    headless = false,
+    dataDir,
+    profileName = 'chrome-cdp-profile',
+    injectCookies = false,
+  } = options;
+  const bin = findSystemChrome();
+  if (!bin) {
+    throw new Error(
+      'System Chrome not found. Install Google Chrome, or use the cookies ' +
+        'strategy for Gmail (Cloud Console needs the real browser).'
+    );
+  }
+  // A dedicated profile (NOT the default) so Chrome 136+ actually opens the
+  // debug port. Kept under data/ so a login here PERSISTS across runs: the saved
+  // session is reused whenever the profile dir already exists, so the user signs
+  // in a single time. `firstRun` (no dir yet) is the only case that needs the
+  // cookie seed below.
+  const profileDir = dataDir
+    ? path.join(dataDir, profileName)
+    : path.join(os.tmpdir(), profileName);
+  const firstRun = !fs.existsSync(profileDir);
+  fs.mkdirSync(profileDir, { recursive: true });
+  const args = [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDir}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    // Route this dedicated profile's password store to Chrome's built-in
+    // "basic" backend, not the OS Keychain, so launching it raises no system
+    // password dialog (bc-70). The one Keychain read we allow happens in
+    // chrome-cookies.mjs; the injected session keeps working here.
+    '--password-store=basic',
+  ];
+  if (headless) {
+    args.push('--headless=new');
+  }
+  const child = spawn(bin, args, { stdio: 'ignore', detached: false });
+
+  await waitForDebugPort(port);
+  const playwright = await import('playwright');
+  const browser = await playwright.chromium.connectOverCDP(
+    `http://127.0.0.1:${port}`
+  );
+  const context = browser.contexts()[0] || (await browser.newContext());
+
+  // Seed the genuine-Chrome session with the existing Google login — but ONLY on
+  // the first run of this profile. Once signed in, the profile keeps the session
+  // itself, so we skip injection (avoids a redundant Keychain prompt and never
+  // overwrites the now-authoritative persisted session). Pass refresh:true to
+  // force re-injection if the saved session goes stale.
+  if (injectCookies && (firstRun || options.refresh === true)) {
+    const cookies = readChromeCookies('google.com', {
+      cacheDir: dataDir,
+      refresh: options.refresh === true,
+    });
+    if (cookies.length) {
+      await context.addCookies(cookies).catch(() => {});
+    }
+  }
+
+  const page = context.pages()[0] || (await context.newPage());
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  const bc = await loadBrowserCommander();
+  const commander = bc.makeBrowserCommander({ page });
+  const close = async () => {
+    await browser.close().catch(() => {});
+    try {
+      child.kill();
+    } catch {
+      // already gone
+    }
+  };
+  return { browser, page, commander, close, child };
+}
+
 // ---- session strategies ---------------------------------------------------
 
-// A dedicated, persistent profile under data/ so a login survives between runs.
+// A dedicated, persistent profile under data/ keeps a login alive between runs.
 // We never launch against the user's real Chrome profile (it is locked while
 // Chrome runs, and mixing automation into it is risky); the 'cookies' strategy
 // instead copies decrypted cookies into this clean profile's session.
-function resolveUserDataDir(dataDir) {
-  const dir = path.join(dataDir, 'gmail-browser-profile');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 // ---- launch ---------------------------------------------------------------
 
-// Launch a browser-commander session pointed at Gmail. Returns
-// { browser, page, commander }. The caller drives it and closes the browser.
-export async function openGmail(options = {}) {
+// Launch a browser-commander session with the chosen Google login strategy and
+// navigate to `url`. Returns { browser, page, commander, userDataDir }. This is
+// the shared launcher behind both Gmail and Google Cloud Console automation, so
+// the same reused login (decrypted Chrome cookies) drives either one.
+export async function openBrowser(url, options = {}) {
   const {
     dataDir,
     strategy = 'profile',
-    headless = false, // first-time login needs a visible window
+    headless = false, // a visible window is needed for first-time login / captcha
     stateFile = path.join(dataDir, 'gmail-state.json'),
+    profileName = 'gmail-browser-profile',
+    waitUntil = 'domcontentloaded',
   } = options;
 
   const bc = await loadBrowserCommander();
-  const userDataDir = resolveUserDataDir(dataDir);
+  const userDataDir = path.join(dataDir, profileName);
+  fs.mkdirSync(userDataDir, { recursive: true });
 
   // browser-commander's launchBrowser forwards userDataDir + headless. channel
   // (system Chrome, bc-57) and storageState (bc-58) are not wrapped yet.
@@ -100,13 +260,19 @@ export async function openGmail(options = {}) {
   }
 
   const commander = bc.makeBrowserCommander({ page });
-  await commander.goto({
-    url: 'https://mail.google.com/mail/u/0/#search/newer_than%3A90d',
-    waitUntil: 'domcontentloaded',
-    timeout: 60000,
-  });
+  await commander.goto({ url, waitUntil, timeout: 60000 });
 
   return { browser, page, commander, userDataDir };
+}
+
+// Launch a browser-commander session pointed at Gmail. Returns
+// { browser, page, commander }. The caller drives it and closes the browser.
+export async function openGmail(options = {}) {
+  const { headless = false } = options;
+  return await openBrowser(
+    'https://mail.google.com/mail/u/0/#search/newer_than%3A90d',
+    { ...options, headless, profileName: 'gmail-browser-profile' }
+  );
 }
 
 // Persist the current session for portable reuse (workaround for bc-58:

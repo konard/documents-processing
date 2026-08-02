@@ -43,8 +43,68 @@ function findCookieDb(profileDir) {
 
 // ---- key material ---------------------------------------------------------
 
+// Cache the Safe Storage password for the lifetime of the process. macOS pops a
+// Keychain authorization dialog on every distinct `security` read, so reading it
+// more than once in a run means more than one prompt. Holding it here means at
+// most one prompt per process, regardless of how many times cookies are read.
+let safeStoragePasswordCache = null;
+
+// Where the on-disk password cache lives, so the Keychain prompt is shared
+// ACROSS separate script runs (not just within one process). Kept in the same
+// data/ dir as the cookie cache (git-ignored) with restrictive permissions.
+function passwordCacheFile(cacheDir) {
+  return path.join(cacheDir, '.chrome-safe-storage-key.json');
+}
+
+// Read the on-disk password cache if present and within TTL.
+function readPasswordCache(cacheDir, ttlMinutes) {
+  if (!cacheDir) {
+    return null;
+  }
+  try {
+    const file = passwordCacheFile(cacheDir);
+    if (!fs.existsSync(file)) {
+      return null;
+    }
+    const cached = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const ageMinutes = (Date.now() - cached.savedAt) / 60000;
+    if (ageMinutes <= ttlMinutes && cached.password) {
+      return { password: cached.password, iterations: cached.iterations };
+    }
+  } catch {
+    /* corrupt/unreadable — fall through and re-read from the Keychain */
+  }
+  return null;
+}
+
+function writePasswordCache(cacheDir, value) {
+  if (!cacheDir) {
+    return;
+  }
+  try {
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const file = passwordCacheFile(cacheDir);
+    fs.writeFileSync(file, JSON.stringify({ savedAt: Date.now(), ...value }), {
+      mode: 0o600, // owner-only; this holds a local secret
+    });
+    fs.chmodSync(file, 0o600);
+  } catch {
+    /* best-effort cache; a failure here just means the next run re-prompts */
+  }
+}
+
 // The per-installation "Safe Storage" password from the OS credential store.
-function getSafeStoragePassword() {
+// Cached both in-process and on disk (data/, TTL) so the Keychain dialog appears
+// at most once per TTL window across ALL of our scripts, not once per run.
+function getSafeStoragePassword(cacheDir, ttlMinutes = 720) {
+  if (safeStoragePasswordCache) {
+    return safeStoragePasswordCache;
+  }
+  const fromDisk = readPasswordCache(cacheDir, ttlMinutes);
+  if (fromDisk) {
+    safeStoragePasswordCache = fromDisk;
+    return fromDisk;
+  }
   if (process.platform === 'darwin') {
     const result = spawnSync(
       'security',
@@ -64,10 +124,17 @@ function getSafeStoragePassword() {
           '(authorization declined?).'
       );
     }
-    return { password: result.stdout.trim(), iterations: 1003 };
+    safeStoragePasswordCache = {
+      password: result.stdout.trim(),
+      iterations: 1003,
+    };
+    writePasswordCache(cacheDir, safeStoragePasswordCache);
+    return safeStoragePasswordCache;
   }
   // Linux: try the fixed fallback used when no secret service is configured.
-  return { password: 'peanuts', iterations: 1 };
+  safeStoragePasswordCache = { password: 'peanuts', iterations: 1 };
+  writePasswordCache(cacheDir, safeStoragePasswordCache);
+  return safeStoragePasswordCache;
 }
 
 function deriveKey(password, iterations) {
@@ -180,7 +247,7 @@ export function readChromeCookies(domainFilter = '', options = {}) {
   );
   fs.copyFileSync(cookieDb, tmpDb);
 
-  const { password, iterations } = getSafeStoragePassword();
+  const { password, iterations } = getSafeStoragePassword(cacheDir, ttlMinutes);
   const key = deriveKey(password, iterations);
 
   let cookies;

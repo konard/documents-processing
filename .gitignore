@@ -155,6 +155,10 @@ data/gmail-token.json
 data/gmail-browser-profile/
 data/gmail-state.json
 data/chrome-cookies-*.json
+# Cached Chrome "Safe Storage" key (a local secret) — never commit.
+data/.chrome-safe-storage-key.json
+# Dedicated real-Chrome CDP profile (holds a logged-in session) — never commit.
+data/chrome-cdp-*profile/
 # Resume cache of fetched emails (raw message bodies) — never commit.
 data/flight-cancellations-cache/
 # Cached / downloaded fonts (never shipped in this repo).

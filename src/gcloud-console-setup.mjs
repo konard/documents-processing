@@ -26,7 +26,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
 import { connectSystemChrome } from './gmail-browser.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -50,9 +50,51 @@ const CRED_PATH = path.join(DATA_DIR, 'gmail-credentials.json');
 // A stable, valid project id (6-30 chars, lowercase/digits/hyphens). No
 // Date.now()/random available here, so derive a fixed default; override with
 // --project to pick your own.
-const PROJECT_ID = (flags.project || 'gmail-export-frro').toString();
+let PROJECT_ID = (flags.project || 'gmail-export-frro').toString();
+// Which signed-in Google account index the Console should use. When several
+// accounts share the browser session, omitting this lets Google resolve a
+// DIFFERENT account than the one that owns the project, which shows up as
+// "You need additional access to the project". Pinning authuser fixes it.
+const AUTHUSER = flags.authuser !== undefined ? String(flags.authuser) : '0';
+// Email used to fill the consent screen's support/developer contact fields.
+// Prefers --email, then USER_EMAILS (first address), so no address is hardcoded.
+const CONTACT_EMAIL =
+  (flags.email && String(flags.email)) ||
+  (process.env.USER_EMAILS || '').split(',')[0].trim() ||
+  '';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Optional visual debugging: with --debug-shots, save a screenshot at each step
+// under data/consent-debug/ so the flow can be inspected when a selector misses.
+const DEBUG_SHOTS = flags['debug-shots'] === true;
+const SHOTS_DIR = path.join(DATA_DIR, 'consent-debug');
+let shotIndex = 0;
+async function debugShot(page, name) {
+  if (!DEBUG_SHOTS) {
+    return;
+  }
+  fs.mkdirSync(SHOTS_DIR, { recursive: true });
+  shotIndex += 1;
+  const file = path.join(
+    SHOTS_DIR,
+    `${String(shotIndex).padStart(2, '0')}-${name}.png`
+  );
+  await page.screenshot({ path: file }).catch(() => {});
+  console.log(`   [shot] ${file}`);
+}
+
+// Build a Console URL with the project and authuser query params always set, so
+// every navigation targets the same project under the same owning account.
+function consoleUrl(pathAndQuery, withProject = true) {
+  const base = `https://console.cloud.google.com${pathAndQuery}`;
+  const url = new URL(base);
+  if (withProject) {
+    url.searchParams.set('project', PROJECT_ID);
+  }
+  url.searchParams.set('authuser', AUTHUSER);
+  return url.toString();
+}
 
 // Poll the page until a human-check obstacle clears — the user acts in the
 // visible browser window, no terminal input needed. Logs a hint once, then
@@ -157,14 +199,76 @@ async function clickFirst(page, selectors, timeout = 8000) {
 
 // ---- steps ----------------------------------------------------------------
 
-async function createProject(page) {
-  console.log(`→ Creating/selecting project "${PROJECT_ID}"…`);
+// List the caller's existing Cloud projects by reading the Resource Manager
+// LIST PAGE in the logged-in browser. The REST API needs an OAuth bearer token
+// (cookie auth returns 401), but the UI table already renders every project, so
+// we scrape the project ids from it. Returns [{ projectId }], or [] on failure.
+async function listExistingProjects(page) {
+  await page
+    .goto(consoleUrl('/cloud-resource-manager', false), {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+    })
+    .catch(() => {});
+  await waitForConsole(page);
+  await wait(4000);
+  const rows = await page
+    .locator('table tbody tr, [role="row"]')
+    .evaluateAll((elements) =>
+      elements
+        .map((element) =>
+          (element.textContent || '').replace(/\s+/g, ' ').trim()
+        )
+        .filter((text) => text.length > 2)
+    )
+    .catch(() => []);
+  // A Cloud project id is lowercase letters/digits/hyphens, 6-30 chars, starts
+  // with a letter, and (for auto-generated and most user ids) contains at least
+  // one digit — requiring a digit avoids matching a plain word from the display
+  // name (e.g. "styleschool") ahead of the real id ("styleschool-424704").
+  const ids = [];
+  for (const row of rows) {
+    const match = row.match(/\b[a-z][a-z0-9-]*\d[a-z0-9-]*\b/);
+    if (match && match[0].length >= 6 && !ids.includes(match[0])) {
+      ids.push(match[0]);
+    }
+  }
+  return ids.map((projectId) => ({ projectId, name: '' }));
+}
+
+// Pick an EXISTING project and never create a duplicate. The projectcreate form
+// ignores a typed id and mints a random one (e.g. "glassy-iridium-504311-a2"),
+// so repeated runs would spawn throwaway "My Project NNNNN" entries. Since the
+// account already has projects, always reuse one. Preference order:
+//   1. an explicit --project=<id> match,
+//   2. a prior gmail/frro project (if any),
+//   3. an auto-generated "My Project" (id like word-word-NNNNNN-xN) — these are
+//      empty/disposable, so we don't touch the user's real named projects,
+//   4. otherwise the first available.
+// Only create one if the account has NONE. Sets PROJECT_ID to the chosen id.
+async function ensureProject(page) {
+  console.log('→ Selecting an existing project (never creating duplicates)…');
+  const projects = await listExistingProjects(page);
+  const autoGenerated = (id) => /^[a-z]+-[a-z]+-\d{5,}-[a-z]\d$/.test(id || '');
+
+  const chosen =
+    projects.find((project) => project.projectId === PROJECT_ID) ||
+    projects.find((project) => /gmail|frro/.test(project.projectId || '')) ||
+    projects.find((project) => autoGenerated(project.projectId)) ||
+    projects[0];
+
+  if (chosen) {
+    PROJECT_ID = chosen.projectId;
+    console.log(`✓ Using existing project: ${chosen.projectId}`);
+    return;
+  }
+
+  console.log(`→ No projects at all; creating "${PROJECT_ID}" once…`);
   await gotoAndClear(
     page,
-    `https://console.cloud.google.com/projectcreate`,
+    consoleUrl('/projectcreate', false),
     'project create'
   );
-  // Fill the project id field if present (name auto-fills), then Create.
   const idField = page.locator('input[id*="project" i], input[name*="id" i]');
   if (
     await idField
@@ -172,8 +276,6 @@ async function createProject(page) {
       .isVisible()
       .catch(() => false)
   ) {
-    // The "Edit" affordance next to the auto-generated id must be opened first
-    // on some layouts; best-effort typing into the visible id input.
     await idField
       .first()
       .fill(PROJECT_ID)
@@ -191,143 +293,485 @@ async function enableGmailApi(page) {
   console.log('→ Enabling the Gmail API…');
   await gotoAndClear(
     page,
-    `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=${PROJECT_ID}`,
+    consoleUrl('/apis/library/gmail.googleapis.com'),
     'enable Gmail API'
   );
-  await clickFirst(page, [
-    'button:has-text("Enable")',
-    'button:has-text("ENABLE")',
-    'button:has-text("Manage")', // already enabled
-  ]);
-  await wait(4000);
+  await wait(3000);
+  // The "Enable" button on the API library page is a bare Material button that a
+  // Playwright text-locator click misses (verified: the API stayed disabled and
+  // the fetch failed with SERVICE_DISABLED). A direct in-page .click() on the
+  // element whose text is exactly "Enable" works. If it is already enabled the
+  // page shows "Manage"/"Disable" instead and there is nothing to click.
+  const clicked = await page
+    .evaluate(() => {
+      const doc = globalThis.document;
+      const isVisible = (element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+      const buttons = [
+        ...doc.querySelectorAll('button, [role="button"]'),
+      ].filter(isVisible);
+      const enable = buttons.find(
+        (button) => (button.textContent || '').trim().toLowerCase() === 'enable'
+      );
+      if (enable) {
+        enable.click();
+        return true;
+      }
+      return false;
+    })
+    .catch(() => false);
+  if (clicked) {
+    console.log('   clicked Enable; waiting for activation to propagate…');
+    // Activation is async and takes up to ~1–2 min to propagate; wait, since the
+    // very next step (OAuth) and later API calls depend on it being live.
+    await wait(20000);
+  } else {
+    console.log('   Gmail API already enabled — skipping.');
+  }
 }
 
 async function configureConsent(page) {
-  console.log('→ Configuring the OAuth consent screen…');
+  console.log('→ Configuring the OAuth consent screen (Google Auth Platform)…');
   await gotoAndClear(
     page,
-    `https://console.cloud.google.com/auth/overview?project=${PROJECT_ID}`,
+    consoleUrl('/auth/overview'),
     'OAuth consent screen'
   );
-  // Newer Console flow ("Google Auth Platform"): a Get started button, then a
-  // short form. This is highly layout-dependent, so on any doubt we hand off.
+  await wait(2000);
+
+  // If it is already configured, the "Get started" entry point is gone.
   const started = await clickFirst(
     page,
-    ['button:has-text("Get started")', 'button:has-text("Create")'],
+    [
+      'button:has-text("Get started")',
+      'a:has-text("Get started")',
+      '[role="button"]:has-text("Get started")',
+    ],
+    8000
+  );
+  if (!started) {
+    console.log('   consent screen already configured — skipping.');
+    return;
+  }
+  await wait(3000);
+  await runConsentWizard(page);
+}
+
+// Open a Material "select" (support-email dropdown, audience radios sometimes)
+// and pick the option whose text matches `preferMatch`, else the first real
+// option. Returns true if something was selected.
+async function pickFromDropdown(page, comboSelector, preferMatch) {
+  const combo = page.locator(comboSelector).first();
+  if (!(await combo.isVisible().catch(() => false))) {
+    return false;
+  }
+  await combo.click().catch(() => {});
+  await wait(800);
+  const options = page.locator(
+    '[role="option"], mat-option, li[role="option"]'
+  );
+  const count = await options.count().catch(() => 0);
+  if (!count) {
+    return false;
+  }
+  if (preferMatch) {
+    for (let index = 0; index < count; index += 1) {
+      const text = await options
+        .nth(index)
+        .innerText()
+        .catch(() => '');
+      if (text.toLowerCase().includes(preferMatch.toLowerCase())) {
+        await options
+          .nth(index)
+          .click()
+          .catch(() => {});
+        await wait(500);
+        return true;
+      }
+    }
+  }
+  await options
+    .first()
+    .click()
+    .catch(() => {});
+  await wait(500);
+  return true;
+}
+
+// Fill and submit the "Project configuration" consent wizard, matching the real
+// layout: 1) App Information (App name text + User support email DROPDOWN) →
+// Next; 2) Audience (choose External) → Next; 3) Contact Information (developer
+// email text) → Next; 4) Finish (agree checkbox) → Create. Steps expand inline
+// on one page, so after each Next we re-scan and fill what became visible.
+async function runConsentWizard(page) {
+  const appName = 'gmail-export';
+
+  // Step 1 — App Information. The fields carry stable Angular formcontrolname
+  // attributes (verified live): App name = input[formcontrolname="displayName"];
+  // User support email = a cfc-select combobox[formcontrolname="userSupportEmail"]
+  // whose first option is the account's own address.
+  await debugShot(page, 'step1-appinfo');
+  const nameField = page
+    .locator(
+      'input[formcontrolname="displayName"], mat-form-field:has-text("App name") input'
+    )
+    .first();
+  if (await nameField.isVisible().catch(() => false)) {
+    await nameField.fill(appName).catch(() => {});
+  }
+  await pickFromDropdown(
+    page,
+    '[formcontrolname="userSupportEmail"], mat-form-field:has-text("support email") [role="combobox"]',
+    CONTACT_EMAIL
+  );
+  await debugShot(page, 'step1-filled');
+  await clickFirst(page, ['button:has-text("Next")'], 6000);
+  await wait(2500);
+
+  // Step 2 — Audience: pick External (radio or option).
+  await debugShot(page, 'step2-audience');
+  await clickFirst(
+    page,
+    [
+      '[role="radio"][aria-label*="External" i]',
+      'label:has-text("External")',
+      'text="External"',
+    ],
+    5000
+  );
+  await clickFirst(page, ['button:has-text("Next")'], 5000);
+  await wait(2500);
+
+  // Step 3 — Contact Information: developer email (a text input on this step).
+  await debugShot(page, 'step3-contact');
+  if (CONTACT_EMAIL) {
+    const contactField = page
+      .locator(
+        'input[formcontrolname*="mail" i], input[type="email"]:visible, mat-form-field:has-text("email") input'
+      )
+      .first();
+    if (await contactField.isVisible().catch(() => false)) {
+      const current = await contactField.inputValue().catch(() => 'x');
+      if (!current) {
+        await contactField.fill(CONTACT_EMAIL).catch(() => {});
+      }
+    } else {
+      await pickFromDropdown(page, '[role="combobox"]', CONTACT_EMAIL);
+    }
+  }
+  await clickFirst(page, ['button:has-text("Next")'], 5000);
+  await wait(2500);
+
+  // Step 4 — Finish: agree to the policy, then Create.
+  await debugShot(page, 'step4-finish');
+  const agree = page.locator('input[type="checkbox"]:visible').first();
+  if (await agree.isVisible().catch(() => false)) {
+    await agree.check().catch(() => {});
+  }
+  await clickFirst(
+    page,
+    ['button:has-text("Create")', 'button:has-text("Save")'],
     6000
   );
-  if (started) {
-    await wait(2500);
-    // The consent form has free-text fields Google will not let us robotically
-    // fill without tripping bot-detection, so hand off: the user fills app name,
-    // email, User type = External, adds themselves as a Test user, and saves.
-    // We wait for the form to go away (poll), no terminal input needed.
-    await waitUntilFormDone(page);
+  await wait(5000);
+  await debugShot(page, 'step5-after-create');
+
+  if (!/\/auth\/overview\/create/.test(page.url())) {
+    console.log('   ✓ consent screen configured.');
+  } else {
+    console.log('   consent wizard finished (verify manually if needed).');
   }
 }
 
-// Wait until the consent form appears to be submitted — the "Get started" /
-// create form controls are gone from the page. Polls; returns after clear or
-// timeout so the run continues on its own.
-async function waitUntilFormDone(page, timeoutMs = 300000) {
-  console.log(
-    '\n⏸  ACTION NEEDED — OAuth consent screen\n' +
-      '   In the open window: set app name + your email, User type = External,\n' +
-      '   add yourself under Test users, and Save. I continue automatically after.'
+// Add CONTACT_EMAIL to the OAuth "Audience → Test users" list. Required because
+// the app is created in Testing mode (External), where consent is BLOCKED for any
+// account that is not a listed tester ("Access blocked: … Error 403 access_denied")
+// — so without this, the later gmail-auto-consent step cannot approve. Verified
+// live: the "Add users" panel input must be filled and then Save clicked via an
+// in-page DOM .click() (a Playwright/coordinate click on that Save misses, and the
+// page's first input is the GLOBAL console search, not the panel field).
+async function addTestUser(page) {
+  if (!CONTACT_EMAIL) {
+    return;
+  }
+  console.log(`→ Adding ${CONTACT_EMAIL} as an OAuth test user…`);
+  await gotoAndClear(page, consoleUrl('/auth/audience'), 'OAuth test users');
+  await wait(3000);
+  const body = await page
+    .locator('body')
+    .innerText()
+    .catch(() => '');
+  if (body.includes(CONTACT_EMAIL)) {
+    console.log('   already a test user — skipping.');
+    return;
+  }
+  await clickFirst(
+    page,
+    ['button:has-text("Add users")', 'button:has-text("Add user")'],
+    6000
   );
-  const now = Date.now.bind(Date);
-  const start = now();
-  while (now() - start < timeoutMs) {
-    await wait(3000);
-    const formPresent = await page
-      .locator('button:has-text("Save"), button:has-text("Create")')
-      .count()
-      .catch(() => 0);
-    if (!formPresent) {
-      console.log('   ✓ consent screen configured, continuing.');
-      return;
-    }
+  await wait(2500);
+  // Fill the panel's email field (scoped to the panel, NOT the global search),
+  // confirm the chip, then Save via a DOM .click() (the reliable one here).
+  const filled = await page
+    .evaluate(() => {
+      const doc = globalThis.document;
+      const isVisible = (element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+      const save = [...doc.querySelectorAll('button')].find(
+        (button) =>
+          isVisible(button) && /^save$/i.test((button.textContent || '').trim())
+      );
+      if (!save) {
+        return false;
+      }
+      // The panel's input is a sibling near the Save button, not the top search.
+      let container = save;
+      for (let up = 0; up < 6 && container; up += 1) {
+        container = container.parentElement;
+        if (container && container.querySelector('input, textarea')) {
+          break;
+        }
+      }
+      const input = container
+        ? [...container.querySelectorAll('input, textarea')].find(isVisible)
+        : null;
+      if (!input) {
+        return false;
+      }
+      input.focus();
+      return true;
+    })
+    .catch(() => false);
+  if (filled) {
+    await page.keyboard.type(CONTACT_EMAIL, { delay: 30 }).catch(() => {});
+    await page.keyboard.press('Enter').catch(() => {});
+    await wait(1000);
+    await debugShot(page, 'testuser-filled');
+    await page
+      .evaluate(() => {
+        const doc = globalThis.document;
+        const isVisible = (element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        const save = [...doc.querySelectorAll('button')].find(
+          (button) =>
+            isVisible(button) &&
+            /^save$/i.test((button.textContent || '').trim()) &&
+            !button.disabled
+        );
+        if (save) {
+          save.click();
+        }
+      })
+      .catch(() => {});
+    await wait(4000);
+    await debugShot(page, 'testuser-saved');
+    console.log('   ✓ test user added.');
+  } else {
+    console.log('   ! could not open the test-user panel; verify manually.');
   }
-  console.log('   … continuing best-effort.');
 }
 
-// Read the client id/secret from the "OAuth client created" dialog, or fall
-// back to asking the user to paste them if the DOM shape is unexpected.
+// Read the client id/secret from the "OAuth client created" dialog. The dialog
+// (verified live) shows "Client ID" as text ending in .apps.googleusercontent.com
+// and "Client secret" as a labelled value; both are read from the whole dialog
+// text with regexes, which is robust to the exact element structure.
 async function readClientCreds(page) {
-  const grab = async (selectors) => {
-    for (const selector of selectors) {
-      const value = await page
-        .locator(selector)
-        .first()
-        .inputValue()
-        .catch(() => null);
-      if (value) {
-        return value.trim();
-      }
-      const text = await page
-        .locator(selector)
-        .first()
-        .innerText()
-        .catch(() => null);
-      if (text && text.trim()) {
-        return text.trim();
-      }
+  // Try a few times: the dialog's secret row lives below the fold, and the
+  // dialog is not a standard [role=dialog] container, so scroll EVERY scrollable
+  // element and read the whole document text with regexes.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await wait(1500);
+    const text = await page
+      .evaluate(() => {
+        // Runs in the browser page context; globalThis is the window.
+        const doc = globalThis.document;
+        doc.querySelectorAll('*').forEach((element) => {
+          if (element.scrollHeight > element.clientHeight) {
+            element.scrollTop = element.scrollHeight;
+          }
+        });
+        return doc.body ? doc.body.innerText : '';
+      })
+      .catch(() => '');
+
+    const idMatch = text.match(
+      /([0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com)/i
+    );
+    const secretMatch =
+      text.match(/\bGOCSPX-[A-Za-z0-9_-]+/) ||
+      text.match(/Client secret\s*[:\n]*\s*([A-Za-z0-9_-]{16,})/i);
+    if (idMatch && secretMatch) {
+      return {
+        clientId: idMatch[1],
+        clientSecret: (secretMatch[1] || secretMatch[0]).trim(),
+      };
     }
-    return null;
-  };
-  const clientId = await grab([
-    'input[aria-label*="Client ID" i]',
-    'text=/\\.apps\\.googleusercontent\\.com/',
-  ]);
-  const clientSecret = await grab([
-    'input[aria-label*="Client secret" i]',
-    'input[aria-label*="secret" i]',
-  ]);
-  return { clientId, clientSecret };
+  }
+  return { clientId: null, clientSecret: null };
+}
+
+// Pick "Desktop app" in the Application-type dropdown. This control is a
+// cfc-select whose options render as plain <span> elements inside a body
+// .cdk-overlay-container — NOT as <mat-option> or [role=option] — so Playwright
+// text/option locators miss them and a normal .click() lands nothing (the type
+// stays empty, which silently blocks Create). Verified fix: open the listbox,
+// find the visible overlay node whose text is exactly "Desktop app", and click
+// its CENTER by coordinates (a synthetic mouse click, which the overlay honours
+// even though the element isn't a standard option). Retry a few times because
+// the listbox animates in. Returns true once the control reads "Desktop app".
+async function selectDesktopAppType(page) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const control = page.locator('[formcontrolname="typeControl"]').first();
+    // Click the control's centre by coordinates to open the listbox reliably.
+    const box = await control.boundingBox().catch(() => null);
+    if (box) {
+      await page.mouse
+        .click(box.x + box.width / 2, box.y + box.height / 2)
+        .catch(() => {});
+    } else {
+      await control.click().catch(() => {});
+    }
+    await wait(1500);
+    // Locate the "Desktop app" option in the overlay and get its centre.
+    const target = await page
+      .evaluate(() => {
+        // Runs in the browser page context; globalThis is the window.
+        const doc = globalThis.document;
+        const isVisible = (element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        const nodes = [
+          ...doc.querySelectorAll('.cdk-overlay-container *'),
+        ].filter(isVisible);
+        const match = nodes.find(
+          (element) =>
+            (element.textContent || '').replace(/\s+/g, ' ').trim() ===
+            'Desktop app'
+        );
+        if (!match) {
+          return null;
+        }
+        const rect = match.getBoundingClientRect();
+        return {
+          x: Math.round(rect.x + rect.width / 2),
+          y: Math.round(rect.y + rect.height / 2),
+        };
+      })
+      .catch(() => null);
+    if (target) {
+      await page.mouse.click(target.x, target.y).catch(() => {});
+    }
+    await wait(1200);
+    const chosen = await control.innerText().catch(() => '');
+    if (/desktop app/i.test(chosen)) {
+      return true;
+    }
+    // Close any open listbox before retrying.
+    await page.keyboard.press('Escape').catch(() => {});
+    await wait(600);
+  }
+  return false;
 }
 
 async function createOAuthClient(page) {
   console.log('→ Creating the OAuth client (Desktop app)…');
-  await gotoAndClear(
-    page,
-    `https://console.cloud.google.com/apis/credentials/oauthclient?project=${PROJECT_ID}`,
-    'create OAuth client'
-  );
-  await wait(2500);
-  // Choose application type "Desktop app" (combobox), then Create.
-  await clickFirst(page, [
-    'div[role="combobox"]',
-    'div[aria-label*="Application type" i]',
-  ]);
-  await wait(800);
-  await clickFirst(page, [
-    'li:has-text("Desktop app")',
-    'option:has-text("Desktop app")',
-    'text="Desktop app"',
-  ]);
-  await wait(500);
-  await clickFirst(page, [
-    'button:has-text("Create")',
-    'button:has-text("CREATE")',
-  ]);
-  await wait(4000);
+  // The new "Google Auth Platform" client form lives at /auth/clients/create.
+  await gotoAndClear(page, consoleUrl('/auth/clients/create'), 'OAuth client');
+  await wait(3000);
+  await debugShot(page, 'client-01-form');
 
-  let creds = await readClientCreds(page);
-  if (!creds.clientId || !creds.clientSecret) {
-    // Could not read the id/secret from the DOM. Trigger Google's own
-    // "Download JSON" and wait for the file to land, then parse it — no manual
-    // save path required, no terminal input.
-    await clickFirst(
-      page,
-      ['button:has-text("Download JSON")', 'a:has-text("Download")'],
-      6000
-    );
+  await selectDesktopAppType(page);
+  await debugShot(page, 'client-02-type');
+
+  // A Name field appears after the type is chosen; a default is fine, but set
+  // one if it is empty. Then Create.
+  const nameField = page
+    .locator(
+      'input[formcontrolname="displayName"], input[formcontrolname*="name" i]'
+    )
+    .first();
+  if (await nameField.isVisible().catch(() => false)) {
+    const current = await nameField.inputValue().catch(() => 'x');
+    if (!current) {
+      await nameField.fill('gmail-export-desktop').catch(() => {});
+    }
+  }
+  await debugShot(page, 'client-03-named');
+  await clickFirst(
+    page,
+    ['button:has-text("Create")', 'button:has-text("CREATE")'],
+    6000
+  );
+  // The "OAuth client created" dialog takes a moment to appear.
+  await page
+    .locator('text=/OAuth client created/i')
+    .first()
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .catch(() => {});
+  await wait(3000);
+  await debugShot(page, 'client-04-created');
+
+  // PRIMARY path: click Google's own "Download JSON" in the created dialog. The
+  // emitted client_secret_*.json carries the full id + secret, so we never have
+  // to scrape the secret from the DOM (Google shows it only once, below the
+  // fold). Prefer capturing the download event directly; fall back to polling
+  // the Downloads folder.
+  let creds = null;
+  const downloadButton = page
+    .locator(
+      'button:has-text("Download JSON"), a:has-text("Download JSON"), ' +
+        'button:has-text("Download"), a:has-text("Download")'
+    )
+    .first();
+  // Arm the download listener BEFORE clicking, then click.
+  const downloadPromise = page
+    .waitForEvent('download', { timeout: 30000 })
+    .catch(() => null);
+  await downloadButton.click({ timeout: 6000 }).catch(() => {});
+  const download = await downloadPromise;
+  if (download) {
+    const savePath = path.join(DATA_DIR, 'client_secret_downloaded.json');
+    await download.saveAs(savePath).catch(() => {});
+    creds = parseCredentialsFile(savePath);
+  }
+  // Fallback 1: some browsers save the JSON straight to the OS Downloads
+  // folder without firing a Playwright download event; poll for it there.
+  if (!creds || !creds.clientId) {
     const downloaded = await waitForDownloadedJson();
     if (downloaded) {
       creds = downloaded;
     }
   }
-  return creds;
+  // Fallback 2: scrape id/secret from the dialog DOM as a last resort.
+  if (!creds || !creds.clientId || !creds.clientSecret) {
+    const scraped = await readClientCreds(page);
+    if (scraped.clientId && scraped.clientSecret) {
+      creds = scraped;
+    }
+  }
+  return creds || { clientId: null, clientSecret: null };
+}
+
+// Parse a Google client_secret_*.json file into { clientId, clientSecret }.
+function parseCredentialsFile(filePath) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const node = raw.installed || raw.web || raw;
+    if (node.client_id && node.client_secret) {
+      return { clientId: node.client_id, clientSecret: node.client_secret };
+    }
+  } catch {
+    // unreadable / still flushing
+  }
+  return { clientId: null, clientSecret: null };
 }
 
 // Poll the OS Downloads folder for the client_secret_*.json Google emits, parse
@@ -399,15 +843,12 @@ async function main() {
   // profile (Chrome 136+ won't open the port on the default one) is seeded with
   // the decrypted Google cookies, so the real-Chrome session authenticates with
   // no manual sign-in. This combination is the one Google accepts.
-  const { page, close } = await connectSystemChrome(
-    'https://console.cloud.google.com/',
-    {
-      headless: flags.headless === true,
-      dataDir: DATA_DIR,
-      profileName: 'chrome-cdp-console-profile',
-      injectCookies: true,
-    }
-  );
+  const { page, close } = await connectSystemChrome(consoleUrl('/', false), {
+    headless: flags.headless === true,
+    dataDir: DATA_DIR,
+    profileName: 'chrome-cdp-console-profile',
+    injectCookies: true,
+  });
 
   try {
     // Let Google's post-login redirect chain (accountchooser → SetOSID →
@@ -416,9 +857,12 @@ async function main() {
     if (await needsHuman(page)) {
       await waitUntilCleared(page, 'sign in to Google in the opened window');
     }
-    await createProject(page);
+    await ensureProject(page);
     await enableGmailApi(page);
     await configureConsent(page);
+    // Add the user as a test user BEFORE creating the client, so the later
+    // consent step (gmail-auto-consent) is not blocked by Testing-mode access.
+    await addTestUser(page);
     const creds = await createOAuthClient(page);
 
     if (creds.clientId && creds.clientSecret) {

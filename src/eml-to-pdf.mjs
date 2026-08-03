@@ -71,8 +71,8 @@ function inlineCidImages(html, attachments) {
 
 // Build one self-contained HTML document: a header block with the key envelope
 // fields, then the message's own HTML body (or its text body as a fallback).
-// options.onePage: emit compact CSS (tighter header, capped banner image, no
-// large gaps) so the scaling step in the printer has less to shrink away.
+// options.onePage: emit compact CSS (tighter header, capped banner height) so
+// the single printed page stays reasonably short.
 export function emailToHtml(parsed, options = {}) {
   const header = [
     ['From', parsed.from?.text],
@@ -173,8 +173,8 @@ function waitForPageTarget(port, timeoutMs = 15000) {
 
 // Drive Chrome's DevTools Protocol over its WebSocket to load the HTML and
 // print it to PDF — the real "Print to PDF", not the limited CLI flag.
-// options.onePage: shrink the whole email onto a single A4 page (measure the
-// rendered content height, then pick a print scale so it never spills over).
+// options.onePage: print the whole email as one page (A4 width, height grown
+// to fit the measured content) so nothing is paginated away.
 async function chromePrintToPdf(chromePath, html, outPath, options = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dp-chrome-'));
   const port = 9222 + (process.pid % 2000);
@@ -227,30 +227,39 @@ async function openWebSocket(wsUrl) {
   return socket;
 }
 
-// A4 printable geometry in inches, used to fit a whole email on one page.
+// A4 geometry in inches. The one-page printer keeps the A4 width (so the page
+// looks like a normal sheet) but lets the height grow to whatever the content
+// needs, then prints it as ONE tall page — nothing is ever paginated away.
 const A4_WIDTH_IN = 8.27;
-const A4_HEIGHT_IN = 11.69;
 const PAGE_MARGIN_IN = 0.4;
+const CSS_PX_PER_IN = 96;
 
-// Choose a Page.printToPDF scale so the rendered content fits on a single A4
-// page. Measures the document's pixel size (via Runtime.evaluate) and compares
-// its aspect against the printable box; CSS px are 96 per inch when printing.
-// Never scales up past 1, and never below 0.5 (past that text is unreadable —
-// better to let it overflow than to produce an illegible page).
-function onePageScale(widthPx, heightPx) {
-  const printableWidthPx = (A4_WIDTH_IN - 2 * PAGE_MARGIN_IN) * 96;
-  const printableHeightPx = (A4_HEIGHT_IN - 2 * PAGE_MARGIN_IN) * 96;
-  const widthScale = printableWidthPx / widthPx;
-  const heightScale = printableHeightPx / heightPx;
-  const scale = Math.min(1, widthScale, heightScale);
-  return Math.max(0.5, Number(scale.toFixed(3)));
-}
+// The printable content width in CSS px (A4 width minus both side margins). The
+// page is laid out at exactly this width before measuring, so the measured
+// height already reflects how the text wraps on the printed page.
+const CONTENT_WIDTH_PX = (A4_WIDTH_IN - 2 * PAGE_MARGIN_IN) * CSS_PX_PER_IN;
+
+// Wait until every image has finished loading (or a timeout elapses), so the
+// height measured next includes the banner/logos and nothing is cut. Runs in
+// the page and resolves to true after images settle. An expression string.
+const AWAIT_IMAGES_EXPRESSION = `new Promise((resolve) => {
+  const images = [...globalThis.document.images];
+  const pending = images.filter((img) => !img.complete);
+  if (pending.length === 0) { resolve(true); return; }
+  let left = pending.length;
+  const done = () => { if (--left <= 0) resolve(true); };
+  for (const img of pending) {
+    img.addEventListener('load', done, { once: true });
+    img.addEventListener('error', done, { once: true });
+  }
+  setTimeout(() => resolve(true), 4000);
+})`;
 
 // Minimal CDP conversation: enable Page, navigate to a data: URL of the HTML,
 // wait for load, then Page.printToPDF with background printing on. Uses the
 // 'ws' EventEmitter API ('message' delivers a Buffer/string payload directly).
-// options.onePage: measure the laid-out content and pick a print scale so the
-// whole email lands on one A4 page.
+// options.onePage: fix the layout width to the A4 content width, wait for
+// images, measure the true content height, and print it all as one tall page.
 function runCdpSession(socket, html, options = {}) {
   return new Promise((resolve, reject) => {
     let id = 0;
@@ -295,22 +304,42 @@ function runCdpSession(socket, html, options = {}) {
         };
 
         if (options.onePage) {
-          // Measure the full laid-out content, then scale so it fits one A4.
+          // Lay the body out at exactly the printed content width, wait for all
+          // images to load, then measure the real content height. Printing the
+          // page at that height guarantees the whole email is one page, uncut.
+          await send('Runtime.evaluate', {
+            expression: `(() => {
+              const b = globalThis.document.body;
+              b.style.width = '${CONTENT_WIDTH_PX}px';
+              b.style.margin = '0';
+              return true;
+            })()`,
+            returnByValue: true,
+          });
+          await send('Runtime.evaluate', {
+            expression: AWAIT_IMAGES_EXPRESSION,
+            awaitPromise: true,
+            returnByValue: true,
+          });
           const { result } = await send('Runtime.evaluate', {
             expression: `(() => {
               const b = globalThis.document.body;
               const d = globalThis.document.documentElement;
               return JSON.stringify({
-                width: Math.max(b.scrollWidth, d.scrollWidth),
-                height: Math.max(b.scrollHeight, d.scrollHeight),
+                height: Math.max(b.scrollHeight, d.scrollHeight, b.offsetHeight),
               });
             })()`,
             returnByValue: true,
           });
           const size = JSON.parse(result.value);
-          printParams.scale = onePageScale(size.width, size.height);
-          // Force exactly one page even if a stray pixel would round it over.
-          printParams.pageRanges = '1';
+          // One tall page: A4 width, content height, plus the top+bottom margins
+          // (Chrome adds the margins inside the paper box). A hair of slack (+2px)
+          // absorbs sub-pixel rounding so the last line never spills to page 2.
+          printParams.paperWidth = A4_WIDTH_IN;
+          printParams.paperHeight =
+            size.height / CSS_PX_PER_IN +
+            2 * PAGE_MARGIN_IN +
+            2 / CSS_PX_PER_IN;
         }
 
         const result = await send('Page.printToPDF', printParams);

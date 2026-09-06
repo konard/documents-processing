@@ -1,0 +1,54 @@
+{
+  "_comment": "Example applicant for src/evisa-apply.mjs. Copy this, fill in real values, and keep your copy outside the repository. Dates accept ISO, DD/MM/YYYY, DD.MM.YYYY or DD MMM YYYY.",
+
+  "surname": "DOE",
+  "givenName": "JOHN WORLD CITIZEN",
+  "dateOfBirth": "1987-03-12",
+  "sex": "Male",
+  "nationality": "Russia",
+  "placeOfBirth": "MOSCOW",
+  "email": "traveller@example.com",
+
+  "passportNumber": "AB1234567",
+  "passportType": "Ordinary passport",
+  "passportIssueDate": "2022-01-01",
+  "passportExpiryDate": "2032-01-01",
+  "passportIssuingAuthority": "FMS 77001",
+
+  "permanentAddress": "1 Example Street, Example City",
+  "contactAddress": "1 Example Street, Example City",
+  "phone": "+10000000000",
+
+  "emergencyName": "JANE DOE",
+  "emergencyAddress": "1 Example Street, Example City",
+  "emergencyPhone": "+10000000001",
+  "emergencyRelationship": "Spouse",
+
+  "occupation": "Other",
+  "occupationInfo": "Software engineer",
+  "employerName": "Example Ltd",
+  "position": "Engineer",
+  "employerAddress": "2 Example Avenue, Example City",
+  "employerPhone": "+10000000002",
+
+  "purpose": "Tourism",
+  "entryType": "Single-entry",
+  "validFrom": "01/12/2026",
+  "validTo": "20/12/2026",
+  "entryDate": "05/12/2026",
+  "stayLengthDays": "15",
+  "entryBorderGate": "Noi Bai Airport Border Gate",
+  "exitBorderGate": "Tan Son Nhat Airport Border Gate",
+  "addressInVietnam": "Example Hotel, Hanoi",
+  "phoneInVietnam": "+840000000000",
+
+  "intendedExpenses": "1000",
+
+  "multipleNationalities": false,
+  "usedOtherPassportsToVietnam": false,
+  "holdsOtherValidPassports": false,
+  "violatedVietnameseLaw": false,
+  "visitedVietnamLastYear": false,
+  "hasRelativesInVietnam": false,
+  "contactsAgencyInVietnam": false
+}

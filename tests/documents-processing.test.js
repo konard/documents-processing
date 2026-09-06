@@ -39,6 +39,11 @@ describe('documents-processing commands', () => {
     'chrome-cookies.mjs',
     'flight-relevance.mjs',
     'eml-to-pdf.mjs',
+    'evisa-schema.mjs',
+    'evisa-data.mjs',
+    'evisa-sources.mjs',
+    'evisa-passport.mjs',
+    'evisa-fill.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

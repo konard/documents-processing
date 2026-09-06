@@ -1,0 +1,130 @@
+# Vietnam e-visa form filler
+
+Prefills the Vietnam e-visa application at
+<https://evisa.gov.vn/e-visa/foreigners> from documents you already have, then
+hands the browser to you.
+
+**The form is never submitted.** The tool fills the fields, takes a screenshot
+if you ask for one, and leaves a headed browser open so you can check every
+value and press submit yourself. Submitting means signing a legal declaration,
+and only the applicant can do that.
+
+## Quick start
+
+```bash
+node src/evisa-apply.mjs --input applicant.json --dry-run
+```
+
+`--dry-run` resolves and validates the data without opening a browser. Once it
+reports no errors, drop the flag to fill the form:
+
+```bash
+node src/evisa-apply.mjs \
+  --input applicant.json \
+  --portrait photos/PERSON-PHOTO.jpg \
+  --passport passports/PERSON-PASSPORT.jpg \
+  --screenshot
+```
+
+## Inputs
+
+`--input` accepts any of the following, and may be repeated:
+
+| Input             | Behaviour                                                          |
+| ----------------- | ------------------------------------------------------------------ |
+| `.json`           | Read directly; a record nested under `applicant` is used           |
+| `.lino`, `.links` | [Links notation](https://github.com/link-assistant/links-notation) |
+| `.jpg`, `.png`    | Treated as a document; OCR'd with `--ocr`                          |
+| `.pdf`            | First page rendered, then treated as an image                      |
+| folder            | Every recognized file inside, recursively                          |
+| `.zip`            | Extracted to a temporary directory, then read as a folder          |
+
+Sources are merged left to right, and **a later source wins**. That is how a
+verified record overrides raw OCR:
+
+```bash
+node src/evisa-apply.mjs --input scans/ --input verified.json --ocr
+```
+
+Field names are flexible: `last_name`, `lastname`, `family_name` and `surname`
+all mean the same thing. Anything unrecognized is reported as a warning rather
+than silently dropped.
+
+## Using a passport, with or without OCR
+
+With `--ocr`, the passport's machine-readable zone is read and converted into
+surname, given names, passport number, nationality, date of birth, sex and
+expiry date.
+
+Every MRZ field carries a check digit. When one fails, the value is still used
+but reported so you can confirm it:
+
+```
+  ocr: passportNumber failed its MRZ check digit and needs review
+```
+
+If you already have verified data, skip `--ocr` and pass a JSON or lino file.
+
+## Uploads
+
+`--portrait` and `--passport` are prepared before upload: rotated upright,
+converted to JPEG, and re-encoded at progressively lower quality until they fit
+the site's 2 MB limit. The portrait is cropped to the 2:3 aspect of the required
+4x6 cm photo.
+
+Per the instruction page, the photo must be recent, front-facing, in formal
+attire, with no hat and no glasses, on a white background.
+
+Uploads happen before any typing, because the site reads the passport image and
+prefills fields from it; typing afterwards means your verified values win.
+
+## Validation
+
+Everything is checked before the browser opens, and all problems are reported
+at once:
+
+- required fields, and values longer than the form allows
+- dates that are malformed, impossible (`31/02`), or in the past
+- a validity window longer than the 90-day maximum, or ending before it starts
+- an entry date outside the requested window
+- an email that is malformed or does not match its confirmation
+- a passport expiring within 6 months of entry (warning)
+- border gates and purposes that the form's dropdowns do not offer (warning)
+
+## Wording the form expects
+
+The site's dropdowns do not match the wording on its own instruction page. The
+tool rewrites common phrasings automatically:
+
+| You write                      | The form gets                   |
+| ------------------------------ | ------------------------------- |
+| `Tourism`, `holiday`, `travel` | `Tourist`                       |
+| `work`, `employment`           | `Working`                       |
+| `Noi Bai Airport Border Gate`  | `Noi Bai Int Airport`           |
+| `Da Nang`                      | `Da Nang International Airport` |
+
+An ambiguous name is left alone and flagged, rather than guessed at.
+
+## Privacy
+
+No applicant data is sent anywhere except the government form itself. The tool
+makes no HTTP requests of its own; the only network traffic is the browser
+navigating to `evisa.gov.vn`.
+
+Everything it writes — the screenshot, the prepared images, the resolved
+record — is derived from a passport and is ignored by git. `tests/evisa-privacy.test.js`
+enforces this, so it cannot regress. Keep real documents outside the repository.
+
+## Options
+
+| Flag                | Meaning                                         |
+| ------------------- | ----------------------------------------------- |
+| `--input <path>`    | Add a source. Repeatable.                       |
+| `--portrait <path>` | Portrait photo to upload.                       |
+| `--passport <path>` | Passport data page to upload.                   |
+| `--out <dir>`       | Output directory. Default `evisa-output`.       |
+| `--ocr`             | Read the passport MRZ for missing fields.       |
+| `--dry-run`         | Validate only; do not open a browser.           |
+| `--screenshot`      | Save a full-page screenshot of the filled form. |
+| `--emit-lino`       | Print the resolved record as lino notation.     |
+| `--no-keep-open`    | Close the browser when done instead of waiting. |

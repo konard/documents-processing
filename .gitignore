@@ -177,3 +177,15 @@ data/flight-cancellations-cache/
 data/fonts/
 # Debug/render artifacts and any real scanned documents kept alongside the code.
 tests/out/
+
+# e-visa application output: filled-form screenshots, prepared passport and
+# portrait images, and resolved applicant records all contain personal data.
+evisa-output/
+evisa-*.png
+evisa-*.jpg
+evisa-*.jpeg
+*.evisa.json
+*.evisa.lino
+applicant.json
+applicant.lino
+.playwright-mcp/

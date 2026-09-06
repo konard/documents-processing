@@ -1,0 +1,141 @@
+import { describe, it, expect } from 'test-anywhere';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
+
+const gitIgnores = (candidate) => {
+  try {
+    execFileSync('git', ['check-ignore', '-q', candidate]);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+describe('e-visa output stays out of the repository', () => {
+  // Everything this tool produces is derived from someone's passport: the
+  // filled-form screenshot, the prepared images, the resolved record.
+  it('ignores the default output directory', () => {
+    expect(gitIgnores('evisa-output/evisa-form.png')).toBe(true);
+    expect(gitIgnores('evisa-output/passport.jpg')).toBe(true);
+    expect(gitIgnores('evisa-output/portrait.jpg')).toBe(true);
+  });
+
+  it('ignores screenshots and prepared images left in the working tree', () => {
+    expect(gitIgnores('evisa-form.png')).toBe(true);
+    expect(gitIgnores('evisa-filled-form.png')).toBe(true);
+    expect(gitIgnores('evisa-passport.jpg')).toBe(true);
+  });
+
+  it('ignores resolved applicant records in both supported formats', () => {
+    expect(gitIgnores('applicant.json')).toBe(true);
+    expect(gitIgnores('applicant.lino')).toBe(true);
+    expect(gitIgnores('applicant.evisa.json')).toBe(true);
+    expect(gitIgnores('applicant.evisa.lino')).toBe(true);
+  });
+
+  it('ignores browser automation scratch output', () => {
+    expect(gitIgnores('.playwright-mcp/page.yml')).toBe(true);
+  });
+});
+
+describe('no personal data is committed', () => {
+  const sources = readdirSync('src')
+    .filter((f) => f.startsWith('evisa-'))
+    .map((f) => ({ file: f, text: readFileSync(`src/${f}`, 'utf8') }));
+
+  const tests = readdirSync('tests')
+    .filter((f) => f.startsWith('evisa-'))
+    .map((f) => ({ file: f, text: readFileSync(`tests/${f}`, 'utf8') }));
+
+  it('ships no real passport numbers', () => {
+    // The only passport numbers in the tree are the documented test value and
+    // the obvious placeholder used in the live-form check.
+    for (const { file, text } of [...sources, ...tests]) {
+      const found = text.match(/\b\d{9}\b/g) ?? [];
+      const unexpected = found.filter((n) => n !== '712345678');
+      expect(`${file}:${unexpected.join(',')}`).toBe(`${file}:`);
+    }
+  });
+
+  it('uses placeholder names in fixtures, never anyone real', () => {
+    // Test fixtures are built from neutral placeholders so that no real
+    // traveller's name is published with the package.
+    const allowed = [
+      'TRAVELLER',
+      'SAMPLE',
+      'DOE',
+      'JOHN',
+      'JANE',
+      'ALEX',
+      'EXAMPLE',
+      'JOSE',
+      'ANGEL',
+      'ONLY',
+      'CORRECT',
+      'MISREAD',
+      'KEEP',
+      'NEW',
+      'MOSCOW',
+    ];
+    for (const { file, text } of tests) {
+      // Look at the fields that carry a person's name, so unrelated all-caps
+      // fixtures such as a malformed MRZ line are not treated as names.
+      const values = [
+        ...text.matchAll(
+          /(?:surname|givenName|given|last_name|first_name|'First Name'|emergencyName|normalizeName\()\s*:?\s*'([^']+)'/g
+        ),
+      ].map((m) => m[1]);
+      const unexpected = values.filter(
+        (value) =>
+          !value
+            .split(/[\s,]+/)
+            .filter(Boolean)
+            .every((part) => {
+              const plain = part
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toUpperCase();
+              // Single letters are placeholders in merge and override tests.
+              return plain.length === 1 || allowed.includes(plain);
+            })
+      );
+      expect(`${file}:${[...new Set(unexpected)].join(',')}`).toBe(`${file}:`);
+    }
+  });
+
+  it('uses only example.com addresses', () => {
+    for (const { file, text } of [...sources, ...tests]) {
+      const emails = text.match(/[\w.+-]+@[\w.-]+\.\w+/g) ?? [];
+      const real = emails.filter((e) => !e.endsWith('@example.com'));
+      expect(`${file}:${real.join(',')}`).toBe(`${file}:`);
+    }
+  });
+
+  it('reads documents from paths given at run time, never a hard-coded one', () => {
+    for (const { file, text } of sources) {
+      expect(`${file}:${text.includes('/Users/')}`).toBe(`${file}:false`);
+      expect(`${file}:${text.includes('travel-documents')}`).toBe(
+        `${file}:false`
+      );
+    }
+  });
+
+  it('never sends applicant data anywhere but the government form', () => {
+    for (const { file, text } of sources) {
+      // No outbound HTTP of its own: the only network traffic is the browser
+      // navigating to evisa.gov.vn.
+      expect(`${file}:${/\bfetch\s*\(/.test(text)}`).toBe(`${file}:false`);
+      expect(`${file}:${/axios|node-fetch|https?\.request/.test(text)}`).toBe(
+        `${file}:false`
+      );
+    }
+  });
+
+  it('only ever navigates to the official e-visa site', () => {
+    const fill = readFileSync('src/evisa-fill.mjs', 'utf8');
+    const urls = fill.match(/https?:\/\/[^\s'"`]+/g) ?? [];
+    for (const url of urls) {
+      expect(url.startsWith('https://evisa.gov.vn/')).toBe(true);
+    }
+  });
+});

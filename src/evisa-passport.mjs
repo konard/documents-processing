@@ -113,13 +113,9 @@ export async function cropPassportPage(inputPath, outputPath) {
 
 /**
  * Renders any supported input (including a PDF page) to a JPEG that satisfies
- * the upload rules: JPEG, under 2 MB, and a 4:6 portrait aspect for the photo.
+ * the upload rules: JPEG format, under 2 MB.
  */
-export async function prepareUploadImage(
-  inputPath,
-  outputPath,
-  { portrait = false } = {}
-) {
+export async function prepareUploadImage(inputPath, outputPath) {
   const sharp = (await import('sharp')).default;
 
   let source = inputPath;
@@ -131,18 +127,30 @@ export async function prepareUploadImage(
     cleanup = source;
   }
 
-  let pipeline = sharp(source, { failOn: 'none' }).rotate();
-  if (portrait) {
-    // The form asks for a 4x6 cm portrait, so match that 2:3 aspect ratio.
-    pipeline = pipeline.resize(800, 1200, {
-      fit: 'cover',
-      position: 'attention',
-    });
+  // A JPEG that already fits the limit is uploaded byte for byte. Re-encoding
+  // it would only lose detail, and any reframing would cut into the
+  // head-and-shoulders composition the reviewer checks.
+  const isJpeg = /\.jpe?g$/i.test(source);
+  if (isJpeg && fs.statSync(source).size <= PHOTO_RULES.maxBytes) {
+    fs.copyFileSync(source, outputPath);
+    if (cleanup) {
+      fs.rmSync(cleanup, { force: true });
+    }
+    return {
+      path: outputPath,
+      bytes: fs.statSync(outputPath).size,
+      unchanged: true,
+    };
   }
+
+  // Otherwise shrink it just enough to clear the ceiling, preserving the
+  // aspect ratio and never enlarging.
+  const pipeline = sharp(source, { failOn: 'none' })
+    .rotate()
+    .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true });
 
   let quality = 92;
   let buffer = await pipeline.jpeg({ quality }).toBuffer();
-  // Step the quality down until the file clears the form's 2 MB ceiling.
   while (buffer.length > PHOTO_RULES.maxBytes && quality > 40) {
     quality -= 10;
     buffer = await pipeline.jpeg({ quality }).toBuffer();
@@ -152,5 +160,10 @@ export async function prepareUploadImage(
     fs.rmSync(cleanup, { force: true });
   }
 
-  return { path: outputPath, bytes: buffer.length, quality };
+  return {
+    path: outputPath,
+    bytes: buffer.length,
+    quality,
+    unchanged: false,
+  };
 }

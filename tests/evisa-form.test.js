@@ -98,6 +98,25 @@ describe('passport MRZ conversion', () => {
   });
 });
 
+describe('upload preparation', () => {
+  const source = readFileSync('src/evisa-passport.mjs', 'utf8');
+
+  it('uploads an image that already fits the limit byte for byte', () => {
+    expect(source.includes('fs.copyFileSync(source, outputPath)')).toBe(true);
+    expect(source.includes('unchanged: true')).toBe(true);
+  });
+
+  it('never crops or enlarges an image', () => {
+    // A passport photo is already framed head-and-shoulders, and that framing
+    // is part of what a reviewer checks. Cropping to a fixed aspect cuts into
+    // it, and enlarging a small scan only loses detail.
+    expect(source.includes("fit: 'cover'")).toBe(false);
+    expect(source.includes("position: 'attention'")).toBe(false);
+    expect(source.includes("fit: 'inside'")).toBe(true);
+    expect(source.includes('withoutEnlargement: true')).toBe(true);
+  });
+});
+
 describe('parseArgs', () => {
   it('collects repeated inputs', () => {
     const options = parseArgs(['--input', 'a.json', '--input', 'b.lino']);

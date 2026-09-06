@@ -180,12 +180,10 @@ async function main() {
   const { prepareUploadImage } = await import('./evisa-passport.mjs');
   if (options.portrait) {
     const out = path.join(options.out, 'portrait.jpg');
-    const prepared = await prepareUploadImage(options.portrait, out, {
-      portrait: true,
-    });
+    const prepared = await prepareUploadImage(options.portrait, out);
     uploads.portraitPhoto = prepared.path;
     console.log(
-      `Prepared portrait: ${prepared.path} (${prepared.bytes} bytes)`
+      `Portrait: ${prepared.path} (${prepared.bytes} bytes${prepared.unchanged ? ', unchanged' : `, re-encoded at q${prepared.quality}`})`
     );
   }
   if (options.passport) {
@@ -193,7 +191,7 @@ async function main() {
     const prepared = await prepareUploadImage(options.passport, out);
     uploads.passportPage = prepared.path;
     console.log(
-      `Prepared passport page: ${prepared.path} (${prepared.bytes} bytes)`
+      `Passport page: ${prepared.path} (${prepared.bytes} bytes${prepared.unchanged ? ', unchanged' : `, re-encoded at q${prepared.quality}`})`
     );
   }
 

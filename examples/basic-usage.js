@@ -8,20 +8,26 @@
  * - Deno: deno run examples/basic-usage.js
  */
 
-import { add, multiply, delay } from '../src/index.js';
+import { box, jitter, parseSaneDate } from '../src/index.mjs';
 
-// Example: Using add function
-console.log('Addition examples:');
-console.log(`  2 + 3 = ${add(2, 3)}`);
-console.log(`  -1 + 5 = ${add(-1, 5)}`);
+// Example: describe a region of interest on a scanned page.
+// `box` builds the rectangle descriptor the OCR helpers expect.
+const region = box(120, 240, 300, 60);
+console.log('Region of interest:');
+console.log(`  ${JSON.stringify(region)}`);
 
-// Example: Using multiply function
-console.log('\nMultiplication examples:');
-console.log(`  4 * 5 = ${multiply(4, 5)}`);
-console.log(`  -2 * 3 = ${multiply(-2, 3)}`);
+// Example: nudge that region slightly, staying inside the page bounds.
+// Re-reading a field across jittered boxes is how consensus reads are built.
+console.log('\nJittered variants (for consensus OCR):');
+for (const px of [4, 8]) {
+  console.log(
+    `  ±${px}px -> ${JSON.stringify(jitter(region, px, 1000, 1400))}`
+  );
+}
 
-// Example: Using async delay function
-console.log('\nAsync example:');
-console.log('  Waiting 100ms...');
-await delay(100);
-console.log('  Done!');
+// Example: parse a DD.MM.YYYY date off a document, rejecting OCR noise.
+// Whitespace is ignored; out-of-range days, months and years yield null.
+console.log('\nDate parsing:');
+for (const raw of ['12.03.2024', '1 2 . 0 3 . 2 0 2 4', '32.03.2024', 'x']) {
+  console.log(`  ${JSON.stringify(raw)} -> ${parseSaneDate(raw)}`);
+}

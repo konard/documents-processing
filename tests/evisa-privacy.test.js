@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync, readdirSync } from 'node:fs';
 
-const ignorePatterns = readFileSync('.gitignore', 'utf8')
+const ignoreRules = readFileSync('.gitignore', 'utf8')
   .split('\n')
   .map((line) => line.trim())
-  .filter((line) => line && !line.startsWith('#'));
+  .filter((line) => line && !line.startsWith('#'))
+  .map((line) => ({
+    negated: line.startsWith('!'),
+    pattern: line.replace(/^!/, ''),
+  }));
 
 /**
  * Reports whether .gitignore covers a path.
@@ -14,20 +18,38 @@ const ignorePatterns = readFileSync('.gitignore', 'utf8')
  */
 const matchesPattern = (pattern, name) =>
   new RegExp(
-    `^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')}$`
+    `^${pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*/g, '.*')
+      .replace(/(?<!\.)\*/g, '[^/]*')}$`
   ).test(name);
 
-const gitIgnores = (candidate) =>
-  ignorePatterns.some((pattern) => {
-    // A trailing slash marks a directory, covering everything beneath it.
-    if (pattern.endsWith('/')) {
-      return candidate.startsWith(pattern);
+const ruleMatches = ({ pattern }, candidate) => {
+  // A leading slash anchors the pattern to the repository root.
+  const anchored = pattern.startsWith('/');
+  const cleaned = anchored ? pattern.slice(1) : pattern;
+  // A trailing slash marks a directory, covering everything beneath it.
+  if (cleaned.endsWith('/')) {
+    return candidate.startsWith(cleaned);
+  }
+  if (anchored || cleaned.includes('/')) {
+    return matchesPattern(cleaned, candidate);
+  }
+  // An unanchored bare name matches any path segment, so a directory such as
+  // "coverage" also covers everything inside it.
+  return candidate.split('/').some((part) => matchesPattern(cleaned, part));
+};
+
+const gitIgnores = (candidate) => {
+  // The last matching rule wins, so a later "!" line re-includes a path.
+  let ignored = false;
+  for (const rule of ignoreRules) {
+    if (ruleMatches(rule, candidate)) {
+      ignored = !rule.negated;
     }
-    // A pattern with no slash matches the file name at any depth.
-    return pattern.includes('/')
-      ? matchesPattern(pattern, candidate)
-      : matchesPattern(pattern, candidate.split('/').pop() ?? '');
-  });
+  }
+  return ignored;
+};
 
 describe('e-visa output stays out of the repository', () => {
   // Everything this tool produces is derived from someone's passport: the

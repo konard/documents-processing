@@ -8,8 +8,9 @@ import {
   AIR_BORDER_GATES,
   PHOTO_RULES,
   MAX_EVISA_DAYS,
+  countryName,
+  sexLabel,
 } from '../src/evisa-schema.mjs';
-import { countryName, sexLabel } from '../src/evisa-passport.mjs';
 import { parseArgs } from '../src/evisa-apply.mjs';
 
 describe('evisa schema', () => {

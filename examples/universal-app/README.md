@@ -1,8 +1,10 @@
 # Universal Example App
 
-This example turns the package functions in `src/index.js` into a React UI and
-uses the same build output for GitHub Pages, Electron desktop packages, and
-Capacitor mobile projects.
+This example wraps a small self-contained calculator in a React UI and uses the
+same build output for GitHub Pages, Electron desktop packages, and Capacitor
+mobile projects. It deliberately does not import the package entry point
+(`src/index.mjs`): those helpers wrap Node-only native modules for OCR and PDF
+work, which cannot be bundled into a browser build.
 
 ![Universal example app preview](../../docs/screenshots/example-app/example-app.png)
 

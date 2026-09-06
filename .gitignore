@@ -155,6 +155,22 @@ data/gmail-token.json
 data/gmail-browser-profile/
 data/gmail-state.json
 data/chrome-cookies-*.json
+# Cached Chrome "Safe Storage" key (a local secret) — never commit.
+data/.chrome-safe-storage-key.json
+# Dedicated real-Chrome CDP profile (holds a logged-in session) — never commit.
+data/chrome-cdp-*profile/
+# Other spawned Console/Gmail browser profiles (logged-in sessions) — never commit.
+data/gcloud-console-*profile/
+data/chrome-cdp-console-*/
+# Debug screenshots from the Console/consent automation (--debug-shots). They
+# show the signed-in account's email/PII, so they must NEVER be committed.
+data/consent-debug/
+data/consent-auth-debug/
+# Console-automation run logs (may echo account details) — never commit.
+data/gcloud-run.log
+data/consent-auth.log
+data/fetch-run.log
+data/gmail-status.log
 # Resume cache of fetched emails (raw message bodies) — never commit.
 data/flight-cancellations-cache/
 # Cached / downloaded fonts (never shipped in this repo).

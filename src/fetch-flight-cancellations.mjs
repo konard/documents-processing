@@ -133,16 +133,72 @@ function baseName(parsed, eml) {
   return `${dateStamp(parsed.date)}-${from}-${subject}-${shortHash(eml)}`;
 }
 
+// RFC Message-IDs already present in OUT_DIR, so the SAME message is never saved
+// twice — even when it arrives in two different byte forms (e.g. a raw MIME copy
+// from the Gmail API and an HTML copy rendered from the Gmail DOM by the browser
+// path). Those differ byte-for-byte, so a content hash gives them different
+// names and the old "does the file exist?" check missed the duplicate. The
+// Message-ID header is identical across both, so we key de-duplication on it.
+// Built once, lazily, by scanning the existing .eml files' headers.
+let seenMessageIds = null;
+function messageIdOf(eml) {
+  // Read only the header block; the Message-ID line is case-insensitive.
+  const headerEnd = eml.indexOf('\r\n\r\n');
+  const header = (
+    headerEnd === -1 ? eml.slice(0, 8192) : eml.slice(0, headerEnd)
+  ).toString('utf8');
+  const match = header.match(/^message-id:\s*(.+)$/im);
+  return match ? match[1].trim() : null;
+}
+function loadSeenMessageIds() {
+  const ids = new Set();
+  if (!fs.existsSync(OUT_DIR)) {
+    return ids;
+  }
+  for (const name of fs.readdirSync(OUT_DIR)) {
+    if (!name.endsWith('.eml')) {
+      continue;
+    }
+    const id = messageIdOf(fs.readFileSync(path.join(OUT_DIR, name)));
+    if (id) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
+// True if this message is already on disk — by RFC Message-ID (survives the
+// browser-vs-API byte differences) or by its content-hash filename. Logs the
+// reason and returns true so the caller can skip it. Honours --refresh.
+function alreadySaved(eml, messageId, base, index, total) {
+  if (flags.refresh) {
+    return false;
+  }
+  if (seenMessageIds === null) {
+    seenMessageIds = loadSeenMessageIds();
+  }
+  if (messageId && seenMessageIds.has(messageId)) {
+    console.log(`• [${index}/${total}] ${base} — duplicate message, skipped`);
+    return true;
+  }
+  if (fs.existsSync(path.join(OUT_DIR, `${base}.eml`))) {
+    console.log(`• [${index}/${total}] ${base} — already saved, skipped`);
+    return true;
+  }
+  return false;
+}
+
 // Save one email: its .eml original, a PDF per working engine, and any real
 // attachments — all named from the message content. Shared by both sources.
-// Idempotent: if the .eml for this message already exists (same content hash),
-// the whole email is skipped so a resumed run does no duplicate work.
+// Idempotent: skips the message if one with the same RFC Message-ID (or the same
+// content-hash filename) is already saved, so a resumed run — or the other
+// source seeing the same mail — does no duplicate work.
 async function saveEmail(eml, index, total) {
   const parsedForName = await simpleParser(eml);
   const base = baseName(parsedForName, eml);
+  const messageId = messageIdOf(eml);
 
-  if (fs.existsSync(path.join(OUT_DIR, `${base}.eml`)) && !flags.refresh) {
-    console.log(`• [${index}/${total}] ${base} — already saved, skipped`);
+  if (alreadySaved(eml, messageId, base, index, total)) {
     return;
   }
 
@@ -153,6 +209,12 @@ async function saveEmail(eml, index, total) {
   );
 
   fs.writeFileSync(path.join(OUT_DIR, `${base}.eml`), eml);
+  if (messageId) {
+    // Track it so a later duplicate in the same run is skipped. The set may be
+    // unset here when --refresh short-circuited alreadySaved(), so seed it.
+    seenMessageIds ??= loadSeenMessageIds();
+    seenMessageIds.add(messageId);
+  }
 
   const madePdfs = [];
   for (const result of results) {

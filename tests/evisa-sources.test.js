@@ -99,6 +99,12 @@ describe('lino round trip', () => {
     expect(parsed.visitedVietnamLastYear).toBe(true);
   });
 
+  it('leaves comment keys out of the encoded record', () => {
+    const encoded = toLino({ _comment: 'notes', surname: 'DOE' });
+    expect(encoded.includes('_comment')).toBe(false);
+    expect(encoded.includes('DOE')).toBe(true);
+  });
+
   it('keeps values that contain spaces intact', () => {
     const parsed = parseLinoFallback(
       toLino({ entryBorderGate: 'Noi Bai Airport Border Gate' })

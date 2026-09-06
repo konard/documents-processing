@@ -136,10 +136,16 @@ export function parseLinoFallback(text) {
   return out;
 }
 
-/** Serializes a record as single-line-per-field lino notation. */
+/**
+ * Serializes a record as single-line-per-field lino notation. Comment keys are
+ * left out, so the result is a clean record ready to feed back in.
+ */
 export function toLino(record) {
   const lines = ['('];
   for (const [key, value] of Object.entries(record)) {
+    if (key.startsWith('_')) {
+      continue;
+    }
     const text =
       typeof value === 'boolean' || typeof value === 'number'
         ? String(value)

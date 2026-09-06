@@ -759,8 +759,19 @@ function mrzCheck(str) {
   }
   return s % 10;
 }
-const yy = (y) => {
+// The MRZ stores a two-digit year, so the century has to be inferred.
+// A birth year cannot be in the future, while an expiry year is always ahead of
+// the issue date, so each needs its own pivot: without this a passport expiring
+// in '32 would be read as 1932.
+const yy = (y, kind = 'past') => {
   const n = +y;
+  // Passports run at most ~10 years, so an expiry year sits in a narrow window
+  // around today. Reading it with the birth-year pivot of 30 would turn a
+  // passport expiring in '32 into 1932; sliding the window forward keeps both
+  // recently expired and long-dated passports in the right century.
+  if (kind === 'future') {
+    return n < (new Date().getUTCFullYear() % 100) - 10 ? 2100 + n : 2000 + n;
+  }
   return n <= 30 ? 2000 + n : 1900 + n;
 };
 
@@ -823,7 +834,7 @@ export function parseMrzLine2(raw) {
     dob: `${String(yy(dob.slice(0, 2))).padStart(4, '0')}-${dob.slice(2, 4)}-${dob.slice(4, 6)}`,
     dobCheckOk: mrzCheck(dob) === +cD,
     sex,
-    expiry: `${yy(exp.slice(0, 2))}-${exp.slice(2, 4)}-${exp.slice(4, 6)}`,
+    expiry: `${yy(exp.slice(0, 2), 'future')}-${exp.slice(2, 4)}-${exp.slice(4, 6)}`,
     expiryCheckOk: mrzCheck(exp) === +cE,
   };
 }

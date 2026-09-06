@@ -99,10 +99,23 @@ export default [
     },
   },
   {
+    // The callbacks passed to page.evaluate() are serialized and run inside the
+    // browser, where the DOM globals apply.
+    files: ['src/evisa-fill.mjs'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+      },
+    },
+  },
+  {
     // Test files have different requirements
     files: ['tests/**/*.js', 'tests/**/*.mjs', '**/*.test.js'],
     rules: {
       'require-await': 'off', // Async functions without await are common in tests
+      // Dates in test fixtures are sample values, so they are not flagged.
+      'local/no-changelog-comments': ['warn', { allowDatesInStrings: true }],
     },
   },
   {

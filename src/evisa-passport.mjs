@@ -6,52 +6,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  renderImage,
-  regionCanvas,
-  upscale,
-  ocrCanvas,
-  parseMrzLine1,
-  parseMrzLine2,
-} from './ocr-lib.mjs';
-import { PHOTO_RULES } from './evisa-schema.mjs';
+import { renderImage, regionCanvas, upscale, ocrCanvas } from './ocr-lib.mjs';
+import { parseMrzLine1, parseMrzLine2 } from './mrz-lib.mjs';
+import { PHOTO_RULES, countryName, sexLabel } from './evisa-schema.mjs';
 
 /** The MRZ occupies the bottom ~11% of a TD3 passport data page. */
 const MRZ_REGION = { x: 0, y: 0.883, w: 1, h: 0.112 };
 const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
-
-/** ISO 3166 alpha-3 codes for the nationalities seen most often in this repo. */
-const COUNTRY_NAMES = {
-  RUS: 'Russia',
-  UKR: 'Ukraine',
-  BLR: 'Belarus',
-  KAZ: 'Kazakhstan',
-  USA: 'United States of America',
-  GBR: 'United Kingdom',
-  DEU: 'Germany',
-  FRA: 'France',
-  IND: 'India',
-  CHN: 'China',
-};
-
-/** Expands an alpha-3 code to the country name the form's dropdown lists. */
-export function countryName(code) {
-  if (!code) {
-    return null;
-  }
-  return COUNTRY_NAMES[code.toUpperCase()] ?? code.toUpperCase();
-}
-
-/** Maps an MRZ sex character to the form's wording. */
-export function sexLabel(code) {
-  if (code === 'M') {
-    return 'Male';
-  }
-  if (code === 'F') {
-    return 'Female';
-  }
-  return null;
-}
 
 /**
  * Reads the MRZ from a rendered passport page and converts it to schema fields.

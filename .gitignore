@@ -189,3 +189,4 @@ evisa-*.jpeg
 applicant.json
 applicant.lino
 .playwright-mcp/
+test-results/

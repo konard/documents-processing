@@ -30,14 +30,14 @@ node src/evisa-apply.mjs \
 
 `--input` accepts any of the following, and may be repeated:
 
-| Input             | Behaviour                                                          |
-| ----------------- | ------------------------------------------------------------------ |
-| `.json`           | Read directly; a record nested under `applicant` is used           |
-| `.lino`, `.links` | [Links notation](https://github.com/link-assistant/links-notation) |
-| `.jpg`, `.png`    | Treated as a document; OCR'd with `--ocr`                          |
-| `.pdf`            | First page rendered, then treated as an image                      |
-| folder            | Every recognized file inside, recursively                          |
-| `.zip`            | Extracted to a temporary directory, then read as a folder          |
+| Input             | Behaviour                                                           |
+| ----------------- | ------------------------------------------------------------------- |
+| `.json`           | Read directly; a record nested under `applicant` is used            |
+| `.lino`, `.links` | [Links notation](https://github.com/link-foundation/links-notation) |
+| `.jpg`, `.png`    | Treated as a document; OCR'd with `--ocr`                           |
+| `.pdf`            | First page rendered, then treated as an image                       |
+| folder            | Every recognized file inside, recursively                           |
+| `.zip`            | Extracted to a temporary directory, then read as a folder           |
 
 Sources are merged left to right, and **a later source wins**. That is how a
 verified record overrides raw OCR:

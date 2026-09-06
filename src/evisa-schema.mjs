@@ -212,3 +212,36 @@ export const KNOWN_KEYS = new Set([
   ...Object.keys(RADIO_GROUPS),
   ...Object.keys(UPLOADS),
 ]);
+
+/** ISO 3166 alpha-3 codes for the nationalities seen most often in this repo. */
+const COUNTRY_NAMES = {
+  RUS: 'Russia',
+  UKR: 'Ukraine',
+  BLR: 'Belarus',
+  KAZ: 'Kazakhstan',
+  USA: 'United States of America',
+  GBR: 'United Kingdom',
+  DEU: 'Germany',
+  FRA: 'France',
+  IND: 'India',
+  CHN: 'China',
+};
+
+/** Expands an alpha-3 code to the country name the form's dropdown lists. */
+export function countryName(code) {
+  if (!code) {
+    return null;
+  }
+  return COUNTRY_NAMES[code.toUpperCase()] ?? code.toUpperCase();
+}
+
+/** Maps an MRZ sex character to the form's wording. */
+export function sexLabel(code) {
+  if (code === 'M') {
+    return 'Male';
+  }
+  if (code === 'F') {
+    return 'Female';
+  }
+  return null;
+}

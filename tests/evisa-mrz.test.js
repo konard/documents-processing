@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'test-anywhere';
-import { parseMrzLine1, parseMrzLine2 } from '../src/ocr-lib.mjs';
+import { parseMrzLine1, parseMrzLine2 } from '../src/mrz-lib.mjs';
 
 // A TD3 line 2 with correct check digits: passport 712345678 (3),
 // date of birth 12 March 1987 (3), expiry 1 January 2032 (5).

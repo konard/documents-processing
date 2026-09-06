@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'test-anywhere';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
   classify,
@@ -12,7 +10,9 @@ import {
   guessDocumentRole,
 } from '../src/evisa-sources.mjs';
 
-const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-test-'));
+// Fixtures are committed and read-only, so these tests need no write access
+// and run under every runtime in the matrix, including Deno's sandbox.
+const FIXTURES = 'tests/fixtures/evisa';
 
 describe('classify', () => {
   it('recognizes each supported input type', () => {
@@ -109,79 +109,48 @@ describe('lino round trip', () => {
 
 describe('walk', () => {
   it('finds nested files and skips dotfiles and resource forks', () => {
-    const dir = tempDir();
-    fs.mkdirSync(path.join(dir, 'nested'));
-    fs.mkdirSync(path.join(dir, '__MACOSX'));
-    fs.writeFileSync(path.join(dir, 'a.json'), '{}');
-    fs.writeFileSync(path.join(dir, 'nested', 'b.json'), '{}');
-    fs.writeFileSync(path.join(dir, '.hidden.json'), '{}');
-    fs.writeFileSync(path.join(dir, '__MACOSX', 'c.json'), '{}');
-
-    const found = walk(dir)
+    const found = walk(FIXTURES)
       .map((f) => path.basename(f))
       .sort();
-    expect(found).toEqual(['a.json', 'b.json']);
-    fs.rmSync(dir, { recursive: true, force: true });
+    expect(found.includes('applicant.json')).toBe(true);
+    expect(found.includes('nested.json')).toBe(true);
+    expect(found.includes('.hidden.json')).toBe(false);
+    expect(found.includes('resource.json')).toBe(false);
   });
 });
 
 describe('loadSource', () => {
   it('reads a JSON file and normalizes its keys', async () => {
-    const dir = tempDir();
-    const file = path.join(dir, 'applicant.json');
-    fs.writeFileSync(file, JSON.stringify({ last_name: 'DOE' }));
-
-    const [source] = await loadSource(file);
+    const [source] = await loadSource(`${FIXTURES}/applicant.json`);
     expect(source.kind).toBe('json');
     expect(source.data.surname).toBe('DOE');
-    fs.rmSync(dir, { recursive: true, force: true });
+    expect(source.data.givenName).toBe('JOHN');
   });
 
   it('unwraps a record nested under an "applicant" key', async () => {
-    const dir = tempDir();
-    const file = path.join(dir, 'wrapped.json');
-    fs.writeFileSync(file, JSON.stringify({ applicant: { surname: 'X' } }));
-
-    const [source] = await loadSource(file);
-    expect(source.data.surname).toBe('X');
-    fs.rmSync(dir, { recursive: true, force: true });
+    const [source] = await loadSource(`${FIXTURES}/wrapped.json`);
+    expect(source.data.surname).toBe('SAMPLE');
   });
 
   it('reads a lino file', async () => {
-    const dir = tempDir();
-    const file = path.join(dir, 'applicant.lino');
-    fs.writeFileSync(file, toLino({ surname: 'TRAVELLER' }));
-
-    const [source] = await loadSource(file);
+    const [source] = await loadSource(`${FIXTURES}/applicant.lino`);
     expect(source.kind).toBe('lino');
     expect(source.data.surname).toBe('TRAVELLER');
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('returns an image as a document reference, leaving it unparsed', async () => {
-    const dir = tempDir();
-    const file = path.join(dir, 'PERSON-PASSPORT.jpg');
-    fs.writeFileSync(file, 'not really a jpeg');
-
+    const file = `${FIXTURES}/SAMPLE-PASSPORT.jpg`;
     const [source] = await loadSource(file);
     expect(source.kind).toBe('image');
     expect(source.documentPath).toBe(file);
     expect(source.data).toEqual({});
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('loads every recognized file in a folder', async () => {
-    const dir = tempDir();
-    fs.writeFileSync(
-      path.join(dir, 'a.json'),
-      JSON.stringify({ surname: 'A' })
-    );
-    fs.writeFileSync(path.join(dir, 'b.lino'), toLino({ givenName: 'B' }));
-    fs.writeFileSync(path.join(dir, 'notes.txt'), 'ignored');
-
-    const sources = await loadSource(dir);
-    expect(sources.length).toBe(2);
-    fs.rmSync(dir, { recursive: true, force: true });
+  it('loads every recognized file in a folder, skipping the rest', async () => {
+    const sources = await loadSource(FIXTURES);
+    const kinds = sources.map((s) => s.kind).sort();
+    // Three JSON files, one lino record and one image; notes.txt is skipped.
+    expect(kinds).toEqual(['image', 'json', 'json', 'json', 'lino']);
   });
 });
 

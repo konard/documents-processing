@@ -27,7 +27,6 @@ import {
   validateApplicant,
   mergeSources,
 } from './evisa-data.mjs';
-import { readPassportMrz, prepareUploadImage } from './evisa-passport.mjs';
 import {
   FORM_URL,
   acceptNoteModal,
@@ -104,6 +103,8 @@ export async function resolveApplicant(options) {
       documents.find((doc) => doc.role === 'passport') ??
       documents.find((doc) => doc.role === 'unknown');
     if (passportDoc) {
+      // Imported here so a --dry-run never loads the native image libraries.
+      const { readPassportMrz } = await import('./evisa-passport.mjs');
       const result = await readPassportMrz(passportDoc.path);
       if (result.mrzFound) {
         // OCR goes first so any explicit record overrides it.
@@ -176,6 +177,7 @@ async function main() {
   fs.mkdirSync(options.out, { recursive: true });
 
   const uploads = {};
+  const { prepareUploadImage } = await import('./evisa-passport.mjs');
   if (options.portrait) {
     const out = path.join(options.out, 'portrait.jpg');
     const prepared = await prepareUploadImage(options.portrait, out, {

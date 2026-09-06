@@ -1,15 +1,33 @@
 import { describe, it, expect } from 'test-anywhere';
-import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 
-const gitIgnores = (candidate) => {
-  try {
-    execFileSync('git', ['check-ignore', '-q', candidate]);
-    return true;
-  } catch {
-    return false;
-  }
-};
+const ignorePatterns = readFileSync('.gitignore', 'utf8')
+  .split('\n')
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith('#'));
+
+/**
+ * Reports whether .gitignore covers a path.
+ *
+ * The patterns are read directly, so the test needs no subprocess and runs
+ * under every runtime in the matrix, including Deno's sandbox.
+ */
+const matchesPattern = (pattern, name) =>
+  new RegExp(
+    `^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')}$`
+  ).test(name);
+
+const gitIgnores = (candidate) =>
+  ignorePatterns.some((pattern) => {
+    // A trailing slash marks a directory, covering everything beneath it.
+    if (pattern.endsWith('/')) {
+      return candidate.startsWith(pattern);
+    }
+    // A pattern with no slash matches the file name at any depth.
+    return pattern.includes('/')
+      ? matchesPattern(pattern, candidate)
+      : matchesPattern(pattern, candidate.split('/').pop() ?? '');
+  });
 
 describe('e-visa output stays out of the repository', () => {
   // Everything this tool produces is derived from someone's passport: the

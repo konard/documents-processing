@@ -186,7 +186,11 @@ evisa-*.jpg
 evisa-*.jpeg
 *.evisa.json
 *.evisa.lino
-applicant.json
-applicant.lino
+# Anchored to the root so they do not swallow the committed test fixtures.
+/applicant.json
+/applicant.lino
 .playwright-mcp/
+
+# Test fixtures are placeholder data and are meant to be committed.
+!tests/fixtures/**
 test-results/

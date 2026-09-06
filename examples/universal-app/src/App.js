@@ -1,9 +1,14 @@
 import { createElement as h, useMemo, useState } from 'react';
-import { add, multiply } from '../../../src/index.js';
+
+// This demo intentionally keeps its arithmetic local. The package entry point
+// (src/index.mjs) exposes OCR and PDF helpers that depend on Node-only native
+// modules, so they cannot be bundled into a browser build.
+const add = (a, b) => a + b;
+const multiply = (a, b) => a * b;
 
 const repositoryUrl =
   import.meta.env.VITE_REPOSITORY_URL ??
-  'https://github.com/link-foundation/js-ai-driven-development-pipeline-template';
+  'https://github.com/konard/documents-processing';
 
 const desktopTargets = [
   {

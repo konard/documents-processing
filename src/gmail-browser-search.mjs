@@ -85,36 +85,88 @@ async function collectResultRows(page) {
   });
 }
 
-// Read the currently-open message's fields from the Gmail DOM.
+// Expand every collapsed message in the open conversation so its body renders.
+// Gmail collapses all but the last message in a thread; the trimmed-content
+// buttons ('.ajR', '.iX') and collapsed rows ('.kv', '.kQ') must be clicked for
+// the hidden .a3s bodies to appear in the DOM.
+async function expandThread(page) {
+  const expanders = ['.ajR', '.adx .iX', 'td.gF ~ td .aftg'];
+  for (const selector of expanders) {
+    const nodes = page.locator(selector);
+    const count = await nodes.count().catch(() => 0);
+    for (let index = 0; index < count; index += 1) {
+      await nodes
+        .nth(index)
+        .click({ timeout: 1500 })
+        .catch(() => {});
+    }
+  }
+}
+
+// Read the whole open conversation from the Gmail DOM: subject, and every
+// message in the thread (each message's sender + HTML body, top to bottom).
+// This captures replies you sent, not just the newest inbound message.
 async function readOpenMessage(page) {
-  const from = await page
-    .locator('.gD')
-    .first()
-    .getAttribute('email')
-    .catch(() => null);
-  const fromName = await page
-    .locator('.gD')
-    .first()
-    .getAttribute('name')
-    .catch(() => null);
+  await expandThread(page);
   const subject = await page
     .locator('h2.hP')
     .first()
     .innerText()
     .catch(() => '');
-  // The visible send date sits in a title/attribute on the header row.
-  const dateText = await page
-    .locator('.g3')
-    .first()
-    .getAttribute('title')
-    .catch(() => null);
-  // The message body container; take its inner HTML to keep formatting.
-  const bodyHtml = await page
+
+  // One entry per message container in the thread. Reading them together (in a
+  // single page evaluate) keeps sender aligned with body and preserves order.
+  const messages = await page
     .locator('.a3s')
-    .first()
-    .innerHTML()
-    .catch(() => '');
-  return { from, fromName, subject, dateText, bodyHtml };
+    .evaluateAll((bodies) => {
+      const attr = (element, name) => element?.getAttribute(name) || '';
+      const text = (element) => element?.textContent?.trim() || '';
+      return bodies.map((body) => {
+        // Walk up to the message shell, then find that message's own header.
+        const shell = body.closest('.gs') || body.closest('.h7') || body;
+        const senderNode =
+          shell.querySelector('.gD') || shell.querySelector('span[email]');
+        const dateNode = shell.querySelector(
+          '.g3, span.gH .gK, [data-tooltip]'
+        );
+        return {
+          from: attr(senderNode, 'email'),
+          fromName: attr(senderNode, 'name') || text(senderNode),
+          dateText:
+            attr(dateNode, 'title') ||
+            attr(dateNode, 'data-tooltip') ||
+            text(dateNode),
+          bodyHtml: body.innerHTML || '',
+        };
+      });
+    })
+    .catch(() => []);
+
+  // Header fields come from the first (top) message; the full body concatenates
+  // every message so the .eml carries the entire correspondence.
+  const first = messages[0] || {};
+  const nonEmpty = messages.filter((message) =>
+    (message.bodyHtml || '').trim()
+  );
+  const bodyHtml =
+    nonEmpty.length <= 1
+      ? first.bodyHtml || ''
+      : nonEmpty
+          .map(
+            (message) =>
+              `<hr><div><b>From:</b> ${message.fromName || ''} &lt;${message.from || ''}&gt;` +
+              `${message.dateText ? ` &nbsp;<b>Date:</b> ${message.dateText}` : ''}</div>` +
+              `<div>${message.bodyHtml}</div>`
+          )
+          .join('\n');
+  return {
+    from: first.from || null,
+    fromName: first.fromName || null,
+    subject,
+    dateText: first.dateText || null,
+    bodyHtml,
+    messageCount: nonEmpty.length,
+  };
 }
 
 // Synthesize a minimal RFC-822 message so mailparser (in eml-to-pdf) can read
@@ -169,24 +221,30 @@ async function fetchOneThread(
   // Open the thread by changing only the URL hash. A full goto() would hang
   // (a fragment change fires no document load), so set location.hash directly
   // and then wait for the message body to render. Gmail can lag on the first
-  // open, so re-open and re-read once if the body comes back empty.
-  const threadHash = `#search/${encodeURIComponent(query)}/${threadId}`;
+  // open, so try more than one view: the search view, then the "all mail" and
+  // "sent" views by thread id. Sent/forwarded messages sometimes do not render
+  // in the search view but do open reliably via #all/<id> or #sent/<id>.
+  const searchHash = `#search/${encodeURIComponent(query)}/${threadId}`;
+  const openHashes = [
+    searchHash,
+    `#all/${threadId}`,
+    `#sent/${threadId}`,
+    `#inbox/${threadId}`,
+  ];
   let fields = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    // Runs in the browser page context, where globalThis is the window. On the
-    // retry, bounce via the list first so the hash change definitely re-renders.
-    if (attempt === 1) {
-      await page.evaluate(
-        (hash) => {
-          globalThis.location.hash = hash;
-        },
-        `#search/${encodeURIComponent(query)}`
-      );
-      await wait(1200);
-    }
+  for (let attempt = 0; attempt < openHashes.length; attempt += 1) {
+    // Runs in the browser page context, where globalThis is the window. Bounce
+    // to the list first so the next hash change definitely re-renders the view.
+    await page.evaluate(
+      (hash) => {
+        globalThis.location.hash = hash;
+      },
+      `#search/${encodeURIComponent(query)}`
+    );
+    await wait(1000);
     await page.evaluate((hash) => {
       globalThis.location.hash = hash;
-    }, threadHash);
+    }, openHashes[attempt]);
 
     if (await looksRateLimited(page)) {
       return { rateLimited: true };
@@ -195,13 +253,13 @@ async function fetchOneThread(
     await page
       .locator('.a3s')
       .first()
-      .waitFor({ state: 'visible', timeout: 20000 })
+      .waitFor({ state: 'visible', timeout: 15000 })
       .catch(() => {});
     await wait(800);
 
     fields = await readOpenMessage(page);
     if (fields.bodyHtml && fields.bodyHtml.length > 0) {
-      break; // got the body; no retry needed
+      break; // got the body; no need to try the other views
     }
   }
 

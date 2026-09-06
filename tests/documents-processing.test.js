@@ -51,7 +51,10 @@ describe('documents-processing commands', () => {
 
   it('every command script begins with a node shebang', () => {
     for (const file of commandFiles) {
-      const firstLine = readFileSync(`src/${file}`, 'utf8').split('\n', 1)[0];
+      // Trim the trailing \r so the check holds on a CRLF checkout (Windows).
+      const firstLine = readFileSync(`src/${file}`, 'utf8')
+        .split('\n', 1)[0]
+        .replace(/\r$/, '');
       expect(firstLine).toBe('#!/usr/bin/env node');
     }
   });

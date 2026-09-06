@@ -71,7 +71,9 @@ function inlineCidImages(html, attachments) {
 
 // Build one self-contained HTML document: a header block with the key envelope
 // fields, then the message's own HTML body (or its text body as a fallback).
-export function emailToHtml(parsed) {
+// options.onePage: emit compact CSS (tighter header, capped banner height) so
+// the single printed page stays reasonably short.
+export function emailToHtml(parsed, options = {}) {
   const header = [
     ['From', parsed.from?.text],
     ['To', parsed.to?.text],
@@ -90,6 +92,17 @@ export function emailToHtml(parsed) {
     ? inlineCidImages(parsed.html, parsed.attachments || [])
     : `<pre>${escapeHtml(parsed.text || '')}</pre>`;
 
+  // Compact styling for the one-page variant: smaller margin and header type,
+  // and a ceiling on the tall hero banner some airline templates lead with, so
+  // the meaningful text keeps more of the page.
+  const compactCss = options.onePage
+    ? `
+  body { margin: 12px; }
+  table.hdr td { padding: 1px 6px; font-size: 10px; }
+  hr { margin: 4px 0 10px; }
+  img { max-height: 220px; object-fit: contain; }`
+    : '';
+
   return `<!doctype html><html><head><meta charset="utf-8">
 <style>
   body { font-family: Arial, "Helvetica Neue", sans-serif; margin: 24px; color: #111; }
@@ -98,7 +111,7 @@ export function emailToHtml(parsed) {
   table.hdr td.k { font-weight: bold; color: #555; white-space: nowrap; width: 1%; }
   hr { border: none; border-top: 1px solid #ccc; margin: 8px 0 20px; }
   pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; }
-  img { max-width: 100%; }
+  img { max-width: 100%; }${compactCss}
 </style></head><body>
 <table class="hdr">${header}</table><hr>
 ${bodyHtml}
@@ -160,7 +173,9 @@ function waitForPageTarget(port, timeoutMs = 15000) {
 
 // Drive Chrome's DevTools Protocol over its WebSocket to load the HTML and
 // print it to PDF — the real "Print to PDF", not the limited CLI flag.
-async function chromePrintToPdf(chromePath, html, outPath) {
+// options.onePage: print the whole email as one page (A4 width, height grown
+// to fit the measured content) so nothing is paginated away.
+async function chromePrintToPdf(chromePath, html, outPath, options = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dp-chrome-'));
   const port = 9222 + (process.pid % 2000);
   const child = spawn(
@@ -173,6 +188,9 @@ async function chromePrintToPdf(chromePath, html, outPath) {
       '--no-default-browser-check',
       '--disable-gpu',
       '--hide-scrollbars',
+      // Route this throwaway profile's password store to Chrome's basic
+      // backend, not the OS credential store, so no macOS Keychain dialog pops.
+      '--password-store=basic',
     ],
     { stdio: 'ignore' }
   );
@@ -180,7 +198,7 @@ async function chromePrintToPdf(chromePath, html, outPath) {
   try {
     const wsUrl = await waitForPageTarget(port);
     const socket = await openWebSocket(wsUrl);
-    const pdfBase64 = await runCdpSession(socket, html);
+    const pdfBase64 = await runCdpSession(socket, html, options);
     fs.writeFileSync(outPath, Buffer.from(pdfBase64, 'base64'));
   } finally {
     // Wait for Chrome to actually exit before removing its user-data-dir, so
@@ -209,10 +227,40 @@ async function openWebSocket(wsUrl) {
   return socket;
 }
 
+// A4 geometry in inches. The one-page printer keeps the A4 width (so the page
+// looks like a normal sheet) but lets the height grow to whatever the content
+// needs, then prints it as ONE tall page — nothing is ever paginated away.
+const A4_WIDTH_IN = 8.27;
+const PAGE_MARGIN_IN = 0.4;
+const CSS_PX_PER_IN = 96;
+
+// The printable content width in CSS px (A4 width minus both side margins). The
+// page is laid out at exactly this width before measuring, so the measured
+// height already reflects how the text wraps on the printed page.
+const CONTENT_WIDTH_PX = (A4_WIDTH_IN - 2 * PAGE_MARGIN_IN) * CSS_PX_PER_IN;
+
+// Wait until every image has finished loading (or a timeout elapses), so the
+// height measured next includes the banner/logos and nothing is cut. Runs in
+// the page and resolves to true after images settle. An expression string.
+const AWAIT_IMAGES_EXPRESSION = `new Promise((resolve) => {
+  const images = [...globalThis.document.images];
+  const pending = images.filter((img) => !img.complete);
+  if (pending.length === 0) { resolve(true); return; }
+  let left = pending.length;
+  const done = () => { if (--left <= 0) resolve(true); };
+  for (const img of pending) {
+    img.addEventListener('load', done, { once: true });
+    img.addEventListener('error', done, { once: true });
+  }
+  setTimeout(() => resolve(true), 4000);
+})`;
+
 // Minimal CDP conversation: enable Page, navigate to a data: URL of the HTML,
 // wait for load, then Page.printToPDF with background printing on. Uses the
 // 'ws' EventEmitter API ('message' delivers a Buffer/string payload directly).
-function runCdpSession(socket, html) {
+// options.onePage: fix the layout width to the A4 content width, wait for
+// images, measure the true content height, and print it all as one tall page.
+function runCdpSession(socket, html, options = {}) {
   return new Promise((resolve, reject) => {
     let id = 0;
     const pending = new Map();
@@ -241,17 +289,60 @@ function runCdpSession(socket, html) {
     (async () => {
       try {
         await send('Page.enable');
+        await send('Runtime.enable');
         const dataUrl = `data:text/html;base64,${Buffer.from(html).toString('base64')}`;
         await send('Page.navigate', { url: dataUrl });
         await new Promise((r) => setTimeout(r, 700)); // let images/layout settle
-        const result = await send('Page.printToPDF', {
+
+        const printParams = {
           printBackground: true,
           preferCSSPageSize: false,
-          marginTop: 0.4,
-          marginBottom: 0.4,
-          marginLeft: 0.4,
-          marginRight: 0.4,
-        });
+          marginTop: PAGE_MARGIN_IN,
+          marginBottom: PAGE_MARGIN_IN,
+          marginLeft: PAGE_MARGIN_IN,
+          marginRight: PAGE_MARGIN_IN,
+        };
+
+        if (options.onePage) {
+          // Lay the body out at exactly the printed content width, wait for all
+          // images to load, then measure the real content height. Printing the
+          // page at that height guarantees the whole email is one page, uncut.
+          await send('Runtime.evaluate', {
+            expression: `(() => {
+              const b = globalThis.document.body;
+              b.style.width = '${CONTENT_WIDTH_PX}px';
+              b.style.margin = '0';
+              return true;
+            })()`,
+            returnByValue: true,
+          });
+          await send('Runtime.evaluate', {
+            expression: AWAIT_IMAGES_EXPRESSION,
+            awaitPromise: true,
+            returnByValue: true,
+          });
+          const { result } = await send('Runtime.evaluate', {
+            expression: `(() => {
+              const b = globalThis.document.body;
+              const d = globalThis.document.documentElement;
+              return JSON.stringify({
+                height: Math.max(b.scrollHeight, d.scrollHeight, b.offsetHeight),
+              });
+            })()`,
+            returnByValue: true,
+          });
+          const size = JSON.parse(result.value);
+          // One tall page: A4 width, content height, plus the top+bottom margins
+          // (Chrome adds the margins inside the paper box). A hair of slack (+2px)
+          // absorbs sub-pixel rounding so the last line never spills to page 2.
+          printParams.paperWidth = A4_WIDTH_IN;
+          printParams.paperHeight =
+            size.height / CSS_PX_PER_IN +
+            2 * PAGE_MARGIN_IN +
+            2 / CSS_PX_PER_IN;
+        }
+
+        const result = await send('Page.printToPDF', printParams);
         socket.close();
         resolve(result.data);
       } catch (error) {
@@ -422,4 +513,25 @@ export async function emlToPdfs(emlInput, outPathBase, dataDir) {
     }
   }
   return { parsed, results };
+}
+
+// Render one .eml to a SINGLE-PAGE PDF via system Chrome: the whole email is
+// laid out, measured, and scaled so it fits on one A4 page — nothing is cut,
+// the airline template just shrinks to fit. Used to build the FRRO exhibits,
+// where each cancellation/change notice must be one page. Returns the outPath.
+// Throws if no system Chrome/Chromium is found (this variant is Chrome-only,
+// as the fit-to-page measurement needs the DevTools protocol).
+export async function emlToOnePagePdf(emlInput, outPath) {
+  const emlBuffer = Buffer.isBuffer(emlInput)
+    ? emlInput
+    : fs.readFileSync(emlInput);
+  const parsed = await simpleParser(emlBuffer);
+  const html = emailToHtml(parsed, { onePage: true });
+
+  const chrome = findSystemChrome();
+  if (!chrome) {
+    throw new Error('no system Chrome/Chromium found');
+  }
+  await chromePrintToPdf(chrome, html, outPath, { onePage: true });
+  return outPath;
 }

@@ -16,7 +16,12 @@ import {
   sameAddress,
 } from '../src/evisa-geocode.mjs';
 import { transliterate, toCyrillic, editDistance } from '../src/translit.mjs';
-import { parseFreeText, dateInLine, NOT_ASKED } from '../src/evisa-bot.mjs';
+import {
+  parseFreeText,
+  dateInLine,
+  describeSummary,
+  NOT_ASKED,
+} from '../src/evisa-bot.mjs';
 import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
 
 // A made-up address in the shape a Russian one takes: country, city, postal
@@ -406,6 +411,41 @@ describe('the contact person in a chat message', () => {
     expect(applicant.emergencyName).toBe('JANE DOE');
     expect(applicant.emergencyRelationship).toBe('Sister');
     expect(applicant.purpose).toBe('Tourist');
+  });
+
+  it('is summarised in sections, with what was assumed marked', () => {
+    const supplied = { surname: 'DOE', phone: '+79991112233' };
+    const applicant = {
+      surname: 'DOE',
+      phone: '+79991112233',
+      purpose: 'Tourist',
+      contactAddress: 'Tula, ul. Mira, 1 <flat 2>',
+    };
+    const summary = describeSummary(applicant, supplied, 'ru');
+    expect(summary).toBe(
+      [
+        'В анкету пойдёт:',
+        '',
+        '<b>Заявитель</b>',
+        '• фамилию: DOE',
+        '',
+        '<b>Контакты</b>',
+        '• номер телефона: +79991112233',
+        '• контактный адрес (по умолчанию): Tula, ul. Mira, 1 &lt;flat 2&gt;',
+        '',
+        '<b>Поездка</b>',
+        '• цель поездки (по умолчанию): Tourist',
+        '',
+        'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Любое ' +
+          'можно исправить в браузере перед отправкой.',
+      ].join('\n')
+    );
+    // Said once: the next form of the conversation repeats none of it.
+    expect(describeSummary(applicant, supplied, 'ru', applicant)).toBe(null);
+    const english = describeSummary({ surname: 'DOE' }, supplied, 'en');
+    expect(english).toBe(
+      'Going on the form:\n\n<b>Applicant</b>\n• your surname: DOE'
+    );
   });
 
   it('reads the passport details people type with a label', () => {

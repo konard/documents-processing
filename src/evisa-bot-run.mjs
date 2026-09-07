@@ -122,8 +122,7 @@ async function endChat(chatId) {
     browsers.delete(chatId);
   }
   sessions.clear(chatId);
-  clearTimeout(timers.get(chatId));
-  timers.delete(chatId);
+  disarmIdleFill(chatId);
 }
 
 /**
@@ -134,8 +133,7 @@ async function endChat(chatId) {
  * new one opens on first use.
  */
 async function restartChat(chatId) {
-  clearTimeout(timers.get(chatId));
-  timers.delete(chatId);
+  disarmIdleFill(chatId);
   sessions.clear(chatId);
   const held = browsers.get(chatId);
   if (!browserAlive(held)) {
@@ -248,7 +246,7 @@ async function fillAndSend(ctx, chatId, page) {
         session.reported
       );
       if (summary) {
-        await ctx.reply(summary);
+        await ctx.reply(summary, { parse_mode: 'HTML' });
       }
       for (const [key, value] of Object.entries(applicant)) {
         if (value) {
@@ -317,7 +315,14 @@ function logFill(chatId, result) {
 async function fillAndShow(ctx, chatId) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
-  const page = await pageFor(chatId);
+  // Opening a browser takes seconds too, and the status covers them.
+  const opening = showStatus(ctx, 'typing');
+  let page;
+  try {
+    page = await pageFor(chatId);
+  } finally {
+    opening();
+  }
   const result = await fillAndSend(ctx, chatId, page);
   logFill(chatId, result);
 
@@ -354,17 +359,33 @@ async function fillAndShow(ctx, chatId) {
   }
 }
 
-/** Restarts the quiet timer that fills the form when the applicant pauses. */
+/** Stops a chat's quiet timer and the status shown while it runs. */
+function disarmIdleFill(chatId) {
+  const armed = timers.get(chatId);
+  if (armed) {
+    clearTimeout(armed.timer);
+    armed.stop();
+    timers.delete(chatId);
+  }
+}
+
+/**
+ * Restarts the quiet timer that fills the form when the applicant pauses.
+ *
+ * The chat shows "typing" through the quiet window as well: the fill that
+ * follows is already decided, and a status that stops for most of a minute
+ * looks like a bot that has stopped answering.
+ */
 function armIdleFill(ctx, chatId) {
-  clearTimeout(timers.get(chatId));
-  timers.set(
-    chatId,
-    setTimeout(() => {
-      fillAndShow(ctx, chatId).catch((error) =>
-        ctx.reply(`Could not fill the form: ${error.message}`).catch(() => {})
-      );
-    }, IDLE_FILL_MS)
-  );
+  disarmIdleFill(chatId);
+  const stop = showStatus(ctx, 'typing');
+  const timer = setTimeout(() => {
+    disarmIdleFill(chatId);
+    fillAndShow(ctx, chatId).catch((error) =>
+      ctx.reply(`Could not fill the form: ${error.message}`).catch(() => {})
+    );
+  }, IDLE_FILL_MS);
+  timers.set(chatId, { timer, stop });
 }
 
 /**

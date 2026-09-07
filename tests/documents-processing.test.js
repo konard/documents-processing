@@ -48,6 +48,7 @@ describe('documents-processing commands', () => {
     'passport-crosscheck.mjs',
     'mrz-readers.mjs',
     'mrz-consensus.mjs',
+    'mrz-variants.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

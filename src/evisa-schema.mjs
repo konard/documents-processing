@@ -211,6 +211,10 @@ export const AIR_BORDER_GATES = [
 export const FIELD_DEFAULTS = {
   passportType: 'Ordinary passport',
   religion: 'Christianity',
+  // Nearly everyone applying for an e-visa is going on holiday, and the
+  // other purposes need papers from the Vietnamese side that a tourist
+  // does not have.
+  purpose: 'Tourist',
   // Ho Chi Minh City takes the most international traffic, and its airport is
   // the busiest approved gate. The wording is taken from the form's own
   // dropdowns, which spell the city differently in each of them.

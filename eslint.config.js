@@ -34,6 +34,7 @@ export default [
         clearInterval: 'readonly',
         // Node.js 18+ globals
         fetch: 'readonly',
+        URL: 'readonly',
         AbortController: 'readonly',
         TextEncoder: 'readonly',
         TextDecoder: 'readonly',

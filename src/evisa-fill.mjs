@@ -375,6 +375,7 @@ export function readFilledFields(page) {
 
 export async function fillForm(page, applicant, { uploads = {} } = {}) {
   const filled = [];
+  const typed = [];
   const failures = [];
 
   // One field failing leaves the rest fillable, so each is attempted on its own
@@ -383,10 +384,15 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
     try {
       await action();
       filled.push(key);
+      typed.push(key);
     } catch (error) {
       failures.push({ field: key, error: error.message });
     }
   };
+
+  // What the page held before the uploads, so what the site puts there from
+  // the passport can be told from what an earlier fill left.
+  const before = await readFilledFields(page);
 
   for (const [key, meta] of Object.entries(UPLOADS)) {
     if (uploads[key]) {
@@ -402,13 +408,17 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
 
   // The site fills several fields from the passport image it was just given.
   // Reading them first means a value it got right is left untouched, and only
-  // a genuine disagreement is overwritten.
+  // a genuine disagreement is overwritten. Only a value the upload changed
+  // counts as the site's reading; the rest is the page as it was.
   const extracted = await readFilledFields(page);
+  const siteRead = new Set(
+    Object.keys(extracted).filter((key) => extracted[key] !== before[key])
+  );
   const corrected = [];
   const agreed = [];
   // What the site read and we did not: worth surfacing, since it is a value
   // going onto the form that no reading of ours confirms.
-  const siteOnly = Object.keys(extracted).filter(
+  const siteOnly = [...siteRead].filter(
     (key) => !applicant[key] && FIELDS[key]
   );
 
@@ -423,15 +433,22 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
         String(already).trim().toUpperCase() ===
         String(value).trim().toUpperCase();
       if (same) {
-        agreed.push(key);
+        // On the page already, whether the site read it or an earlier fill
+        // set it; either way it is not typed again.
+        filled.push(key);
+        if (siteRead.has(key)) {
+          agreed.push(key);
+        }
         continue;
       }
-      corrected.push({ field: key, was: already, now: value });
+      if (siteRead.has(key)) {
+        corrected.push({ field: key, was: already, now: value });
+      }
     }
     await attempt(key, () => fillField(page, field, value));
   }
 
-  return { filled, failures, extracted, corrected, agreed, siteOnly };
+  return { filled, typed, failures, extracted, corrected, agreed, siteOnly };
 }
 
 /** Captures the whole filled form, including the parts below the fold. */

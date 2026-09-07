@@ -60,24 +60,27 @@ export async function prepareDocument(
   outputPath,
   { crop = false } = {}
 ) {
-  const { cropPassportPage, prepareUploadImage } =
+  const { cropPassportPage, prepareUploadImage, readPassportMrz } =
     await import('./evisa-passport.mjs');
 
   let source = inputPath;
   let cropped = false;
   let temporary = null;
+  let mrz = null;
 
   if (crop) {
     const candidate = `${outputPath}.page.jpg`;
     const result = await cropPassportPage(inputPath, candidate).catch(
       () => null
     );
+    // The zone is read off the photo as sent either way; a caller wanting the
+    // passport's fields gets them without a second reading.
+    const before = await readPassportMrz(inputPath).catch(() => null);
+    mrz = before;
     if (result?.cropped) {
       // A crop is only kept when the page still reads afterwards. Geometry
       // alone cannot tell a clean cut from one that took a corner off, so the
       // proof is that the machine-readable zone survives.
-      const { readPassportMrz } = await import('./evisa-passport.mjs');
-      const before = await readPassportMrz(inputPath).catch(() => null);
       const after = await readPassportMrz(candidate).catch(() => null);
       const keptWhatItHad =
         after?.mrzFound &&
@@ -88,6 +91,7 @@ export async function prepareDocument(
         source = candidate;
         cropped = true;
         temporary = candidate;
+        mrz = betterMrzRead(before, after);
       } else {
         fs.rmSync(candidate, { force: true });
       }
@@ -100,7 +104,98 @@ export async function prepareDocument(
   if (temporary && temporary !== outputPath) {
     fs.rmSync(temporary, { force: true });
   }
-  return { ...prepared, cropped };
+  return { ...prepared, cropped, mrz };
+}
+
+/**
+ * The cleaner of two readings of the same zone: the one with more of its
+ * check digits holding, then the one with more fields. The photo as sent and
+ * the page cut out of it read differently, and neither is always better.
+ */
+function betterMrzRead(a, b) {
+  if (!a?.mrzFound) {
+    return b;
+  }
+  if (!b?.mrzFound) {
+    return a;
+  }
+  const trouble = (read) => read.unverified.length + read.repaired.length;
+  if (trouble(a) !== trouble(b)) {
+    return trouble(a) < trouble(b) ? a : b;
+  }
+  return Object.keys(b.data).length > Object.keys(a.data).length ? b : a;
+}
+
+/**
+ * Reads everything a passport photo gives: the page is cut out and made
+ * ready for upload, the machine-readable zone is read, and the printed side
+ * supplies the fields the zone leaves out.
+ *
+ * Returns `{ prepared, data, unverified }`: the upload's path and how it
+ * was prepared, the fields read, and the fields whose check digit failed.
+ * A photo with no zone in it gives no data, and is a portrait or something
+ * else.
+ */
+export async function readPassportDocument(inputPath, outputPath) {
+  const prepared = await prepareDocument(inputPath, outputPath, {
+    crop: true,
+  });
+  const mrz = prepared.mrz;
+  if (!mrz?.mrzFound) {
+    return { prepared, data: {}, unverified: [] };
+  }
+  const data = { ...mrz.data };
+  // A field whose check digit failed is dropped: better to ask than to submit
+  // a misread passport number.
+  for (const field of mrz.unverified) {
+    delete data[field];
+  }
+  const { readPassportPage } = await import('./evisa-passport.mjs');
+  const page = await readPassportPage(prepared.path, data).catch(() => ({
+    data: {},
+  }));
+  return {
+    prepared,
+    data: { ...page.data, ...data },
+    unverified: mrz.unverified,
+  };
+}
+
+/**
+ * The same, run on a worker thread.
+ *
+ * Reading a page takes the OCR engine ten seconds or more, and it runs
+ * synchronously. On the main thread that would stall every other chat and
+ * the status the bot shows while it works.
+ */
+export async function readPassportDocumentInWorker(inputPath, outputPath) {
+  const { Worker } = await import('node:worker_threads');
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      new URL('./evisa-passport-worker.mjs', import.meta.url),
+      { workerData: { inputPath, outputPath } }
+    );
+    worker.once('message', (message) => {
+      if (message.ok) {
+        resolve(message.result);
+      } else {
+        reject(new Error(message.error));
+      }
+    });
+    worker.once('error', reject);
+    worker.once('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`passport reader exited with code ${code}`));
+      }
+    });
+  });
+}
+
+/** Brings an open page back to an empty form, past the dialog again. */
+export async function reopenForm(page) {
+  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
+  await acceptNoteModal(page);
+  await waitForForm(page);
 }
 
 /**

@@ -6,7 +6,7 @@
 
 import { toLatin } from './translit.mjs';
 import { parseVietnamAddress } from './evisa-address.mjs';
-import { latinAddress } from './evisa-home-address.mjs';
+import { latinAddress, latinPlaceOfBirth } from './evisa-home-address.mjs';
 import {
   FIELDS,
   RADIO_GROUPS,
@@ -347,10 +347,16 @@ function normalizeFields(out) {
 
 /** Brings every free-text field that may arrive in Cyrillic into Latin. */
 function latinizeFields(out) {
-  // A Russian passport prints these fields as <Russian>/<English>, so the half
-  // after the slash is the one the form wants. Taking the Cyrillic half and
-  // transliterating it would turn МОСКВА/USSR into MOSKVA, which is not what
-  // the document says in English.
+  // A passport prints the place of birth as <native>/<English>, and both
+  // halves say something: the city is only in the first, the country only in
+  // the second. It is rendered whole, "Moscow, USSR", before the general
+  // pass, which would otherwise keep one half.
+  if (out.placeOfBirth) {
+    out.placeOfBirth = latinPlaceOfBirth(out.placeOfBirth);
+  }
+
+  // A Russian passport prints other fields as <Russian>/<English> too, and
+  // there the half after the slash is the one the form wants.
   for (const key of TRANSLITERATED_FIELDS) {
     if (out[key]) {
       out[key] = preferEnglishHalf(out[key]);
@@ -409,6 +415,11 @@ export function normalizeApplicant(input) {
 
   if (out.email && !out.confirmEmail) {
     out.confirmEmail = out.email;
+  }
+  // The contact address is where post reaches the applicant, which for
+  // nearly everyone is where they live. It stays editable in the browser.
+  if (out.permanentAddress && !out.contactAddress) {
+    out.contactAddress = out.permanentAddress;
   }
 
   // Rewrite dropdown values to the site's exact wording, so everyday phrasing

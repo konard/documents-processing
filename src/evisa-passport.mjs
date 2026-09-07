@@ -156,97 +156,143 @@ export async function cropPassportPage(inputPath, outputPath) {
   );
   // Prefer the fold when the photo shows one: it is where the page actually
   // ends, while the proportional height is only an estimate.
-  const fold = await findFoldAbove(inputPath, meta, band.top);
+  const fold = await findFoldAbove(inputPath, band.top);
   const estimated = Math.max(0, bottom - pageHeight);
   const top = fold !== null && fold < bottom ? fold : estimated;
+  // The top comes from the fold and the bottom from the zone, so the height
+  // is whatever lies between them; a fixed height measured from a high fold
+  // would end above the zone.
+  const width = Math.min(pageWidth, meta.width - left);
+  const height = bottom - top;
 
   await sharp(inputPath, { failOn: 'none' })
-    .extract({
-      left,
-      top,
-      width: Math.min(pageWidth, meta.width - left),
-      height: Math.min(pageHeight, meta.height - top),
-    })
+    .extract({ left, top, width, height })
     .jpeg({ quality: 95 })
     .toFile(outputPath);
 
-  return {
-    cropped: true,
-    width: Math.min(pageWidth, meta.width - left),
-    height: Math.min(pageHeight, meta.height - top),
-  };
+  return { cropped: true, left, top, width, height };
 }
+
+/** The least a crease has to darken a column to count, in grey levels. */
+const CREASE_DEPTH = 12;
+
+/** The share of columns, in the emptiest third of the width, a seam must cross. */
+const SEAM_SHARE = 0.6;
 
 /**
  * Finds the fold between two pages of an open passport.
  *
- * A spread photographed flat shows the seam as an abrupt change in brightness
- * across a row: one page ends, a shadowed crease follows, the next begins.
- * Cutting on that line removes the facing page cleanly, where a cut measured
- * only from the machine-readable zone leaves a sliver of it behind.
+ * A spread photographed flat shows the seam as a shadowed crease: a thin band
+ * darker than the paper just above and just below it, running the whole width
+ * of the page. A row of print, a signature rule or the edge of the photo can
+ * look the same along one column, so every column is searched on its own for
+ * such dips and each row counts the columns that dip there. The seam collects a
+ * vote from nearly every column; print gets votes only where its letters are.
  *
- * Only the region above the zone is searched, and only for a step large enough
- * to be a page edge; a flat scan of a single page has none and gets no cut.
+ * The thirds of the width are counted separately and the emptiest one decides,
+ * because print sits in the middle of a page and a seam does not: a heading or
+ * a signature never reaches both margins, however dark it is.
+ *
+ * The cut goes on the lower edge of the crease, where the paper brightens into
+ * the data page's own margin, so no shadow and none of the facing page remain.
+ * A flat scan of a single page has no full-width dip and gets no cut. The rows
+ * near the top and the machine-readable zone are left out of the search.
  */
-async function findFoldAbove(inputPath, meta, mrzTop) {
+export async function findFoldAbove(inputPath, mrzTop) {
   const sharp = (await import('sharp')).default;
-  const width = 500;
-  const height = Math.max(1, Math.round((meta.height / meta.width) * width));
-  const limit = Math.round((mrzTop / meta.height) * height);
-
-  const { data } = await sharp(inputPath, { failOn: 'none' })
-    .resize(width, height, { fit: 'fill' })
+  const { data, info } = await sharp(inputPath, { failOn: 'none' })
     .greyscale()
     .raw()
     .toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
 
-  const means = [];
-  for (let y = 0; y < height; y++) {
+  const bounds = {
+    top: Math.round(height * 0.15),
+    floor: Math.round(mrzTop - height * 0.15),
+    // The crease is a fixed fraction of a page, so the distances scale with
+    // the image: paper is sampled this far above and below a candidate row,
+    // and this many rows either side are averaged to quiet the guilloche.
+    reach: Math.max(4, Math.round(height * 0.015)),
+    blur: Math.max(1, Math.round(height * 0.002)),
+  };
+  if (bounds.floor - bounds.top < bounds.reach * 4) {
+    return null;
+  }
+
+  const thirds = countCreaseVotes(data, width, height, bounds);
+  const share = (y) =>
+    Math.min(...thirds.map((third) => third[y])) / (width / 3);
+  let seam = bounds.top;
+  for (let y = bounds.top; y < bounds.floor; y++) {
+    if (share(y) > share(seam)) {
+      seam = y;
+    }
+  }
+  if (share(seam) < SEAM_SHARE) {
+    return null;
+  }
+
+  // The darkest row is inside the crease. Its lower edge is the steepest
+  // brightening below it, which is where the page's own paper begins.
+  const rowMean = (y) => {
     let sum = 0;
     for (let x = 0; x < width; x++) {
       sum += data[y * width + x];
     }
-    means.push(sum / width);
-  }
-
-  // A fold is a dark line with paper on both sides, so it shows as a trough:
-  // darker than the rows above it and the rows below. Measuring that depth
-  // separates it from the edge of a page, which is dark on one side only, and
-  // from a row of print, which is dark without either side being bright.
-  const troughs = [];
-  for (let y = Math.round(height * 0.15); y < limit - height * 0.15; y++) {
-    const above =
-      means.slice(y - 10, y - 2).reduce((sum, value) => sum + value, 0) / 8;
-    const below =
-      means.slice(y + 3, y + 11).reduce((sum, value) => sum + value, 0) / 8;
-    // The shallower side decides: a true line is bright on both.
-    const depth = Math.min(above, below) - means[y];
-    if (depth > 15) {
-      troughs.push({ y, depth });
+    return sum / width;
+  };
+  let edge = seam;
+  let steepest = -Infinity;
+  const last = Math.min(height - 2, seam + bounds.reach * 2);
+  for (let y = seam; y <= last; y++) {
+    const step = rowMean(y + 1) - rowMean(y);
+    if (step > steepest) {
+      steepest = step;
+      edge = y + 1;
     }
   }
-  if (troughs.length === 0) {
-    return null;
-  }
+  return edge;
+}
 
-  // Keep the deepest, then take the lowest trough within reach of it, since
-  // the crease can register as two lines and the lower one is the true edge.
-  const deepest = troughs.reduce((best, candidate) =>
-    candidate.depth > best.depth ? candidate : best
-  );
-  const nearby = troughs.filter(
-    (trough) =>
-      trough.depth > deepest.depth * 0.6 &&
-      Math.abs(trough.y - deepest.y) < height * 0.06
-  );
-  // The line has thickness, and the rows around its darkest point belong to
-  // it. Cutting through the middle of that run leaves the lower half of the
-  // fold showing: enough to see the page was photographed whole, while the
-  // remaining edge is close to the paper's own colour.
-  const first = nearby[0].y;
-  const last = nearby[nearby.length - 1].y;
-  const middle = Math.round((first + last) / 2);
-  return Math.round((middle / height) * meta.height);
+/**
+ * Counts, for every row, the columns that dip dark there with paper on both
+ * sides, kept in three tallies for the left, middle and right of the width.
+ *
+ * A dip is a local peak of how much darker a row is than the paper `reach` rows
+ * above and below it. The rows around the peak are counted with it, since the
+ * crease wanders by a row or two across the printed pattern.
+ */
+function countCreaseVotes(data, width, height, { top, floor, reach, blur }) {
+  const thirds = [0, 1, 2].map(() => new Float64Array(height));
+  const profile = new Float64Array(height);
+  const dip = new Float64Array(height);
+  const marked = new Uint8Array(height);
+
+  for (let x = 0; x < width; x++) {
+    for (let y = blur; y < height - blur; y++) {
+      let sum = 0;
+      for (let k = -blur; k <= blur; k++) {
+        sum += data[(y + k) * width + x];
+      }
+      profile[y] = sum / (blur * 2 + 1);
+    }
+    for (let y = top; y < floor; y++) {
+      dip[y] = Math.min(profile[y - reach], profile[y + reach]) - profile[y];
+    }
+    marked.fill(0);
+    for (let y = top + 1; y < floor - 1; y++) {
+      const isPeak =
+        dip[y] >= CREASE_DEPTH && dip[y] >= dip[y - 1] && dip[y] > dip[y + 1];
+      if (isPeak) {
+        marked.fill(1, y - blur, y + blur + 1);
+      }
+    }
+    const third = thirds[Math.min(2, Math.floor((x * 3) / width))];
+    for (let y = top; y < floor; y++) {
+      third[y] += marked[y];
+    }
+  }
+  return thirds;
 }
 
 /**

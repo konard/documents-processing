@@ -186,17 +186,42 @@ country and the best-known cities get their English names, and the rest is
 spelled the way the passport's machine-readable zone would spell it:
 
 ```
-Россия, г. Москва, 115551, [REDACTED] шоссе, д. 94, корп. 3, кв. 389
+Россия, г. Москва, 101000, ул. Пушкина, д. 10, корп. 2, кв. 5
 ```
 
 becomes
 
 ```
-Russia, Moscow, 115551, [REDACTED] shosse, 94, bld. 3, apt. 389
+Russia, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5
 ```
 
 The order is left as the applicant wrote it. An address already in Latin
-letters is not touched.
+letters is not touched. Units written without commas (`г. Москва ул. Пушкина
+д. 10 кв. 5`) are split apart, and a remark after a dash or in brackets
+(`- адрес для всех`) is dropped.
+
+The bot also checks each address against OpenStreetMap, through the Photon
+service (`EVISA_GEOCODER_URL` to point elsewhere). When the map has the house,
+the rendering is built from the map's own country, postal code, city and
+street, with the applicant's building and flat kept; a different house, a
+postal code the map contradicts, or no answer at all leaves the address as
+written, rendered as above. The log says which happened.
+
+## The printed side of the passport
+
+The machine-readable zone carries no issue date, place of birth or issuing
+authority, and the form asks for all three. They are read off the printed side
+of the data page, anchored on the dates the zone does give: the issue date
+shares a row with the expiry, the place of birth follows the date of birth,
+and the authority is printed under the issue date. The print is read from the
+black-ink layer of the page at several thresholds and the readings vote; a
+value with no clear winner is left for the applicant to type. A faint or
+overprinted scan yields nothing rather than a guess.
+
+A place of birth printed as `Г.МОСКВА/USSR` reaches the form as `Moscow,
+USSR`; an authority printed as `[REDACTED]` as `MVD 0073`. Reading the Cyrillic
+half needs the Russian model (`tesseract-ocr-rus`), which the container image
+carries; without it the Latin halves alone are read.
 
 ## The Telegram bot
 
@@ -208,14 +233,30 @@ screenshot. It never submits.
 A line of a message that reads as a postal address, by its markers or postal
 code, is taken as the permanent address; a label such as `Contact address:`
 in front of it sends it to that field instead. A phone or email on the same
-line goes to its own field.
+line goes to its own field. The contact address is taken to be the permanent
+one unless given, and the purpose of the trip to be tourism.
+
+The contact person is read from a block opened by `Контакт:` or `Emergency
+contact:`, running to the next blank line: a line of two to four words is
+their name, an address line their address, a phone theirs. A second phone
+anywhere, or one preceded by a word such as `сестра` or `brother`, is the
+contact's too, and that word becomes the relationship. `Номер контакта
++7...` on its own is their phone. Typed passport details are read with their
+labels: `дата выдачи 17.02.2020`, `место рождения: Тула`, `орган: МВД 0001`.
 
 While the bot reads a document or fills the form it shows the "typing" status
-in the chat and sends no message about it. The screenshot is sent as a file,
-not a photo, because Telegram shrinks a photo to fit a screen and a page
-several screens tall comes out unreadable. It is taken once the page has
+in the chat and sends no message about it; the reading runs on a worker
+thread so the status and other chats are not held up. The screenshot is sent
+as a file, not a photo, because Telegram shrinks a photo to fit a screen and a
+page several screens tall comes out unreadable. It is taken once the page has
 stopped changing and every value set is on it; a field the page emptied while
 re-rendering is set again first.
+
+Each chat keeps one browser for the whole conversation. A second fill uploads
+nothing the page already has and types nothing already on it, and the summary
+lists only what has not been said before. `/start` reuses the browser, with
+the form reloaded empty; a browser that has died is replaced on the next use;
+one whose chat has been quiet for five hours is closed.
 
 ```sh
 cp .env.example .env        # then put the @BotFather token in it

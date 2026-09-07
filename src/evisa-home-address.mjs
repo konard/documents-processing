@@ -11,7 +11,7 @@
 // known cities get their English names, and the rest is transliterated the way
 // the passport's own machine-readable zone would spell it.
 
-import { transliterate, hasCyrillic } from './translit.mjs';
+import { transliterate, hasCyrillic, editDistance } from './translit.mjs';
 
 /** Country names as they appear at the head of an address. */
 const COUNTRIES = {
@@ -69,7 +69,10 @@ const MARKERS = [
   [/^(?:г|гор|город)(?:\.\s*|\s+)/i, null],
   [/^(?:обл|область)(?:\.\s*|\s+)/i, null],
   [/^(?:р-н|район)(?:\.\s*|\s+)/i, null],
-  [/^(?:пос|посёлок|поселок|п|с|село|дер|деревня|д)(?:\.\s*|\s+)(?=\D)/i, null],
+  [
+    /^(?:пос|посёлок|поселок|п|с|село|дер|деревня|д)(?:\.\s*|\s+)(?=\p{L})/iu,
+    null,
+  ],
   [/^(?:д|дом)\.?\s*(?=\d)/i, null],
   [/^(?:корп|корпус|к)\.?\s*(?=\d)/i, 'bld. '],
   [/^(?:стр|строение)\.?\s*(?=\d)/i, 'bldg. '],
@@ -129,6 +132,37 @@ export function stripAddressLabel(text) {
 }
 
 /**
+ * Strips the remark people add after an address: "- адрес для всех троих",
+ * "(прописка)". A remark follows a dash or sits in brackets and carries no
+ * digit, which no part of an address after the country can say.
+ */
+export function stripAddressNote(text) {
+  return String(text ?? '')
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s+[-–—]\s+[^\d]*$/, '')
+    .trim();
+}
+
+/**
+ * Markers that begin a new unit even without a comma before them.
+ *
+ * People write "г. Москва ул. Ленина д. 5 кв. 7" and mean four units. A
+ * marker for a place or a street opens a unit when a name follows it, one
+ * for a house, building or flat when a number does. A street type after
+ * its name ("Ленинградское ш. 12") is not split off, since the number
+ * belongs to the street, not to the marker.
+ */
+const INLINE_PLACE =
+  /(\S)\s+(?=(?:г|гор|город|пос|посёлок|поселок|обл|область|р-н|район|мкр|ул|улица|пр-т|просп|проспект|пер|переулок|б-р|бульвар|наб|набережная|ш|шоссе|пл|площадь|д|дер|деревня)\.?\s*\p{Lu})/gu;
+const INLINE_HOUSE =
+  /(\S)\s+(?=(?:д|дом|кв|квартира|корп|корпус|к|стр|строение|оф|офис|под|подъезд|эт|этаж)\.?\s*\d)/giu;
+
+/** Puts a comma before each unit written without one. */
+function separateUnits(text) {
+  return text.replace(INLINE_PLACE, '$1, ').replace(INLINE_HOUSE, '$1, ');
+}
+
+/**
  * True when a line reads as a postal address.
  *
  * Two independent signs are wanted, since a single "д." can appear in prose:
@@ -145,6 +179,11 @@ export function looksLikeAddress(text) {
   }
   const parts = line.split(',').filter((part) => part.trim()).length;
   return markers >= 1 && parts >= 3 && /\d/.test(line);
+}
+
+/** Renders one unit of an address, a street name most usefully, in Latin. */
+export function latinUnit(unit) {
+  return renderUnit(unit);
 }
 
 /** Renders one comma-separated unit of the address. */
@@ -173,6 +212,12 @@ function renderUnit(unit) {
     return CITIES[key];
   }
 
+  // "ул. Гоголевский б-р" names its type twice; the one at the end is the
+  // street's own, and the map knows the street by it.
+  text = text.replace(
+    /^(?:ул|улица)\.?\s+(?=.*\s(?:б-р|бул|бульвар|пр-т|просп|проспект|пр|пер|переулок|наб|набережная|ш|шоссе|пл|площадь)\.?$)/i,
+    ''
+  );
   for (const [pattern, rendering] of STREET_TYPES) {
     text = text.replace(pattern, rendering);
   }
@@ -187,15 +232,132 @@ function renderUnit(unit) {
  * untouched, so an English address is not altered.
  */
 export function latinAddress(value) {
-  const text = stripAddressLabel(value);
+  const text = stripAddressNote(stripAddressLabel(value));
   if (!hasCyrillic(text)) {
     return text;
   }
-  return text
+  return separateUnits(text)
     .split(',')
     .map(renderUnit)
     .filter(Boolean)
     .join(', ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * The parts of a home address, each in Latin letters, keyed by what they
+ * are: the country, the postal code, the city, and the street with the
+ * house, building and flat after it. What is left over is kept as `rest`.
+ *
+ * A lookup service takes an address as parts, and a rendering built from
+ * verified parts wants the applicant's own flat and building put back.
+ */
+export function addressParts(value) {
+  const text = separateUnits(stripAddressNote(stripAddressLabel(value)));
+  const parts = {
+    country: '',
+    postalCode: '',
+    city: '',
+    street: [],
+    rest: [],
+    // The units as written, without the flat, which is what a map lookup
+    // takes: the map knows streets and houses, never flats.
+    written: text
+      .split(',')
+      .map((unit) => unit.trim())
+      .filter(
+        (unit) =>
+          unit &&
+          !/^(?:кв|квартира|apt|apartment|flat)\.?(?=\s|\d|$)/i.test(unit)
+      )
+      .map((unit) => unit.replace(/^(?:д|дом)\.?\s*(?=\d)/i, '')),
+  };
+  for (const unit of text.split(',')) {
+    const trimmed = unit.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const marked = /^(?:г|гор|город)\.?\s+/i.test(trimmed);
+    const key = trimmed.toLowerCase().replace(/^(?:г|гор|город)\.?\s+/, '');
+    if (COUNTRIES[key] || /^(?:russia|russian federation)$/i.test(key)) {
+      parts.country = COUNTRIES[key] ?? 'Russia';
+    } else if (/^\d{6}$/.test(trimmed)) {
+      parts.postalCode = trimmed;
+    } else if (
+      marked ||
+      (!parts.city && !/\d/.test(trimmed) && !parts.street.length)
+    ) {
+      parts.city = renderUnit(trimmed);
+    } else {
+      parts.street.push(renderUnit(trimmed));
+    }
+  }
+  return parts;
+}
+
+/** Countries a passport names as a birthplace, in the applicant's language. */
+const BIRTH_COUNTRIES = {
+  ...COUNTRIES,
+  ссср: 'USSR',
+  индия: 'India',
+  германия: 'Germany',
+  вьетнам: 'Vietnam',
+  таиланд: 'Thailand',
+  турция: 'Turkey',
+  китай: 'China',
+};
+
+/** A single word in title case: MOSKVA reads as Moskva. */
+function titleCase(word) {
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+/**
+ * Renders a place of birth as a passport prints it, "Г.МОСКВА/USSR", in a
+ * form an officer abroad reads: "Moscow, USSR".
+ *
+ * The native half names the city or the country; the best known cities get
+ * their English names, a city one misread letter away from one is taken as
+ * it, and the rest is transliterated. The Latin half is kept as printed, and
+ * two halves naming the same country give it a single time. A value with no
+ * Cyrillic in it is left exactly as given.
+ */
+export function latinPlaceOfBirth(value) {
+  const text = String(value ?? '').trim();
+  if (!hasCyrillic(text)) {
+    return text;
+  }
+  const halves = text
+    .split('/')
+    .map((half) => half.trim())
+    .filter(Boolean);
+  const rendered = [];
+  for (const half of halves) {
+    if (!hasCyrillic(half)) {
+      rendered.push(half);
+      continue;
+    }
+    const name = half
+      .replace(/^(?:г|гор|город)\.?\s*/i, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+    const known =
+      CITIES[name] ??
+      BIRTH_COUNTRIES[name] ??
+      Object.entries({ ...CITIES, ...BIRTH_COUNTRIES }).find(
+        ([key]) => key.length >= 5 && editDistance(key, name) <= 1
+      )?.[1];
+    rendered.push(
+      known ?? transliterate(name).split(' ').map(titleCase).join(' ')
+    );
+  }
+  const unique = rendered.filter(
+    (part, index) =>
+      rendered.findIndex(
+        (other) => other.toLowerCase() === part.toLowerCase()
+      ) === index
+  );
+  return unique.join(', ');
 }

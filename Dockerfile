@@ -13,11 +13,13 @@ FROM mcr.microsoft.com/playwright:v1.62.1-noble
 
 ENV NODE_ENV=production
 
-# The passport's machine-readable zone is read with the tesseract command,
-# which the browser image does not carry. Without it every photo is taken for a
-# portrait, and the form gets no passport at all.
+# The passport is read with the tesseract command, which the browser image
+# does not carry. Without it every photo is taken for a portrait, and the form
+# gets no passport at all. The Russian model reads the printed side of a
+# Russian passport: the place of birth and the issuing authority, which the
+# machine-readable zone leaves out.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends tesseract-ocr \
+  && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-rus \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

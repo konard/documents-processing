@@ -6,21 +6,63 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { renderImage, regionCanvas, upscale, ocrCanvas } from './ocr-lib.mjs';
+import { execFileSync } from 'node:child_process';
+import {
+  renderImage,
+  regionCanvas,
+  upscale,
+  ocrCanvas,
+  ocrData,
+  keepBlack,
+  grayscale,
+  binarize,
+} from './ocr-lib.mjs';
 import { parseMrzLine1, parseMrzLine2 } from './mrz-lib.mjs';
 import { PHOTO_RULES, countryName, sexLabel } from './evisa-schema.mjs';
 import { normalizeName } from './evisa-data.mjs';
+import { editDistance } from './translit.mjs';
 
 // The machine-readable zone is Latin-only by design, so an English-trained
 // engine reads it whatever language the rest of the page is in. The printed
-// side of a Russian passport is bilingual, and reading its Cyrillic half would
-// need a Russian model that is not installed here (`tesseract --list-langs`
-// shows eng alone). Where a value is printed in both, the Latin half is the one
-// the form wants anyway, which is what preferEnglishHalf keeps.
+// side of a Russian passport is bilingual; the fields the zone leaves out (the
+// issue date, the place of birth, the authority) are read off that side by
+// readPassportPage, in Russian where a Russian model is installed.
 
 /** The MRZ occupies the bottom ~11% of a TD3 passport data page. */
 const MRZ_REGION = { x: 0, y: 0.883, w: 1, h: 0.112 };
 const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
+
+/**
+ * Parses the two zone lines out of what a band read, and counts how many of
+ * the second line's check digits hold.
+ */
+function parseMrzLines(candidates) {
+  let line1 = null;
+  let line2 = null;
+  for (const line of candidates) {
+    if (!line1 && /^P[A-Z<]/.test(line)) {
+      line1 = parseMrzLine1(line);
+    } else if (!line2) {
+      line2 = parseMrzLine2(line);
+    }
+  }
+  if (!line2) {
+    return { line1, line2, score: 0 };
+  }
+  // A check digit that holds counts double; a value the parser had to repair
+  // to make it hold counts against, since a repair can land on a wrong value
+  // that happens to check. A first line found alongside is worth a little.
+  const checks = [
+    line2.passportCheckOk,
+    line2.dobCheckOk,
+    line2.expiryCheckOk,
+  ].filter(Boolean).length;
+  const score = checks * 2 - (line2.repaired?.length ?? 0) + (line1 ? 1 : 0);
+  return { line1, line2, score };
+}
+
+/** The best score parseMrzLines can give: three clean checks and a first line. */
+const MRZ_CLEAN_SCORE = 7;
 
 /**
  * Reads the MRZ from a rendered passport page and converts it to schema fields.
@@ -38,8 +80,10 @@ export async function readPassportMrz(imagePath) {
   const bands = [
     MRZ_REGION,
     { x: 0, y: 0.86, w: 1, h: 0.14 },
-    // A cropped page puts the zone lower in the frame, and some passports
-    // print it on a tinted band that needs a taller slice to catch cleanly.
+    // A cut-out page puts the zone lower in the frame, and a slice that takes
+    // in both lines with room above them reads cleaner than one that starts
+    // inside the first line.
+    { x: 0, y: 0.8, w: 1, h: 0.2 },
     { x: 0, y: 0.72, w: 1, h: 0.28 },
     { x: 0, y: 0.78, w: 1, h: 0.22 },
     { x: 0, y: 0.6, w: 1, h: 0.2 },
@@ -48,7 +92,11 @@ export async function readPassportMrz(imagePath) {
     { x: 0, y: 0, w: 1, h: 1 },
   ];
 
-  let lines = [];
+  // Every band that yields a second line is a candidate, and the one whose
+  // check digits hold up best is kept: a band that clips the zone still
+  // produces a line-shaped string, and its digits are then wrong in ways only
+  // the check digits reveal. A band with all three intact ends the search.
+  let best = null;
   for (const band of bands) {
     const canvas = upscale(regionCanvas(image, band), 3);
     const text = ocrCanvas(canvas, { whitelist: MRZ_WHITELIST, psm: 6 });
@@ -56,25 +104,22 @@ export async function readPassportMrz(imagePath) {
       .split('\n')
       .map((line) => line.replace(/\s/g, ''))
       .filter((line) => line.length > 25);
-    if (candidate.some((line) => parseMrzLine2(line))) {
-      lines = candidate;
+    const parsed = parseMrzLines(candidate);
+    if (!parsed.line2) {
+      continue;
+    }
+    if (!best || parsed.score > best.score) {
+      best = parsed;
+    }
+    if (parsed.score === MRZ_CLEAN_SCORE) {
       break;
     }
   }
 
-  let line1 = null;
-  let line2 = null;
-  for (const line of lines) {
-    if (!line1 && /^P[A-Z<]/.test(line)) {
-      line1 = parseMrzLine1(line);
-    } else if (!line2) {
-      line2 = parseMrzLine2(line);
-    }
-  }
-
-  if (!line2) {
+  if (!best) {
     return { data: {}, unverified: [], repaired: [], mrzFound: false };
   }
+  const { line1, line2 } = best;
 
   const unverified = [];
   if (!line2.passportCheckOk) {
@@ -109,6 +154,591 @@ export async function readPassportMrz(imagePath) {
   // Fields the check digit had to correct, so a caller can surface them for a
   // second look even though they now validate.
   return { data, unverified, repaired: line2.repaired ?? [], mrzFound: true };
+}
+
+/**
+ * Cut-offs for the black-ink layer of a page. The printed values are black and
+ * the security pattern behind them is coloured, but how dark the print comes
+ * out varies from photo to photo, so each is read at several and the readings
+ * vote.
+ */
+const INK_THRESHOLDS = [80, 100, 120, 140, 160, 180];
+
+/**
+ * The ways a strip is prepared before reading. The black-ink layer at each
+ * threshold suits dark print; the plain and the thresholded greys catch print
+ * that is too light to survive the layer.
+ */
+function preparations(canvas) {
+  return [
+    ...INK_THRESHOLDS.map((threshold) => keepBlack(canvas, threshold)),
+    grayscale(canvas),
+    binarize(canvas),
+  ];
+}
+
+/** The languages the installed tesseract can read, looked up once. */
+let installedLanguages = null;
+export function tesseractLanguages() {
+  if (installedLanguages === null) {
+    try {
+      const listing = execFileSync('tesseract', ['--list-langs'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      installedLanguages = listing
+        .split('\n')
+        .slice(1)
+        .map((line) => line.trim())
+        .filter((line) => /^[a-z_]+$/.test(line));
+    } catch {
+      installedLanguages = [];
+    }
+  }
+  return installedLanguages;
+}
+
+/** A printed dd.mm.yyyy as ISO, or null when it is not a calendar date. */
+function printedDate(text) {
+  const match = text.replace(/\s/g, '').match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!match) {
+    return null;
+  }
+  const [, day, month, year] = match;
+  const date = new Date(Date.UTC(+year, +month - 1, +day));
+  const real =
+    date.getUTCFullYear() === +year &&
+    date.getUTCMonth() === +month - 1 &&
+    date.getUTCDate() === +day &&
+    +year >= 1900 &&
+    +year <= 2100;
+  return real ? `${year}-${month}-${day}` : null;
+}
+
+/** A rectangle of a canvas, in pixels, as its own canvas. */
+function cutPixels(canvas, { left, top, width, height }) {
+  const x = Math.max(0, Math.round(left));
+  const y = Math.max(0, Math.round(top));
+  return regionCanvas(canvas, {
+    x: x / canvas.width,
+    y: y / canvas.height,
+    w: Math.min(canvas.width - x, Math.round(width)) / canvas.width,
+    h: Math.min(canvas.height - y, Math.round(height)) / canvas.height,
+  });
+}
+
+/**
+ * Every dd.mm.yyyy printed on the page, with where it sits.
+ *
+ * The page is read once per ink threshold and a date seen at the same place
+ * more than once collects the votes, so a digit misread at one threshold does
+ * not outvote the clean readings.
+ */
+function findPrintedDates(page) {
+  const found = [];
+  for (const prepared of preparations(page)) {
+    const words = ocrData(prepared, { psm: 11, whitelist: '0123456789.' });
+    for (const word of words) {
+      const iso = printedDate(word.text);
+      if (!iso) {
+        continue;
+      }
+      const same = found.find(
+        (date) =>
+          date.iso === iso &&
+          Math.abs(date.x - word.x) < word.h * 2 &&
+          Math.abs(date.y - word.y) < word.h
+      );
+      if (same) {
+        same.votes += 1;
+      } else {
+        found.push({ ...word, iso, votes: 1 });
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Reads the row to the left of a date box for another date.
+ *
+ * On a passport that prints the issue and expiry dates side by side, the
+ * expiry date, which the machine-readable zone gives, marks the row.
+ */
+function datesLeftOf(page, anchor) {
+  const strip = upscale(
+    cutPixels(page, {
+      left: 0,
+      top: anchor.y - anchor.h * 0.5,
+      width: anchor.x - anchor.h * 0.5,
+      height: anchor.h * 2,
+    }),
+    2
+  );
+  const found = [];
+  for (const prepared of preparations(strip)) {
+    const text = ocrCanvas(prepared, { psm: 7, whitelist: '0123456789.' });
+    debug('row left of', anchor.iso, text);
+    const iso = loneDate(text);
+    if (!iso) {
+      continue;
+    }
+    const same = found.find((date) => date.iso === iso);
+    if (same) {
+      same.votes += 1;
+    } else {
+      // Passports that print the two dates side by side put the issue date
+      // one date's width to the left; the box is that, for what anchors on it.
+      found.push({
+        iso,
+        votes: 1,
+        x: Math.max(0, anchor.x - anchor.w * 1.4),
+        y: anchor.y,
+        w: anchor.w,
+        h: anchor.h,
+      });
+    }
+  }
+  return found;
+}
+
+/**
+ * The one date in a strip that holds nothing else, read leniently.
+ *
+ * Light print gains a stray digit at the edge of a glyph, so a reading of
+ * nine digits is tried with each one dropped; it counts only when every drop
+ * that gives a calendar date gives the same one.
+ */
+function loneDate(text) {
+  const digits = text.replace(/\D/g, '');
+  if (digits.length === 8) {
+    return printedDate(
+      `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`
+    );
+  }
+  if (digits.length !== 9) {
+    return null;
+  }
+  const readings = new Set();
+  for (let drop = 0; drop < digits.length; drop++) {
+    const kept = digits.slice(0, drop) + digits.slice(drop + 1);
+    const iso = printedDate(
+      `${kept.slice(0, 2)}.${kept.slice(2, 4)}.${kept.slice(4)}`
+    );
+    if (iso) {
+      readings.add(iso);
+    }
+  }
+  return readings.size === 1 ? [...readings][0] : null;
+}
+
+/** Prints what the reader saw, when EVISA_OCR_DEBUG is set. */
+function debug(...parts) {
+  if (process.env.EVISA_OCR_DEBUG) {
+    console.error(
+      '[passport page]',
+      ...parts.map((part) => JSON.stringify(part))
+    );
+  }
+}
+
+/**
+ * Looks for one known date inside a rectangle of the page and returns where
+ * it is, in page coordinates.
+ *
+ * The birth date shares its row with the place of birth, and read across the
+ * whole page the two run together into one unreadable word. Read within the
+ * rows above the issue date, where a passport prints it, it separates.
+ */
+function findDateWithin(page, iso, rectangle) {
+  const cut = cutPixels(page, rectangle);
+  if (cut.width < 8 || cut.height < 8) {
+    return null;
+  }
+  const strip = upscale(cut, 2);
+  for (const prepared of preparations(strip)) {
+    const words = ocrData(prepared, { psm: 11, whitelist: '0123456789.' });
+    debug('date within', iso, words.map((word) => word.text).join(' '));
+    const word = words.find((candidate) => printedDate(candidate.text) === iso);
+    if (word) {
+      return {
+        iso,
+        x: Math.max(0, rectangle.left) + word.x / 2,
+        y: Math.max(0, rectangle.top) + word.y / 2,
+        w: word.w / 2,
+        h: word.h / 2,
+        votes: 1,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Picks the issue date among the dates on the page: the one that is neither
+ * the birth date nor the expiry, falls between them, and has already come.
+ * Two candidates with equal support settle nothing, and nothing is returned.
+ */
+function pickIssueDate(dates, known) {
+  const today = new Date().toISOString().slice(0, 10);
+  // A passport runs ten years at most, so an issue date further than that
+  // before the expiry is something else misread: a birth date with one digit
+  // off, most often.
+  const earliest = known.passportExpiryDate
+    ? `${Number(known.passportExpiryDate.slice(0, 4)) - 10}-01-01`
+    : '';
+  // A passport issued on the day its expiry falls on, five or ten years
+  // earlier, is the ordinary case, and a reading that lands on it is
+  // credited as if two more readings had agreed with it.
+  const anniversary = (iso) =>
+    Boolean(known.passportExpiryDate) &&
+    iso.slice(4) === known.passportExpiryDate.slice(4) &&
+    [5, 10].includes(
+      Number(known.passportExpiryDate.slice(0, 4)) - Number(iso.slice(0, 4))
+    );
+  const candidates = dates
+    .filter(
+      (date) =>
+        date.iso !== known.dateOfBirth &&
+        date.iso !== known.passportExpiryDate &&
+        (!known.dateOfBirth || date.iso > known.dateOfBirth) &&
+        (!known.passportExpiryDate || date.iso < known.passportExpiryDate) &&
+        date.iso >= earliest &&
+        date.iso <= today
+    )
+    .map((date) => ({
+      ...date,
+      votes: date.votes + (anniversary(date.iso) ? 2 : 0),
+    }))
+    .sort((a, b) => b.votes - a.votes);
+  if (!candidates.length) {
+    return null;
+  }
+  if (candidates.length > 1 && candidates[0].votes === candidates[1].votes) {
+    return null;
+  }
+  return candidates[0];
+}
+
+/**
+ * Reads a strip of printed text, one reading per preparation, in the
+ * languages installed, and returns the value the readings agree on after
+ * `clean` reduces each to what it can be.
+ *
+ * Print over a security pattern rarely reads the same way twice, so the vote
+ * is taken after cleaning: two readings that differ only in a stray mark are
+ * one value. A value with no support beyond a single reading is still offered
+ * when nothing contradicts it; a tie between two values settles nothing.
+ */
+function readStrip(page, rectangle, { lang, whitelist, clean }) {
+  const cut = cutPixels(page, rectangle);
+  if (cut.width < 8 || cut.height < 8) {
+    return null;
+  }
+  const strip = upscale(cut, 2);
+  const votes = new Map();
+  for (const prepared of preparations(strip)) {
+    // Read as a line and as a single word: the two segment the print
+    // differently, and a digit lost by one is often kept by the other.
+    for (const psm of [7, 8]) {
+      const reading = ocrCanvas(prepared, { psm, lang, whitelist });
+      const value = clean(reading);
+      debug('strip', reading, value);
+      if (value) {
+        votes.set(value, (votes.get(value) ?? 0) + 1);
+      }
+    }
+  }
+  const ranked = [...votes.entries()].sort((a, b) => b[1] - a[1]);
+  if (!ranked.length) {
+    return null;
+  }
+  if (ranked.length > 1 && ranked[0][1] === ranked[1][1]) {
+    return null;
+  }
+  return ranked[0][0];
+}
+
+/** Latin letters an OCR engine reads for the Cyrillic ones shaped like them. */
+const LOOKALIKES = {
+  A: 'А',
+  B: 'В',
+  C: 'С',
+  E: 'Е',
+  H: 'Н',
+  K: 'К',
+  M: 'М',
+  O: 'О',
+  P: 'Р',
+  T: 'Т',
+  X: 'Х',
+  Y: 'У',
+};
+
+/**
+ * Rewrites a word the engine read in Latin lookalikes back to Cyrillic, when
+ * the word is Cyrillic already in part or made of lookalikes throughout.
+ * "MOCKBA" is МОСКВА misread; "USSR" has letters no Cyrillic word could give.
+ */
+function asCyrillic(word) {
+  const letters = word.match(/\p{L}/gu) ?? [];
+  const cyrillic = letters.some((letter) => /[Ѐ-ӿ]/.test(letter));
+  const allLookalikes = letters.every(
+    (letter) => /[Ѐ-ӿ]/.test(letter) || LOOKALIKES[letter]
+  );
+  if (!cyrillic && !allLookalikes) {
+    return word;
+  }
+  return word.replace(/[ABCEHKMOPTXY]/g, (letter) => LOOKALIKES[letter]);
+}
+
+/** Countries as passports print them in Latin after the place of birth. */
+const LATIN_PLACES = [
+  'RUSSIA',
+  'USSR',
+  'INDIA',
+  'UKRAINE',
+  'BELARUS',
+  'KAZAKHSTAN',
+  'UZBEKISTAN',
+  'KYRGYZSTAN',
+  'TAJIKISTAN',
+  'ARMENIA',
+  'GEORGIA',
+  'MOLDOVA',
+  'GERMANY',
+  'VIETNAM',
+  'THAILAND',
+  'TURKEY',
+  'CHINA',
+];
+
+/** Snaps a Latin word to the country it is one misread away from. */
+function knownPlace(word) {
+  if (word.length < 4) {
+    return word;
+  }
+  return LATIN_PLACES.find((place) => editDistance(word, place) <= 1) ?? word;
+}
+
+/**
+ * The words in a reading of the place of birth that could be part of it: the
+ * native name in Cyrillic, three letters or more, and a Latin country the
+ * list knows. Everything else is the pattern read as letters.
+ */
+function placeWords(reading) {
+  const words = reading
+    .toUpperCase()
+    .split(/[^\p{L}]+/u)
+    .filter((word) => word.length >= 3)
+    .map(asCyrillic);
+  return {
+    native: words.filter((word) => /^[Ѐ-ӿ]+$/.test(word)),
+    latin: words
+      .filter((word) => /^[A-Z]+$/.test(word))
+      .map(knownPlace)
+      .filter((word) => LATIN_PLACES.includes(word)),
+  };
+}
+
+/**
+ * The word the readings agree on, or the only one offered. Several words
+ * seen once each settle nothing.
+ */
+function agreedWord(words) {
+  const counts = new Map();
+  for (const word of words) {
+    counts.set(word, (counts.get(word) ?? 0) + 1);
+  }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  if (!ranked.length || (ranked.length > 1 && ranked[0][1] === ranked[1][1])) {
+    return null;
+  }
+  return ranked[0][0];
+}
+
+/**
+ * Reads the place of birth as the passport prints it: the native name, a
+ * slash, the country in Latin letters, either half on its own if that is
+ * all that reads. Each half is voted separately, since the pattern breaks
+ * up one reading here and another there.
+ */
+function readPlace(page, rectangle, lang) {
+  const cut = cutPixels(page, rectangle);
+  if (cut.width < 8 || cut.height < 8) {
+    return null;
+  }
+  const strip = upscale(cut, 2);
+  const native = [];
+  const latin = [];
+  for (const prepared of preparations(strip)) {
+    const reading = ocrCanvas(prepared, { psm: 7, lang });
+    const words = placeWords(reading);
+    debug('place', reading, words);
+    native.push(...words.native);
+    latin.push(...words.latin);
+  }
+  const halves = [agreedWord(native), agreedWord(latin)].filter(Boolean);
+  return halves.length ? halves.join('/') : null;
+}
+
+/** Bodies that issue Russian passports, as printed before their code. */
+const AUTHORITIES = [
+  'МВД',
+  'ФМС',
+  'УФМС',
+  'ОУФМС',
+  'ГУВД',
+  'УВД',
+  'ОВД',
+  'МИД',
+];
+
+/**
+ * The issuing body in a reading of the authority line: one of the
+ * abbreviations Russian passports print, allowing one misread letter in the
+ * longer ones. Anything else is noise and yields nothing.
+ */
+function cleanAuthorityBody(reading) {
+  const tokens = reading
+    .toUpperCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map(asCyrillic);
+  for (const token of tokens) {
+    const body = AUTHORITIES.find(
+      (name) => token.length >= 3 && editDistance(token, name) <= 1
+    );
+    if (body) {
+      return body;
+    }
+  }
+  return null;
+}
+
+/**
+ * The code in a reading of the authority line, read with digits alone
+ * allowed so the letters beside it cannot bleed into it. A zero often reads
+ * as the letter O over the pattern, and is taken as one.
+ */
+function cleanAuthorityCode(reading) {
+  const code = reading.replace(/[OО]/g, '0').replace(/\D/g, '');
+  return code.length >= 4 && code.length <= 6 ? code : null;
+}
+
+/**
+ * Reads the fields printed beside the machine-readable zone's own.
+ *
+ * The zone carries no issue date, place of birth or issuing authority, and
+ * the form asks for all three. On the printed side they sit in fixed places
+ * relative to the dates the zone does give: the issue date shares a row with
+ * the expiry, the place of birth follows the date of birth, and the authority
+ * is printed under the issue date. Those dates are found on the page and used
+ * as anchors, which holds up where reading the labels does not: the labels
+ * are small grey print over the security pattern, the values are black.
+ *
+ * `known` is what the zone gave, as ISO dates; it decides which printed date
+ * is which. Anything not read cleanly is left out; nothing is guessed.
+ */
+export async function readPassportPage(imagePath, known = {}) {
+  const image = await renderImage(imagePath);
+  const page = upscale(regionCanvas(image, { x: 0, y: 0, w: 1, h: 0.88 }), 2);
+  const lang = tesseractLanguages().includes('rus') ? 'rus+eng' : 'eng';
+
+  const dates = findPrintedDates(page);
+  const expiry = dates.find((date) => date.iso === known.passportExpiryDate);
+  if (expiry) {
+    addDates(dates, datesLeftOf(page, expiry));
+  }
+  const issue = pickIssueDate(dates, known);
+  const birth = findBirthDate(page, dates, issue, known);
+
+  const data = {};
+  if (issue) {
+    data.passportIssueDate = issue.iso;
+  }
+  const place = birth && readPlaceBeside(page, birth, lang);
+  if (place) {
+    data.placeOfBirth = place;
+  }
+  const authority = issue?.w && readAuthorityUnder(page, issue, expiry, lang);
+  if (authority) {
+    data.passportIssuingAuthority = authority;
+  }
+  return { data, dates: dates.map(({ iso, votes }) => ({ iso, votes })) };
+}
+
+/** Adds readings of dates to those found, pooling the votes for a date seen twice. */
+function addDates(dates, more) {
+  for (const date of more) {
+    const same = dates.find((seen) => seen.iso === date.iso);
+    if (same) {
+      same.votes += date.votes;
+    } else {
+      dates.push(date);
+    }
+  }
+}
+
+/**
+ * Where the birth date is printed: found among the page's dates, failing
+ * that in the rows above the issue date, failing that, on a Russian
+ * passport, five and a half lines above the issue date in its column.
+ */
+function findBirthDate(page, dates, issue, known) {
+  const found = dates.find((date) => date.iso === known.dateOfBirth && date.w);
+  if (found || !issue?.w) {
+    return found ?? null;
+  }
+  if (known.dateOfBirth) {
+    const above = findDateWithin(page, known.dateOfBirth, {
+      left: issue.x - issue.h,
+      top: issue.y - issue.h * 8,
+      width: issue.w + issue.h * 2,
+      height: issue.h * 7,
+    });
+    if (above) {
+      return above;
+    }
+  }
+  if (known.nationality === 'Russia') {
+    return { ...issue, y: issue.y - issue.h * 5.5 };
+  }
+  return null;
+}
+
+/** The place of birth, printed to the right of the birth date. */
+function readPlaceBeside(page, birth, lang) {
+  return readPlace(
+    page,
+    {
+      left: birth.x + birth.w + birth.h * 0.3,
+      top: birth.y - birth.h * 0.5,
+      width: page.width,
+      height: birth.h * 2,
+    },
+    lang
+  );
+}
+
+/**
+ * The issuing authority, printed under the issue date as a body and a code.
+ * The two are read separately: the code with digits alone allowed, so the
+ * letters beside it cannot bleed into it.
+ */
+function readAuthorityUnder(page, issue, expiry, lang) {
+  const line = {
+    left: issue.x - issue.h,
+    top: issue.y + issue.h * 1.3,
+    width: (expiry ? expiry.x - issue.x : issue.w * 2) + issue.h,
+    height: issue.h * 2.4,
+  };
+  const body = readStrip(page, line, { lang, clean: cleanAuthorityBody });
+  const code = readStrip(page, line, {
+    whitelist: '0123456789O',
+    clean: cleanAuthorityCode,
+  });
+  return body && code ? `${body} ${code}` : null;
 }
 
 /**
@@ -371,6 +1001,18 @@ async function findMrzBand(inputPath, meta) {
   }
 
   const band = groups[groups.length - 1];
+  // The second line of the zone is digits and a name's worth of fillers, and
+  // crosses between ink and paper about half as often as a first line that is
+  // mostly fillers. It has to be in the band all the same, or the page is cut
+  // between the two lines and the zone cannot be read. So the band is grown
+  // downwards over any nearby row that is busy at all.
+  let last = band[band.length - 1].y;
+  for (let y = last + 1; y < height && y - last <= gap; y++) {
+    if (rows[y].crossings >= busiest * 0.35) {
+      band.push({ ...rows[y], y });
+      last = y;
+    }
+  }
   const scaleX = meta.width / width;
   const scaleY = meta.height / height;
   return {

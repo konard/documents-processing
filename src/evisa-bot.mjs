@@ -17,10 +17,23 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { looksLikeAddress, stripAddressLabel } from './evisa-home-address.mjs';
+import {
+  looksLikeAddress,
+  stripAddressLabel,
+  stripAddressNote,
+} from './evisa-home-address.mjs';
 
 /** How long a chat may go quiet before the bot fills the form on its own. */
 export const IDLE_FILL_MS = 45_000;
+
+/**
+ * How long a chat's browser is kept after its last message.
+ *
+ * A browser holds the filled form, so an applicant who comes back an hour
+ * later finds it as they left it. One that nobody has touched for five
+ * hours is not coming back, and each one open costs memory.
+ */
+export const CHAT_TTL_MS = 5 * 60 * 60 * 1000;
 
 /** Phrases the bot uses, in the two languages it speaks. */
 export const MESSAGES = {
@@ -177,6 +190,8 @@ export const NOT_ASKED = [
   'confirmEmail',
   'passportType',
   'religion',
+  'purpose',
+  'contactAddress',
   'entryBorderGate',
   'exitBorderGate',
   'provinceInVietnam',
@@ -301,13 +316,16 @@ export function describeCorrections(result, language) {
  * wrong, while what was assumed is a decision made on their behalf. Both end up
  * on a government form, so the message states each one plainly.
  */
-export function describeSummary(applicant, supplied, language) {
+export function describeSummary(applicant, supplied, language, reported = {}) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
   const line = ([key, value]) => `• ${prompts[key] ?? key}: ${value}`;
 
+  // Only what has not been said already: the second form of a conversation
+  // carries the same defaults as the first, and reading them twice tells the
+  // applicant nothing.
   const known = Object.entries(applicant).filter(
-    ([key, value]) => value && prompts[key]
+    ([key, value]) => value && prompts[key] && reported[key] !== value
   );
   const given = known.filter(([key]) => supplied[key]);
   const assumed = known.filter(([key]) => !supplied[key]);
@@ -342,11 +360,6 @@ export function parseFreeText(text) {
     found.email = email[0];
   }
 
-  const phone = text.match(/\+\d[\d\s()-]{7,}\d/);
-  if (phone) {
-    found.phone = phone[0].replace(/[\s()-]/g, '');
-  }
-
   // A passport number is a run of digits, possibly spaced in pairs.
   const passport = text.match(
     /(?:passport|паспорт)\D{0,12}((?:\d[\s-]?){8,10})/i
@@ -360,48 +373,155 @@ export function parseFreeText(text) {
     found.stayLengthDays = days[1];
   }
 
-  parseAddresses(text, found, [email?.[0], phone?.[0]]);
+  parseLines(text, found, email?.[0]);
 
   return found;
 }
 
-/** Which address field a label in front of an address line names. */
-function addressField(line) {
-  const label = line.includes(':') ? line.slice(0, line.indexOf(':')) : '';
-  if (/контакт|contact/i.test(label)) {
-    return 'contactAddress';
-  }
-  if (/экстрен|emergency/i.test(label)) {
-    return 'emergencyAddress';
-  }
-  return 'permanentAddress';
+/** Words that say a phone, a name or an address belongs to the contact person. */
+const CONTACT_WORDS =
+  /контакт|contact|родствен|relative|экстрен|emergency|сестр|брат|мам|мать|отец|пап|муж|жен|друг|подруг|сын|доч|sister|brother|mother|father|husband|wife|son|daughter|friend/i;
+
+/** A line that opens the block about the contact person. */
+const CONTACT_HEADING =
+  /^(?:(?:экстренн\w*|emergency)\s+)?(?:контакт\w*(?:\s+лицо)?|contact(?:\s+person)?)\s*:\s*(.*)$/i;
+
+/** How a relative is described, and the word the form gets for it. */
+const RELATIONSHIPS = [
+  [/сестр|sister/i, 'Sister'],
+  [/брат|brother/i, 'Brother'],
+  [/мам|мать|mother/i, 'Mother'],
+  [/отец|отц|пап|father/i, 'Father'],
+  [/муж|husband/i, 'Husband'],
+  [/жен|wife/i, 'Wife'],
+  [/сын|son\b/i, 'Son'],
+  [/доч|daughter/i, 'Daughter'],
+  [/друг|подруг|friend/i, 'Friend'],
+  [/коллег|colleague/i, 'Colleague'],
+  [/родствен|relative/i, 'Relative'],
+];
+
+/** Values people write with a label in front, in either language. */
+const LABELLED = [
+  [
+    /(?:дата\s+выдачи|выдан\w*|date\s+of\s+issue|issued(?:\s+on)?)\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{4})/i,
+    'passportIssueDate',
+  ],
+  [
+    /(?:место\s+рождения|place\s+of\s+birth|born\s+in)\s*:?\s*([^,;\n]+)/i,
+    'placeOfBirth',
+  ],
+  [
+    /(?:орган|кем\s+выдан|authority|issued\s+by)\s*:?\s*([^,;\n]+)/i,
+    'passportIssuingAuthority',
+  ],
+];
+
+/** The relationship named in a piece of text, as the form words it. */
+function relationshipIn(text) {
+  return RELATIONSHIPS.find(([pattern]) => pattern.test(text))?.[1] ?? null;
+}
+
+/** True for a line that is a person's name: two to four words of letters. */
+function looksLikeName(line) {
+  const words = line.trim().split(/\s+/);
+  return (
+    words.length >= 2 &&
+    words.length <= 4 &&
+    words.every((word) => /^\p{L}[\p{L}'-]*$/u.test(word)) &&
+    !CONTACT_WORDS.test(line)
+  );
 }
 
 /**
- * Adds the addresses in a message to what was found in it.
+ * Puts each phone on a line where it belongs.
  *
- * An address takes a line of its own, so the text is read line by line. A
- * label in front of it says which address it is; without one it is the
- * permanent address, the one the form asks for first.
- *
- * `others` are values already read out of the text, as written: a phone or an
- * email on the address line belongs to its own field, not the address.
+ * The words before a phone say whose it is: "телефон сестры +7..." is the
+ * contact's, a bare number is the applicant's. When the applicant already
+ * has one, any other is the contact's, and the words before it name the
+ * relation.
  */
-function parseAddresses(text, found, others) {
+function parsePhones(line, found, inContact) {
+  const pattern = /\+\d[\d\s()-]{7,}\d/g;
+  const matches = [...line.matchAll(pattern)];
+  matches.forEach((match, index) => {
+    const previous = matches[index - 1];
+    const next = matches[index + 1];
+    const before = line.slice(
+      previous ? previous.index + previous[0].length : 0,
+      match.index
+    );
+    // A relation may also follow the number in brackets: "+7... (brother)".
+    const after = line.slice(match.index + match[0].length, next?.index);
+    const number = match[0].replace(/[\s()-]/g, '');
+    const theirs = inContact || CONTACT_WORDS.test(before) || found.phone;
+    if (theirs) {
+      found.emergencyPhone ??= number;
+      const relation = relationshipIn(before) ?? relationshipIn(after);
+      if (relation) {
+        found.emergencyRelationship ??= relation;
+      }
+    } else {
+      found.phone = number;
+    }
+  });
+  return line.replace(pattern, ' ');
+}
+
+/**
+ * Reads a message line by line, keeping track of whether the lines belong
+ * to the applicant or to the contact person.
+ *
+ * A heading such as "Контакт:" opens the contact's block, which runs to the
+ * next blank line; a name, an address or a phone inside it is theirs. A
+ * label on the line itself ("Контактный адрес:", "телефон сестры") decides
+ * on its own. Everything else is the applicant's.
+ */
+function parseLines(text, found, email) {
+  let inContact = false;
   for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    const field = addressField(line);
-    if (found[field] || !looksLikeAddress(line)) {
+    let line = raw.trim();
+    if (!line) {
+      inContact = false;
       continue;
     }
-    let address = stripAddressLabel(line);
-    for (const other of others) {
-      if (other) {
-        address = address.replace(other, '');
-      }
+    const heading = line.match(CONTACT_HEADING);
+    if (heading) {
+      inContact = true;
+      line = heading[1].trim();
     }
-    found[field] = address.replace(/[\s,;]+$/, '').trim();
+    parseLabelled(line, found);
+    line = parsePhones(line, found, inContact);
+    line = line
+      .replace(email ?? /$^/, ' ')
+      .replace(/[\s,;-]+$/, '')
+      .trim();
+    if (looksLikeAddress(line)) {
+      const field = addressFieldFor(line, inContact);
+      found[field] ??= stripAddressNote(stripAddressLabel(line));
+    } else if (line && inContact && looksLikeName(line)) {
+      found.emergencyName ??= line;
+    }
   }
+}
+
+/** Takes the values written with a label out of a line. */
+function parseLabelled(line, found) {
+  for (const [pattern, field] of LABELLED) {
+    const match = line.match(pattern);
+    if (match) {
+      found[field] ??= match[1].trim();
+    }
+  }
+}
+
+/** Which address field an address line is for, by its label or its block. */
+function addressFieldFor(line, inContact) {
+  const label = line.includes(':') ? line.slice(0, line.indexOf(':')) : '';
+  if (inContact || /экстрен|emergency|контакт(?:ное)?\s+лицо/i.test(label)) {
+    return 'emergencyAddress';
+  }
+  return /контакт|contact/i.test(label) ? 'contactAddress' : 'permanentAddress';
 }
 
 /**
@@ -415,9 +535,22 @@ export function createSessionStore() {
   return {
     get(chatId) {
       if (!sessions.has(chatId)) {
-        sessions.set(chatId, { data: {}, uploads: {}, language: 'en' });
+        sessions.set(chatId, {
+          data: {},
+          uploads: {},
+          // What has been put on the page and told to the applicant, so
+          // neither is repeated on the next fill.
+          uploaded: {},
+          reported: {},
+          language: 'en',
+          lastActivity: Date.now(),
+        });
       }
       return sessions.get(chatId);
+    },
+    /** Every chat id with a session, for sweeps. */
+    ids() {
+      return [...sessions.keys()];
     },
     clear(chatId) {
       sessions.delete(chatId);

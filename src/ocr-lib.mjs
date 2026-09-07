@@ -404,13 +404,21 @@ export function upscale(canvas, s = 3) {
 // OCR
 // ===========================================================================
 
-function runTesseract(canvas, { whitelist, psm = 6, tsv = false } = {}) {
+function runTesseract(
+  canvas,
+  { whitelist, psm = 6, tsv = false, lang = null } = {}
+) {
   const tmp = path.join(
     os.tmpdir(),
     `ocr-${process.pid}-${Math.random().toString(36).slice(2)}`
   );
   fs.writeFileSync(`${tmp}.png`, canvas.toBuffer('image/png'));
   const args = [`${tmp}.png`, tsv ? tmp : '-', '--psm', String(psm)];
+  // A language model other than English, such as `rus+eng` for the printed
+  // side of a Russian passport; left unset, tesseract reads English.
+  if (lang) {
+    args.push('-l', lang);
+  }
   if (whitelist) {
     args.push('-c', `tessedit_char_whitelist=${whitelist}`);
   }

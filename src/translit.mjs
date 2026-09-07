@@ -59,6 +59,31 @@ export function hasCyrillic(value) {
 }
 
 /**
+ * The number of single-character edits that turn one string into another.
+ *
+ * Used to match a word read by OCR, or typed with a slip, against a short list
+ * of the words it could be: a distance of one from a five-letter name is a
+ * misread, a distance of three is a different word.
+ */
+export function editDistance(a, b) {
+  const left = [...String(a ?? '')];
+  const right = [...String(b ?? '')];
+  let previous = right.map((_, index) => index + 1);
+  previous.unshift(0);
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j++) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      current.push(
+        Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+/**
  * Transliterates Cyrillic to Latin, leaving anything already Latin alone.
  *
  * Mixed text is handled character by character, which matters for a value like

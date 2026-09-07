@@ -98,13 +98,21 @@ export async function resolveApplicant(options) {
       documents.find((doc) => doc.role === 'unknown');
     if (passportDoc) {
       // Imported here so a --dry-run never loads the native image libraries.
-      const { readPassportMrz } = await import('./evisa-passport.mjs');
+      const { readPassportMrz, readPassportPage } =
+        await import('./evisa-passport.mjs');
       const result = await readPassportMrz(passportDoc.path);
       if (result.mrzFound) {
+        // The printed side gives what the zone leaves out: the issue date,
+        // the place of birth, the authority. The zone's fields win where
+        // both have a value.
+        const page = await readPassportPage(
+          passportDoc.path,
+          result.data
+        ).catch(() => ({ data: {} }));
         // OCR goes first so any explicit record overrides it.
         records.unshift({
           name: `ocr:${path.basename(passportDoc.path)}`,
-          data: result.data,
+          data: { ...page.data, ...result.data },
         });
         ocrNotes.push(
           ...result.unverified.map(

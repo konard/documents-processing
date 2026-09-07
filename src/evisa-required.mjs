@@ -74,10 +74,16 @@ export async function readRequiredFields(page) {
  * applicant has already supplied is left alone even when the form shows it
  * empty, since it may simply not have been filled in yet.
  */
-export function outstandingFields(requiredReport, collected = {}) {
+export function outstandingFields(requiredReport, collected = {}, skip = []) {
   const answered = new Set(Object.keys(collected).filter((k) => collected[k]));
   const radios = new Set(Object.keys(RADIO_GROUPS));
+  const ignored = new Set(skip);
   return requiredReport.missing
-    .filter((field) => !answered.has(field.name) && !radios.has(field.name))
+    .filter(
+      (field) =>
+        !answered.has(field.name) &&
+        !radios.has(field.name) &&
+        !ignored.has(field.name)
+    )
     .map((field) => ({ name: field.name, label: field.label }));
 }

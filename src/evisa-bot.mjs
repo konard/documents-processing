@@ -24,18 +24,14 @@ export const IDLE_FILL_MS = 45_000;
 /** Phrases the bot uses, in the two languages it speaks. */
 export const MESSAGES = {
   en: {
-    welcome:
-      'Hello. I can prepare your Vietnam e-visa application.\n\n' +
-      'Send me your documents — a passport photo, a portrait, an old visa, a ' +
-      'flight ticket, a hotel or apartment booking. Photos, PDFs and forwarded ' +
-      'messages all work. You can also just type the details.\n\n' +
-      'I keep nothing: this chat is the only record.',
-    checklistTitle: 'Here is everything the application needs:',
-    checklistDocuments: 'Documents to send',
-    checklistDetails: 'Details to tell me',
+    welcome: 'I can prepare your Vietnam e-visa application.',
+    checklistDocuments: 'Send these',
+    checklistDetails: 'Tell me these',
     checklistFooter:
-      'Send what you have, in any order. I will read what I can from the ' +
-      'documents and ask only for what is left.',
+      'Photos, PDFs and forwarded messages all work, in any order. ' +
+      'I keep nothing: this chat is the only record.',
+    readFromPassport: 'read from your passport photo',
+    detected: 'From your documents I read:',
     needed: 'Still needed:',
     reading: 'Reading your document...',
     filling:
@@ -50,18 +46,14 @@ export const MESSAGES = {
     languageSet: 'Now speaking English.',
   },
   ru: {
-    welcome:
-      'Здравствуйте. Я помогу подготовить заявление на электронную визу во Вьетнам.\n\n' +
-      'Пришлите документы — страницу паспорта, фотографию, старую визу, ' +
-      'авиабилет, бронирование отеля или квартиры. Подойдут фото, PDF и ' +
-      'пересланные сообщения. Можно и просто написать данные текстом.\n\n' +
-      'Я ничего не сохраняю: единственная запись — эта переписка.',
-    checklistTitle: 'Вот всё, что нужно для заявления:',
-    checklistDocuments: 'Документы',
-    checklistDetails: 'Данные',
+    welcome: 'Помогу подготовить заявление на электронную визу во Вьетнам.',
+    checklistDocuments: 'Пришлите',
+    checklistDetails: 'Напишите',
     checklistFooter:
-      'Присылайте в любом порядке. Что смогу — прочитаю из документов, ' +
-      'остальное спрошу.',
+      'Подойдут фото, PDF и пересланные сообщения, в любом порядке. ' +
+      'Я ничего не сохраняю: единственная запись — эта переписка.',
+    readFromPassport: 'прочитаю с фото паспорта',
+    detected: 'Из ваших документов я прочитал:',
     needed: 'Ещё нужно:',
     reading: 'Читаю документ...',
     filling: 'Пауза в сообщениях, заполняю форму тем, что уже есть.',
@@ -172,33 +164,116 @@ export function describeMissing(fields, language) {
 }
 
 /**
- * The full checklist shown at /start, so nothing comes as a surprise later.
+ * Fields that need no question: mirrored from another answer, or given a
+ * sensible default the applicant can change in the browser.
+ */
+export const NOT_ASKED = [
+  'confirmEmail',
+  'passportType',
+  'religion',
+  'entryBorderGate',
+  'exitBorderGate',
+  'provinceInVietnam',
+  'validFrom',
+  'validTo',
+  'entryDate',
+];
+
+/** Fields a passport photo answers, so they are not asked for separately. */
+export const FROM_PASSPORT = [
+  'surname',
+  'givenName',
+  'dateOfBirth',
+  'sex',
+  'nationality',
+  'passportNumber',
+  'passportExpiryDate',
+  'passportIssueDate',
+  'placeOfBirth',
+];
+
+/** Groups the remaining details under the part of the trip they belong to. */
+export const DETAIL_GROUPS = {
+  en: {
+    you: 'About you',
+    trip: 'Your trip',
+    contact: 'Contacts',
+  },
+  ru: {
+    you: 'О вас',
+    trip: 'Поездка',
+    contact: 'Контакты',
+  },
+};
+
+const GROUP_OF = {
+  email: 'you',
+  confirmEmail: 'you',
+  religion: 'you',
+  permanentAddress: 'you',
+  contactAddress: 'you',
+  phone: 'you',
+  emergencyName: 'contact',
+  emergencyAddress: 'contact',
+  emergencyPhone: 'contact',
+  emergencyRelationship: 'contact',
+};
+
+/**
+ * The checklist shown at /start, as a single message.
  *
- * Documents are listed separately from details, because one document usually
- * answers several details at once and it helps to see which.
+ * Everything a passport photo answers is listed under that photo, so an
+ * applicant can see that sending one picture covers nine of the entries rather
+ * than reading them as nine separate questions.
  */
 export function describeChecklist(fields, language) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
-  const isDocument = (name) =>
-    name === 'portraitPhoto' || name === 'passportPage';
+  const groups = DETAIL_GROUPS[language] ?? DETAIL_GROUPS.en;
+  const name = (field) => prompts[field.name] ?? field.label ?? field.name;
 
-  const documents = fields
-    .filter((field) => isDocument(field.name))
-    .map((field) => `• ${prompts[field.name] ?? field.name}`);
-  const details = fields
-    .filter((field) => !isDocument(field.name))
-    .map((field) => `• ${prompts[field.name] ?? field.label ?? field.name}`);
+  const parts = [strings.welcome, ''];
 
-  const parts = [strings.checklistTitle];
-  if (documents.length) {
-    parts.push(`\n${strings.checklistDocuments}:\n${documents.join('\n')}`);
+  parts.push(`${strings.checklistDocuments}:`);
+  parts.push(`• ${prompts.passportPage} — ${strings.readFromPassport}`);
+  parts.push(`• ${prompts.portraitPhoto}`);
+
+  // Anything the passport answers is covered above.
+  const remaining = fields.filter(
+    (field) =>
+      !FROM_PASSPORT.includes(field.name) &&
+      !NOT_ASKED.includes(field.name) &&
+      field.name !== 'passportPage' &&
+      field.name !== 'portraitPhoto'
+  );
+
+  for (const [key, heading] of Object.entries(groups)) {
+    const inGroup = remaining.filter(
+      (field) => (GROUP_OF[field.name] ?? 'trip') === key
+    );
+    if (inGroup.length) {
+      parts.push('', `${heading}:`);
+      parts.push(...inGroup.map((field) => `• ${name(field)}`));
+    }
   }
-  if (details.length) {
-    parts.push(`\n${strings.checklistDetails}:\n${details.join('\n')}`);
-  }
-  parts.push(`\n${strings.checklistFooter}`);
+
+  parts.push('', strings.checklistFooter);
   return parts.join('\n');
+}
+
+/**
+ * Reports what was read from a document, so the applicant can check it.
+ *
+ * A value taken off a passport by machine is worth showing: it is theirs, it
+ * ends up on a government form, and OCR is not infallible.
+ */
+export function describeDetected(data, language) {
+  const strings = MESSAGES[language] ?? MESSAGES.en;
+  const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
+  const lines = Object.entries(data)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `• ${prompts[key] ?? key}: ${value}`);
+  return lines.length ? `${strings.detected}\n${lines.join('\n')}` : null;
 }
 
 /**

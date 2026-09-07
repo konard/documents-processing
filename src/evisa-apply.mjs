@@ -141,6 +141,11 @@ function reportFill(result) {
       `  corrected ${change.field}: the site read "${change.was}", replaced with "${change.now}"`
     );
   }
+  if (result.siteOnly?.length) {
+    console.log(
+      `  kept the site's own reading, unconfirmed by ours: ${result.siteOnly.join(', ')}`
+    );
+  }
   for (const failure of result.failures) {
     console.log(`  could not fill ${failure.field}: ${failure.error}`);
   }

@@ -11,6 +11,13 @@ import { parseMrzLine1, parseMrzLine2 } from './mrz-lib.mjs';
 import { PHOTO_RULES, countryName, sexLabel } from './evisa-schema.mjs';
 import { normalizeName } from './evisa-data.mjs';
 
+// The machine-readable zone is Latin-only by design, so an English-trained
+// engine reads it whatever language the rest of the page is in. The printed
+// side of a Russian passport is bilingual, and reading its Cyrillic half would
+// need a Russian model that is not installed here (`tesseract --list-langs`
+// shows eng alone). Where a value is printed in both, the Latin half is the one
+// the form wants anyway, which is what preferEnglishHalf keeps.
+
 /** The MRZ occupies the bottom ~11% of a TD3 passport data page. */
 const MRZ_REGION = { x: 0, y: 0.883, w: 1, h: 0.112 };
 const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';

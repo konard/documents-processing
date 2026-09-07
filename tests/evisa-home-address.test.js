@@ -16,8 +16,8 @@ import {
   sameAddress,
 } from '../src/evisa-geocode.mjs';
 import { transliterate, toCyrillic, editDistance } from '../src/translit.mjs';
-import { parseFreeText, NOT_ASKED } from '../src/evisa-bot.mjs';
-import { normalizeApplicant } from '../src/evisa-data.mjs';
+import { parseFreeText, dateInLine, NOT_ASKED } from '../src/evisa-bot.mjs';
+import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
 
 // A made-up address in the shape a Russian one takes: country, city, postal
 // code, street, house, building, flat, each with its marker.
@@ -27,6 +27,25 @@ const MOSCOW = 'Россия, г. Москва, 101000, ул. Пушкина, д
 // remark after a dash that is not part of it.
 const TYPED =
   'Россия, 101000, г. Москва ул. Пушкина, д. 10 корп. 2 кв. 5 - адрес для всех';
+
+/** A date the way a Russian speaker types it: "16 сентября 2026". */
+function inRussian(date) {
+  const months = [
+    'января',
+    'февраля',
+    'марта',
+    'апреля',
+    'мая',
+    'июня',
+    'июля',
+    'августа',
+    'сентября',
+    'октября',
+    'ноября',
+    'декабря',
+  ];
+  return `${date.getUTCDate()} ${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+}
 
 describe('rendering a home address in Latin letters', () => {
   it('translates the markers and names the country and city in English', () => {
@@ -115,16 +134,16 @@ describe('rendering a home address in Latin letters', () => {
     expect(sameStreet(mapStreet(latin), 'улица Пушкина')).toBe(true);
     // A street on its own unit, its type word telling it from a city.
     const rendered = addressParts(
-      'Russian Federation, [REDACTED] bulvar, 18A, apt. 16'
+      'Russian Federation, Gogolevskii bulvar, 3A, apt. 16'
     );
     expect(rendered.city).toBe('');
-    expect(rendered.street).toBe('[REDACTED] bulvar');
-    expect(mapQuery(rendered)).toBe('Россия, [REDACTED] бульвар, 18А');
-    expect(sameStreet('[REDACTED] бульвар', '[REDACTED] бульвар')).toBe(true);
-    expect(sameStreet('[REDACTED] бульвар', 'Верх-Исетский бульвар')).toBe(
+    expect(rendered.street).toBe('Gogolevskii bulvar');
+    expect(mapQuery(rendered)).toBe('Россия, Гоголевскии бульвар, 3А');
+    expect(sameStreet('Гоголевскии бульвар', 'Гоголевский бульвар')).toBe(true);
+    expect(sameStreet('Гоголевскии бульвар', 'Верх-Исетский бульвар')).toBe(
       false
     );
-    expect(toCyrillic('[REDACTED]')).toBe('[REDACTED]');
+    expect(toCyrillic('Gogolevskii')).toBe('Гоголевскии');
   });
 });
 
@@ -330,6 +349,63 @@ describe('the contact person in a chat message', () => {
     expect(found.emergencyName).toBe('John Smith');
     expect(found.emergencyPhone).toBe('+442079460958');
     expect(found.emergencyRelationship).toBe('Brother');
+  });
+
+  it('reads a date written in words or in digits', () => {
+    expect(dateInLine('Дата билетов на самолёт: 16 сентября 2026 года')).toBe(
+      '16/09/2026'
+    );
+    expect(dateInLine('прилёт 5 мая 2027')).toBe('05/05/2027');
+    expect(dateInLine('flight on 5 Oct 2026')).toBe('05/10/2026');
+    expect(dateInLine('въезд 16.09.2026')).toBe('16/09/2026');
+    expect(dateInLine('no date here')).toBe(null);
+  });
+
+  it('reads one message with the email, the flight date, both addresses and the sister', () => {
+    // The shape of a message sent alongside the passport and the portrait,
+    // with made-up names, numbers and addresses.
+    const flight = new Date();
+    flight.setUTCDate(flight.getUTCDate() + 40);
+    const found = parseFreeText(
+      [
+        'someone@example.com',
+        '',
+        `Дата билетов на самолёт: ${inRussian(flight)} года`,
+        '',
+        'Россия, 101000, г. Москва ул. Пушкина, д. 10 корп. 2 кв. 5',
+        '+7 999 111-22-33',
+        '',
+        'Сестра: ',
+        'JANE DOE',
+        'RUSSIAN FEDERATION, PUSHKINA STREET 10, BUILDING 2, APARTMENT 5',
+        '+79994445566',
+      ].join('\n')
+    );
+    expect(found).toEqual({
+      email: 'someone@example.com',
+      entryDate: toFormDate(flight),
+      permanentAddress:
+        'Россия, 101000, г. Москва ул. Пушкина, д. 10 корп. 2 кв. 5',
+      phone: '+79991112233',
+      emergencyRelationship: 'Sister',
+      emergencyName: 'JANE DOE',
+      emergencyAddress:
+        'RUSSIAN FEDERATION, PUSHKINA STREET 10, BUILDING 2, APARTMENT 5',
+      emergencyPhone: '+79994445566',
+    });
+    // On the form, both addresses come out the same way, and the flight date
+    // is the entry date.
+    const applicant = normalizeApplicant(found);
+    expect(applicant.entryDate).toBe(toFormDate(flight));
+    expect(applicant.permanentAddress).toBe(
+      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+    );
+    expect(applicant.emergencyAddress).toBe(
+      'Russian Federation, Pushkina Street, 10, bld. 2, apt. 5'
+    );
+    expect(applicant.emergencyName).toBe('JANE DOE');
+    expect(applicant.emergencyRelationship).toBe('Sister');
+    expect(applicant.purpose).toBe('Tourist');
   });
 
   it('reads the passport details people type with a label', () => {

@@ -57,13 +57,13 @@ describe('toLatin', () => {
 
 describe('checkName', () => {
   it('accepts a name written in Latin letters', () => {
-    expect(checkName('[REDACTED]')).toBe(null);
+    expect(checkName('ILIASHENKO')).toBe(null);
     expect(checkName("O'BRIEN")).toBe(null);
     expect(checkName('SMITH-JONES')).toBe(null);
   });
 
   it('refuses a name that is not in Latin letters', () => {
-    expect(checkName('[REDACTED]')).toContain('Latin letters');
+    expect(checkName('ИЛЬЯШЕНКО')).toContain('Latin letters');
   });
 
   it('names the character that does not belong', () => {
@@ -111,11 +111,11 @@ describe('normalizeName', () => {
 describe('applicant validation', () => {
   it('transliterates a Cyrillic name and accepts it', () => {
     const out = normalizeApplicant({
-      surname: '[REDACTED]',
-      givenName: 'КОНСТАНТИН',
+      surname: 'ИЛЬЯШЕНКО',
+      givenName: 'ВЯЧЕСЛАВ',
     });
-    expect(out.surname).toBe('[REDACTED]');
-    expect(out.givenName).toBe('KONSTANTIN');
+    expect(out.surname).toBe('ILIASHENKO');
+    expect(out.givenName).toBe('VIACHESLAV');
   });
 
   it('transliterates the other free-text fields too', () => {

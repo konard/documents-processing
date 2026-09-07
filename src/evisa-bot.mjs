@@ -417,9 +417,84 @@ const LABELLED = [
   ],
 ];
 
+/** A short label ending in a colon, with whatever follows it on the line. */
+const LABELLED_LINE = /^(\p{L}[\p{L} ]{0,30}?)\s*:\s*(.*)$/u;
+
+/** A line that says when the applicant flies or enters. */
+const ENTRY_WORDS = /билет|вылет|прил[её]т|въезд|arriv|flight|entry|ticket/i;
+
+/** Months by their opening letters, in Russian and English. */
+const MONTH_STEMS = [
+  /^(?:янв|jan)/i,
+  /^(?:фев|feb)/i,
+  /^(?:мар|mar)/i,
+  /^(?:апр|apr)/i,
+  /^(?:ма[йя]|may)/i,
+  /^(?:июн|jun)/i,
+  /^(?:июл|jul)/i,
+  /^(?:авг|aug)/i,
+  /^(?:сен|sep)/i,
+  /^(?:окт|oct)/i,
+  /^(?:ноя|nov)/i,
+  /^(?:дек|dec)/i,
+];
+
+/** A date as people write it: "16 сентября 2026 года", "5 Oct 2026", "16.09.2026". */
+const WRITTEN_DATE =
+  /(\d{1,2})\s+(\p{L}{3,})\.?,?\s+(\d{4})|(\d{1,2})[./-](\d{1,2})[./-](\d{4})/u;
+
 /** The relationship named in a piece of text, as the form words it. */
 function relationshipIn(text) {
   return RELATIONSHIPS.find(([pattern]) => pattern.test(text))?.[1] ?? null;
+}
+
+/**
+ * The date written in a line, as the form wants it, or null.
+ *
+ * A month written in words is unambiguous, so "16 сентября 2026" and
+ * "16.09.2026" both give 16/09/2026.
+ */
+export function dateInLine(line) {
+  const match = String(line ?? '').match(WRITTEN_DATE);
+  if (!match) {
+    return null;
+  }
+  const [, dayWord, monthWord, yearWord, day, month, year] = match;
+  if (day) {
+    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+  }
+  const index = MONTH_STEMS.findIndex((stem) => stem.test(monthWord));
+  if (index < 0) {
+    return null;
+  }
+  const monthNumber = String(index + 1).padStart(2, '0');
+  return `${dayWord.padStart(2, '0')}/${monthNumber}/${yearWord}`;
+}
+
+/**
+ * Reads a heading that opens the contact person's block.
+ *
+ * "Контакт:" and "Emergency contact:" open it by name; so does a relation on
+ * its own, "Сестра:" or "Brother: John Smith", which also says who the
+ * contact is. Whatever follows the colon is read as the first line of the
+ * block.
+ */
+function openContactBlock(line, found) {
+  const heading = line.match(CONTACT_HEADING);
+  if (heading) {
+    return heading[1].trim();
+  }
+  const labelled = line.match(LABELLED_LINE);
+  if (!labelled) {
+    return null;
+  }
+  const [, label, rest] = labelled;
+  const relation = relationshipIn(label);
+  if (!relation || label.trim().split(/\s+/).length > 2) {
+    return null;
+  }
+  found.emergencyRelationship ??= relation;
+  return rest.trim();
 }
 
 /** True for a line that is a person's name: two to four words of letters. */
@@ -472,10 +547,11 @@ function parsePhones(line, found, inContact) {
  * Reads a message line by line, keeping track of whether the lines belong
  * to the applicant or to the contact person.
  *
- * A heading such as "Контакт:" opens the contact's block, which runs to the
- * next blank line; a name, an address or a phone inside it is theirs. A
- * label on the line itself ("Контактный адрес:", "телефон сестры") decides
- * on its own. Everything else is the applicant's.
+ * A heading such as "Контакт:" or "Сестра:" opens the contact's block, which
+ * runs to the next blank line; a name, an address or a phone inside it is
+ * theirs. A label on the line itself ("Контактный адрес:", "телефон сестры")
+ * decides on its own. A line about the flight or the entry gives the entry
+ * date. Everything else is the applicant's.
  */
 function parseLines(text, found, email) {
   let inContact = false;
@@ -485,12 +561,16 @@ function parseLines(text, found, email) {
       inContact = false;
       continue;
     }
-    const heading = line.match(CONTACT_HEADING);
-    if (heading) {
+    const opened = openContactBlock(line, found);
+    if (opened !== null) {
       inContact = true;
-      line = heading[1].trim();
+      line = opened;
     }
     parseLabelled(line, found);
+    const entry = ENTRY_WORDS.test(line) ? dateInLine(line) : null;
+    if (entry) {
+      found.entryDate ??= entry;
+    }
     line = parsePhones(line, found, inContact);
     line = line
       .replace(email ?? /$^/, ' ')

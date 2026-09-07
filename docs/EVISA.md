@@ -248,13 +248,19 @@ in front of it sends it to that field instead. A phone or email on the same
 line goes to its own field. The contact address is taken to be the permanent
 one unless given, and the purpose of the trip to be tourism.
 
-The contact person is read from a block opened by `Контакт:` or `Emergency
-contact:`, running to the next blank line: a line of two to four words is
-their name, an address line their address, a phone theirs. A second phone
-anywhere, or one preceded by a word such as `сестра` or `brother`, is the
-contact's too, and that word becomes the relationship. `Номер контакта
-+7...` on its own is their phone. Typed passport details are read with their
-labels: `дата выдачи 17.02.2020`, `место рождения: Тула`, `орган: МВД 0001`.
+The contact person is read from a block opened by `Контакт:`, `Emergency
+contact:` or a relation on its own, `Сестра:` or `Brother:`, running to the
+next blank line: a line of two to four words is their name, an address line
+their address, a phone theirs, and the relation in the heading is the
+relationship. A second phone anywhere, or one preceded by a word such as
+`сестра` or `brother`, is the contact's too, and that word becomes the
+relationship. `Номер контакта +7...` on its own is their phone. A line about
+the flight or the entry gives the entry date, in digits or in words: `Дата
+билетов на самолёт: 16 сентября 2026 года`. Typed passport details are read
+with their labels: `дата выдачи 17.02.2020`, `место рождения: Тула`, `орган:
+МВД 0001`. So one message can carry the email, the flight date, the address
+and phone, and the contact's name, address and phone under `Сестра:`, sent
+alongside the passport and the portrait.
 
 While the bot reads a document or fills the form it shows the "typing" status
 in the chat and sends no message about it; the reading runs on a worker

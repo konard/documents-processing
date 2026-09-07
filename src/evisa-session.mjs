@@ -24,9 +24,17 @@ import {
  */
 export async function openForm({ headless = false, viewport } = {}) {
   const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless });
+  const browser = await chromium.launch({
+    headless,
+    // Start the window large enough to show the form without scrolling
+    // horizontally; the page itself then follows whatever size the window is.
+    args: headless ? [] : ['--window-size=1500,1000'],
+  });
+  // A visible window gets no fixed viewport, so resizing it resizes the page.
+  // Pinning one would leave the layout stuck at its original size, which is
+  // what made the window unresponsive to being dragged wider.
   const page = await browser.newPage({
-    viewport: viewport ?? { width: 1500, height: 1000 },
+    viewport: headless ? (viewport ?? { width: 1500, height: 1000 }) : null,
   });
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await acceptNoteModal(page);

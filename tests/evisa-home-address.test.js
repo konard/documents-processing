@@ -20,6 +20,8 @@ import {
   parseFreeText,
   dateInLine,
   describeSummary,
+  describeOutcome,
+  isConfirmation,
   NOT_ASKED,
 } from '../src/evisa-bot.mjs';
 import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
@@ -413,6 +415,17 @@ describe('the contact person in a chat message', () => {
     expect(applicant.purpose).toBe('Tourist');
   });
 
+  it('reads the passport details people type with a label', () => {
+    const found = parseFreeText(
+      'дата выдачи 17.02.2020, место рождения: Тула, орган: МВД 0001'
+    );
+    expect(found.passportIssueDate).toBe('17.02.2020');
+    expect(found.placeOfBirth).toBe('Тула');
+    expect(found.passportIssuingAuthority).toBe('МВД 0001');
+  });
+});
+
+describe('what the bot says about a form', () => {
   it('is summarised in sections, with what was assumed marked', () => {
     const supplied = { surname: 'DOE', phone: '+79991112233' };
     const applicant = {
@@ -427,10 +440,10 @@ describe('the contact person in a chat message', () => {
         'В анкету пойдёт:',
         '',
         '<b>Заявитель</b>',
-        '• фамилию: DOE',
+        '• фамилия: DOE',
         '',
         '<b>Контакты</b>',
-        '• номер телефона: +79991112233',
+        '• телефон: +79991112233',
         '• контактный адрес (по умолчанию): Tula, ul. Mira, 1 &lt;flat 2&gt;',
         '',
         '<b>Поездка</b>',
@@ -444,16 +457,67 @@ describe('the contact person in a chat message', () => {
     expect(describeSummary(applicant, supplied, 'ru', applicant)).toBe(null);
     const english = describeSummary({ surname: 'DOE' }, supplied, 'en');
     expect(english).toBe(
-      'Going on the form:\n\n<b>Applicant</b>\n• your surname: DOE'
+      'Going on the form:\n\n<b>Applicant</b>\n• surname: DOE'
     );
   });
 
-  it('reads the passport details people type with a label', () => {
-    const found = parseFreeText(
-      'дата выдачи 17.02.2020, место рождения: Тула, орган: МВД 0001'
+  it('names the source of a mirrored value', () => {
+    // The applicant gave an address and an entry date; the contact address
+    // and the visa's first day follow from those, and the last day is the
+    // 90-day maximum.
+    const supplied = { permanentAddress: MOSCOW, entryDate: '16/09/2026' };
+    const applicant = normalizeApplicant(supplied);
+    const summary = describeSummary(applicant, supplied, 'ru');
+    expect(summary).toContain(
+      '• контактный адрес (как адрес регистрации): Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
     );
-    expect(found.passportIssueDate).toBe('17.02.2020');
-    expect(found.placeOfBirth).toBe('Тула');
-    expect(found.passportIssuingAuthority).toBe('МВД 0001');
+    expect(summary).toContain('• дата въезда: 16/09/2026');
+    expect(summary).toContain('• виза с (день въезда): 16/09/2026');
+    expect(summary).toContain(
+      '• виза по (90 дней, максимум для электронной визы): 14/12/2026'
+    );
+    expect(summary).toContain('• цель поездки (по умолчанию): Tourist');
+    expect(summary).toContain('Помеченное «(по умолчанию)»');
+    // Nothing assumed: no note about assumptions either.
+    const given = { surname: 'DOE' };
+    expect(describeSummary(given, given, 'en')).not.toContain('assumed');
+  });
+
+  it('reports a fill under the captured page as one message', () => {
+    const result = {
+      filled: new Array(41).fill('x'),
+      agreed: [1, 2, 3, 4, 5, 6, 7],
+      corrected: [{ field: 'phone', was: '+7999111223', now: '+79991112233' }],
+      failures: [],
+    };
+    expect(describeOutcome(result, [], 'ru')).toBe(
+      [
+        'Заполнено полей: 41.',
+        'Из них 7 сайт сам распознал с паспорта, и они совпали.',
+        '',
+        'Исправил то, что сайт распознал иначе:',
+        '• телефон: "+7999111223" → "+79991112233"',
+        '',
+        'Форма НЕ отправлена. Проверьте каждое поле и отправьте сами в браузере.',
+      ].join('\n')
+    );
+    const missing = [{ name: 'phone' }];
+    expect(describeOutcome({ filled: [], failures: [] }, missing, 'en')).toBe(
+      [
+        'Filled 0 fields.',
+        '',
+        'Still needed:',
+        '• your phone number',
+        'The form is NOT submitted. Check every field, then submit it yourself in the browser.',
+      ].join('\n')
+    );
+  });
+
+  it('takes a word of confirmation as the signal to fill now', () => {
+    expect(isConfirmation('Подтверждаю')).toBe(true);
+    expect(isConfirmation('отправляй!')).toBe(true);
+    expect(isConfirmation('go')).toBe(true);
+    expect(isConfirmation('да, адрес: Тула')).toBe(false);
+    expect(isConfirmation(MOSCOW)).toBe(false);
   });
 });

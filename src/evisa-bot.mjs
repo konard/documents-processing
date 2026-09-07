@@ -56,14 +56,22 @@ export const MESSAGES = {
     assumedNote:
       'What is marked "(assumed)" was not given, so I chose it. Change any ' +
       'of it in the browser before submitting.',
+    derived: {
+      contactAddress: '(same as the permanent address)',
+      validFrom: '(the entry date)',
+      validTo: '(90 days, the most an e-visa allows)',
+    },
+    filled: (n) => `Filled ${n} fields.`,
     siteAgreed: (n) =>
-      `The site read ${n} field(s) from your passport and they matched what I had.`,
-    siteCorrected: 'I corrected what the site read differently:',
-    needed: 'Still needed:',
-    filled: (n) => `Filled ${n} fields. Here is the whole page:`,
+      `The site read ${n} of them from the passport itself, and they matched.`,
+    siteCorrected: 'Corrected what the site read differently:',
     failed: (field, why) => `Could not fill ${field}: ${why}`,
+    fillFailed: (why) =>
+      `Filling stopped: ${why}. The browser is left open with the form as ` +
+      'far as it got.',
+    needed: 'Still needed:',
     ready:
-      'The form is filled but NOT submitted. Check every field, then submit it ' +
+      'The form is NOT submitted. Check every field, then submit it ' +
       'yourself in the browser.',
     unreadable:
       'I could not read that. Please send a sharper photo of the whole page.',
@@ -88,15 +96,23 @@ export const MESSAGES = {
     assumedNote:
       'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Любое ' +
       'можно исправить в браузере перед отправкой.',
+    derived: {
+      contactAddress: '(как адрес регистрации)',
+      validFrom: '(день въезда)',
+      validTo: '(90 дней, максимум для электронной визы)',
+    },
+    filled: (n) => `Заполнено полей: ${n}.`,
     siteAgreed: (n) =>
-      `Сайт распознал полей с паспорта: ${n}. Они совпали с моими данными.`,
+      `Из них ${n} сайт сам распознал с паспорта, и они совпали.`,
     siteCorrected: 'Исправил то, что сайт распознал иначе:',
-    needed: 'Ещё нужно:',
-    filled: (n) => `Заполнено полей: ${n}. Вот вся страница:`,
     failed: (field, why) => `Не удалось заполнить ${field}: ${why}`,
+    fillFailed: (why) =>
+      `Заполнение прервалось: ${why}. Браузер оставлен открытым с формой в ` +
+      'том виде, до которого дошло.',
+    needed: 'Ещё нужно:',
     ready:
-      'Форма заполнена, но НЕ отправлена. Проверьте каждое поле и отправьте ' +
-      'сами в браузере.',
+      'Форма НЕ отправлена. Проверьте каждое поле и отправьте сами в ' +
+      'браузере.',
     unreadable:
       'Не удалось прочитать. Пришлите более чёткое фото всей страницы.',
     languageSet: 'Говорю по-русски.',
@@ -174,6 +190,94 @@ export const FIELD_PROMPTS = {
     exitBorderGate: 'через какой аэропорт или границу выезжаете',
   },
 };
+
+/**
+ * Field names for a list of values, where a prompt's wording would not read:
+ * "your surname: DOE" and "фамилию: DOE" are questions, not labels. Only the
+ * fields whose prompt does not serve as a label are here.
+ */
+export const FIELD_LABELS = {
+  en: {
+    surname: 'surname',
+    givenName: 'given names',
+    dateOfBirth: 'date of birth',
+    sex: 'sex',
+    nationality: 'nationality',
+    email: 'email',
+    religion: 'religion',
+    placeOfBirth: 'place of birth',
+    passportNumber: 'passport number',
+    passportType: 'passport type',
+    passportIssueDate: 'passport issued on',
+    passportExpiryDate: 'passport expires on',
+    passportIssuingAuthority: 'passport issued by',
+    permanentAddress: 'permanent address',
+    contactAddress: 'contact address',
+    phone: 'phone',
+    emergencyName: 'name',
+    emergencyAddress: 'address',
+    emergencyPhone: 'phone',
+    emergencyRelationship: 'relationship',
+    purpose: 'purpose',
+    validFrom: 'visa valid from',
+    validTo: 'visa valid to',
+    entryDate: 'entry date',
+    stayLengthDays: 'days of stay',
+    addressInVietnam: 'address in Viet Nam',
+    provinceInVietnam: 'province or city',
+    wardInVietnam: 'ward or commune',
+    entryBorderGate: 'entering through',
+    exitBorderGate: 'leaving through',
+  },
+  ru: {
+    surname: 'фамилия',
+    givenName: 'имя и отчество',
+    dateOfBirth: 'дата рождения',
+    sex: 'пол',
+    nationality: 'гражданство',
+    email: 'электронная почта',
+    religion: 'вероисповедание',
+    placeOfBirth: 'место рождения',
+    passportNumber: 'номер паспорта',
+    passportType: 'тип паспорта',
+    passportIssueDate: 'дата выдачи',
+    passportExpiryDate: 'действителен до',
+    passportIssuingAuthority: 'кем выдан',
+    permanentAddress: 'адрес регистрации',
+    contactAddress: 'контактный адрес',
+    phone: 'телефон',
+    emergencyName: 'имя',
+    emergencyAddress: 'адрес',
+    emergencyPhone: 'телефон',
+    emergencyRelationship: 'кем приходится',
+    purpose: 'цель поездки',
+    validFrom: 'виза с',
+    validTo: 'виза по',
+    entryDate: 'дата въезда',
+    stayLengthDays: 'дней пребывания',
+    addressInVietnam: 'адрес во Вьетнаме',
+    provinceInVietnam: 'провинция или город',
+    wardInVietnam: 'район или коммуна',
+    entryBorderGate: 'въезд через',
+    exitBorderGate: 'выезд через',
+  },
+};
+
+/** The label for a field in a list of values. */
+function labelFor(key, language) {
+  const labels = FIELD_LABELS[language] ?? FIELD_LABELS.en;
+  const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
+  return labels[key] ?? prompts[key] ?? key;
+}
+
+/** Words that tell the bot to fill the form now, without waiting. */
+const CONFIRMATIONS =
+  /^[^\p{L}\p{N}]*(?:подтверждаю|отправляй|заполняй|заполни|готово|давай|поехали|confirm(?:ed)?|go|fill|ok|okay|yes|да)[^\p{L}\p{N}]*$/iu;
+
+/** True for a message that says "go ahead", in either language. */
+export function isConfirmation(text) {
+  return CONFIRMATIONS.test(String(text ?? '').trim());
+}
 
 /**
  * Picks a language from what the applicant wrote.
@@ -300,30 +404,49 @@ export function describeChecklist(fields, language) {
   return parts.join('\n');
 }
 
+/** Telegram's limit on the caption under a file. */
+const CAPTION_LIMIT = 1024;
+
 /**
- * Reports how the values sent to the form compared with the site's own reading.
+ * Everything there is to say about a fill, as one text: the caption under
+ * the captured page.
  *
- * The site extracts several fields from the passport image and asks the
- * applicant to check them. Saying which ones matched, and which were replaced
- * and with what, is the difference between a form the applicant can verify and
- * one they have to re-read line by line.
+ * One message, not four. How many fields went in; how the site's own reading
+ * of the passport compared, since it asks the applicant to check those; what
+ * could not be filled; and either what is still needed or that the form is
+ * waiting, unsubmitted, in the browser.
  */
-export function describeCorrections(result, language) {
+export function describeOutcome(result, outstanding, language) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
-  const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
-  const parts = [];
+  const parts = [strings.filled(result.filled.length)];
 
   if (result.agreed?.length) {
     parts.push(strings.siteAgreed(result.agreed.length));
   }
   if (result.corrected?.length) {
-    parts.push(strings.siteCorrected);
+    parts.push('', strings.siteCorrected);
     for (const change of result.corrected) {
-      const name = prompts[change.field] ?? change.field;
-      parts.push(`• ${name}: "${change.was}" → "${change.now}"`);
+      parts.push(
+        `• ${labelFor(change.field, language)}: "${change.was}" → "${change.now}"`
+      );
     }
   }
-  return parts.length ? parts.join('\n') : null;
+  const failures = result.failures ?? [];
+  if (failures.length) {
+    parts.push('');
+    for (const failure of failures.slice(0, 5)) {
+      parts.push(strings.failed(failure.field, failure.error.split('\n')[0]));
+    }
+  }
+  parts.push('');
+  if (outstanding.length) {
+    parts.push(describeMissing(outstanding, language));
+  }
+  parts.push(strings.ready);
+  const text = parts.join('\n');
+  return text.length > CAPTION_LIMIT
+    ? `${text.slice(0, CAPTION_LIMIT - 1)}…`
+    : text;
 }
 
 /** The form's fields in groups, in the order a reader looks for them. */
@@ -377,6 +500,20 @@ export const SECTIONS = [
   ],
 ];
 
+/** What a mirrored value follows from; true when that was given. */
+function derivedFrom(key, supplied) {
+  switch (key) {
+    case 'contactAddress':
+      return Boolean(supplied.permanentAddress);
+    case 'validFrom':
+      return Boolean(supplied.entryDate);
+    case 'validTo':
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Makes a value safe inside Telegram HTML, where the titles are bold. */
 function escapeHtml(value) {
   return String(value)
@@ -392,9 +529,13 @@ function escapeHtml(value) {
  * Forty values in one list are hard to check, so they are grouped the way
  * the form itself is: applicant, passport, contacts, emergency contact, trip.
  * A value the applicant did not give is marked, since it is a decision made
- * on their behalf that ends up on a government form. Only what has not been
- * said already is listed: the second form of a conversation carries the same
- * defaults as the first, and reading them twice tells the applicant nothing.
+ * on their behalf that ends up on a government form. A value that follows
+ * from one they did give, the contact address from the permanent one or the
+ * visa's first day from the entry date, is marked with where it came from
+ * instead, since calling it assumed would say their answer was ignored.
+ * Only what has not been said already is listed: the second form of a
+ * conversation carries the same defaults as the first, and reading them
+ * twice tells the applicant nothing.
  */
 export function describeSummary(applicant, supplied, language, reported = {}) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
@@ -403,13 +544,24 @@ export function describeSummary(applicant, supplied, language, reported = {}) {
     applicant[key] && prompts[key] && reported[key] !== applicant[key];
   let assumedAny = false;
 
+  const markFor = (key) => {
+    if (supplied[key]) {
+      return '';
+    }
+    if (strings.derived[key] && derivedFrom(key, supplied)) {
+      return ` ${strings.derived[key]}`;
+    }
+    assumedAny = true;
+    return ` ${strings.assumedMark}`;
+  };
+
   const blocks = SECTIONS.map(([section, keys]) => {
-    const lines = keys.filter(fresh).map((key) => {
-      const assumed = !supplied[key];
-      assumedAny ||= assumed;
-      const mark = assumed ? ` ${strings.assumedMark}` : '';
-      return `• ${prompts[key]}${mark}: ${escapeHtml(applicant[key])}`;
-    });
+    const lines = keys
+      .filter(fresh)
+      .map(
+        (key) =>
+          `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}`
+      );
     if (!lines.length) {
       return null;
     }

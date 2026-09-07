@@ -70,12 +70,46 @@ export async function waitForForm(page) {
   await page.waitForSelector('#basic_ttcnHo', { timeout: 60000 });
 }
 
-/** Types into a plain text input, clearing whatever was there first. */
+/**
+ * Sets a value on a control without moving the page.
+ *
+ * Playwright scrolls an element into view before clicking it. That fights with
+ * anyone scrolling the page themselves: each field yanks the view back, and a
+ * control the reader has scrolled under the sticky header becomes unclickable.
+ * Writing the value straight to the element avoids both.
+ *
+ * Angular listens for `input` and `change`, and its own value tracker has to be
+ * bypassed or it treats the assignment as a no-op and reverts the field.
+ */
+function setValueInPlace(page, id, value) {
+  return page.evaluate(
+    ({ id, value }) => {
+      const element = document.getElementById(id);
+      if (!element) {
+        return false;
+      }
+      const prototype = Object.getPrototypeOf(element);
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (setter) {
+        setter.call(element, value);
+      } else {
+        element.value = value;
+      }
+      for (const type of ['input', 'change', 'blur']) {
+        element.dispatchEvent(new Event(type, { bubbles: true }));
+      }
+      return element.value === value;
+    },
+    { id, value: String(value) }
+  );
+}
+
+/** Fills a plain text input, leaving the page scroll where the reader put it. */
 export async function fillText(page, id, value) {
-  const input = page.locator(`#${id}`);
-  await input.click();
-  await input.fill('');
-  await input.type(String(value), { delay: 10 });
+  const applied = await setValueInPlace(page, id, value);
+  if (!applied) {
+    throw new Error(`could not set ${id}`);
+  }
 }
 
 /**
@@ -87,11 +121,17 @@ export async function fillText(page, id, value) {
  */
 export async function fillDate(page, id, value) {
   const input = page.locator(`#${id}`);
-  await input.click();
-  // A readonly input rejects fill(), so clear it with the keyboard instead.
-  await page.keyboard.press('ControlOrMeta+A');
-  await page.keyboard.type(String(value), { delay: 20 });
-  await page.keyboard.press('Enter');
+
+  // Setting the value directly is enough for the picker to accept it, and it
+  // leaves the page scroll alone.
+  const applied = await setValueInPlace(page, id, value);
+  if (!applied) {
+    // Fall back to typing, which needs focus and therefore scrolls.
+    await input.click();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type(String(value), { delay: 20 });
+    await page.keyboard.press('Enter');
+  }
 
   const committed = await input.inputValue();
   if (committed !== String(value)) {
@@ -112,22 +152,50 @@ export async function fillDate(page, id, value) {
  */
 export async function fillSelect(page, id, value) {
   const input = page.locator(`#${id}`);
-  await input.click();
 
+  // Opening the dropdown needs a click, but Playwright's would scroll the page.
+  // Dispatching it on the element leaves the scroll position untouched.
+  await page.evaluate((id) => {
+    const element = document.getElementById(id);
+    // The handler sits on the inner selector element; the outer wrapper
+    // ignores the event.
+    const target =
+      element?.closest('.ant-select')?.querySelector('.ant-select-selector') ??
+      element;
+    target?.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    );
+    element?.focus({ preventScroll: true });
+  }, id);
+
+  // Ant Design keeps one dropdown per select and leaves earlier ones in the
+  // document, so the options are scoped to the panel holding this select's own
+  // list. The list element carries the id; the options sit beside it.
+  const listId = `${id}_list`;
   const options = page.locator(
-    '.ant-select-dropdown:visible .ant-select-item-option'
+    `.ant-select-dropdown:has(#${listId}) .ant-select-item-option`
   );
   await options.first().waitFor({ state: 'visible', timeout: 15000 });
 
-  // A searchable select filters its list as you type, which makes long lists
-  // such as nationality usable; a plain one ignores the keystrokes.
+  // A searchable select filters its list as text is entered. Filtering is only
+  // worth doing when the list is long enough that the wanted option may not be
+  // rendered yet; on a short list it risks filtering everything away, since the
+  // site matches on its own wording and the value may be phrased differently.
   const searchable = !(await input.evaluate((el) => el.readOnly));
-  if (searchable) {
-    await page.keyboard.type(String(value), { delay: 20 });
-    await page.waitForTimeout(500);
-  }
+  let texts = (await options.allTextContents()).map((t) => t.trim());
+  const wantedText = String(value).trim().toLowerCase();
+  const alreadyListed = texts.some(
+    (t) =>
+      t.toLowerCase() === wantedText || t.toLowerCase().includes(wantedText)
+  );
 
-  const texts = (await options.allTextContents()).map((t) => t.trim());
+  if (searchable && !alreadyListed) {
+    // Setting the search text keeps the page still; typing would move it,
+    // because the keystrokes need focus and focus scrolls.
+    await setValueInPlace(page, id, value);
+    await page.waitForTimeout(500);
+    texts = (await options.allTextContents()).map((t) => t.trim());
+  }
   if (texts.length === 0) {
     throw new Error(`no options matched "${value}" for ${id}`);
   }
@@ -151,9 +219,46 @@ export async function fillSelect(page, id, value) {
     }
   }
 
-  await options.nth(index).click();
+  // Playwright scrolls before clicking even a floating option, which drags the
+  // form with it, so the click is dispatched on the element instead.
+  // Matched by text, since a searchable list re-renders as it filters and an
+  // index taken before that no longer points at the same option.
+  const chosen = texts[index];
+  const clicked = await page.evaluate(
+    ({ wanted, listId }) => {
+      // The element carrying the id is an ARIA helper; the options sit in the
+      // dropdown panel around it.
+      const panel = document
+        .getElementById(listId)
+        ?.closest('.ant-select-dropdown');
+      const list = [
+        ...(panel?.querySelectorAll('.ant-select-item-option') ?? []),
+      ];
+      const option = list.find(
+        (item) => (item.textContent ?? '').trim() === wanted
+      );
+      if (!option) {
+        return false;
+      }
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        option.dispatchEvent(
+          new MouseEvent(type, { bubbles: true, cancelable: true })
+        );
+      }
+      return true;
+    },
+    { wanted: chosen, listId }
+  );
+  if (!clicked) {
+    throw new Error(`option "${chosen}" disappeared from the list for ${id}`);
+  }
+
+  // Close this dropdown, so the next field does not read a list still on screen.
+  await page.evaluate((id) => {
+    document.getElementById(id)?.blur();
+  }, id);
   await page.waitForTimeout(200);
-  return texts[index];
+  return chosen;
 }
 
 /**
@@ -176,7 +281,12 @@ export async function fillRadio(page, question, option) {
         for (let i = 0; i < 8 && node; i++) {
           const block = (node.innerText || '').replace(/\s+/g, ' ');
           if (block.includes(question)) {
+            // Clicking focuses the control, and focusing scrolls it into view.
+            // Restoring the offset afterwards keeps the reader's position.
+            const x = window.scrollX;
+            const y = window.scrollY;
             label?.click();
+            window.scrollTo(x, y);
             return true;
           }
           node = node.parentElement;
@@ -195,7 +305,10 @@ export async function fillRadio(page, question, option) {
 
 /** Attaches a local file to one of the two upload inputs. */
 export async function uploadFile(page, id, filePath) {
+  // setInputFiles scrolls the input into view, so the offset is restored after.
+  const before = await page.evaluate(() => [window.scrollX, window.scrollY]);
   await page.setInputFiles(`#${id}`, filePath);
+  await page.evaluate(([x, y]) => window.scrollTo(x, y), before);
   // The site verifies each image server-side and may auto-fill passport fields
   // from it, so give that round trip a moment before the next action.
   await page.waitForTimeout(2500);

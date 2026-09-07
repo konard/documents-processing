@@ -106,6 +106,8 @@ export default [
       globals: {
         document: 'readonly',
         window: 'readonly',
+        Event: 'readonly',
+        MouseEvent: 'readonly',
       },
     },
   },

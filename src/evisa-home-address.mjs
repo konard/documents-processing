@@ -501,7 +501,13 @@ function placeNamedUnit(parts, unit) {
   if (REGION_UNIT.test(unit) && !STREET_TYPED.test(unit)) {
     parts.regions.push(renderUnit(unit));
     parts.written.regions.push(unit);
-  } else if (marked || (!parts.city && !parts.street && !/\d/.test(unit))) {
+  } else if (
+    marked ||
+    (!parts.city &&
+      !parts.street &&
+      !/\d/.test(unit) &&
+      !STREET_TYPED.test(unit))
+  ) {
     parts.city = renderUnit(unit);
     parts.written.city = unit.replace(/^(?:г|гор|город)\.?\s+/i, '');
   } else if (!parts.street && (match = unit.match(STREET_WITH_HOUSE))) {

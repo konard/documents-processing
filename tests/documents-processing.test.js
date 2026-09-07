@@ -56,6 +56,7 @@ describe('documents-processing commands', () => {
     'translit.mjs',
     'evisa-log.mjs',
     'evisa-address.mjs',
+    'evisa-home-address.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

@@ -14,7 +14,9 @@ import {
   acceptNoteModal,
   waitForForm,
   fillForm,
+  readFilledFields,
 } from './evisa-fill.mjs';
+import { FIELDS } from './evisa-schema.mjs';
 
 /**
  * Opens a browser on the application form, past the dialog that gates it.
@@ -33,8 +35,12 @@ export async function openForm({ headless = false, viewport } = {}) {
   // A visible window gets no fixed viewport, so resizing it resizes the page.
   // Pinning one would leave the layout stuck at its original size, which is
   // what made the window unresponsive to being dragged wider.
+  // A headless page is only ever seen through its capture, so it is rendered
+  // at twice the pixel density: text on a page nine screens tall has to stay
+  // legible when the applicant zooms into the file.
   const page = await browser.newPage({
     viewport: headless ? (viewport ?? { width: 1500, height: 1000 }) : null,
+    deviceScaleFactor: headless ? 2 : undefined,
   });
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await acceptNoteModal(page);
@@ -98,6 +104,46 @@ export async function prepareDocument(
 }
 
 /**
+ * Waits for the page to stop changing.
+ *
+ * Angular re-renders after each value, the site validates fields over the
+ * network, and a dropdown may still be closing. A capture taken while any of
+ * that is in flight shows a form mid-fill. The sign that it has finished is
+ * two readings of the page, a moment apart, that agree.
+ */
+export async function settleForm(page, { timeout = 15000 } = {}) {
+  await page.waitForLoadState('networkidle', { timeout }).catch(() => {});
+  await page
+    .waitForFunction(
+      () =>
+        !document.querySelector(
+          '.ant-select-dropdown:not(.ant-select-dropdown-hidden), .ant-spin-spinning'
+        ),
+      undefined,
+      { timeout }
+    )
+    .catch(() => {});
+
+  const snapshot = () =>
+    page.evaluate(
+      () =>
+        [...document.querySelectorAll('input, textarea')]
+          .map((element) => element.value)
+          .join('') + document.body.scrollHeight
+    );
+  let previous = await snapshot();
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(500);
+    const current = await snapshot();
+    if (current === previous) {
+      return;
+    }
+    previous = current;
+  }
+}
+
+/**
  * Captures the whole page, however far it scrolls.
  *
  * The form runs to several screens and the part worth seeing is often the
@@ -106,16 +152,43 @@ export async function prepareDocument(
  */
 export async function captureForm(page, outputPath) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  await settleForm(page);
   await page.screenshot({ path: outputPath, fullPage: true });
   return outputPath;
 }
 
 /**
+ * Fields that were set and now show nothing.
+ *
+ * Angular rebuilds a control now and then after its value was written, and
+ * the value goes with it. Reading the page back is the only way to know.
+ */
+async function emptiedFields(page, applicant, filled) {
+  const shown = await readFilledFields(page);
+  return filled.filter((key) => FIELDS[key] && applicant[key] && !shown[key]);
+}
+
+/**
  * Fills the form and captures the result, which is what both front ends call
  * with whatever data they hold.
+ *
+ * The capture waits for the page to settle and for every value to be on it,
+ * so what the applicant is shown is the finished form.
  */
 export async function fillAndCapture(page, applicant, { uploads, screenshot }) {
   const result = await fillForm(page, applicant, { uploads });
+  await settleForm(page);
+
+  const emptied = await emptiedFields(page, applicant, result.filled);
+  if (emptied.length) {
+    const again = await fillForm(
+      page,
+      Object.fromEntries(emptied.map((key) => [key, applicant[key]]))
+    );
+    result.failures.push(...again.failures);
+    await settleForm(page);
+  }
+
   const image = screenshot ? await captureForm(page, screenshot) : null;
-  return { ...result, screenshot: image };
+  return { ...result, refilled: emptied, screenshot: image };
 }

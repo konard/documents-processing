@@ -65,18 +65,26 @@ export function hasCyrillic(value) {
  * `МВД 0093` where only part of it needs converting.
  */
 export function transliterate(value) {
-  const text = String(value ?? '');
+  const characters = [...String(value ?? '')];
   let out = '';
-  for (const character of text) {
+  characters.forEach((character, index) => {
     const upper = character.toUpperCase();
     const mapped = ICAO_9303[upper];
     if (mapped === undefined) {
       out += character;
-      continue;
+      return;
     }
     // Preserve the case of the original: a lower-case source stays lower-case.
-    out += character === upper ? mapped : mapped.toLowerCase();
-  }
+    if (character !== upper) {
+      out += mapped.toLowerCase();
+      return;
+    }
+    // A capital that opens a word maps to a capital and lower-case letters, so
+    // Химки reads Khimki; a capital among capitals maps to capitals.
+    const next = characters[index + 1] ?? '';
+    const opensAWord = next !== '' && next !== next.toUpperCase();
+    out += opensAWord ? mapped[0] + mapped.slice(1).toLowerCase() : mapped;
+  });
   return out;
 }
 

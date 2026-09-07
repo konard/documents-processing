@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { looksLikeAddress, stripAddressLabel } from './evisa-home-address.mjs';
 
 /** How long a chat may go quiet before the bot fills the form on its own. */
 export const IDLE_FILL_MS = 45_000;
@@ -38,9 +39,6 @@ export const MESSAGES = {
       'I assumed these, because they were not given. Change any of them in ' +
       'the browser before submitting:',
     needed: 'Still needed:',
-    reading: 'Reading your document...',
-    filling:
-      'Nothing new for a moment, so I am filling the form with what I have.',
     filled: (n) => `Filled ${n} fields. Here is the whole page:`,
     failed: (field, why) => `Could not fill ${field}: ${why}`,
     ready:
@@ -65,8 +63,6 @@ export const MESSAGES = {
       'Эти данные я подставил сам, вы их не указали. Любое можно исправить ' +
       'в браузере перед отправкой:',
     needed: 'Ещё нужно:',
-    reading: 'Читаю документ...',
-    filling: 'Пауза в сообщениях, заполняю форму тем, что уже есть.',
     filled: (n) => `Заполнено полей: ${n}. Вот вся страница:`,
     failed: (field, why) => `Не удалось заполнить ${field}: ${why}`,
     ready:
@@ -364,7 +360,48 @@ export function parseFreeText(text) {
     found.stayLengthDays = days[1];
   }
 
+  parseAddresses(text, found, [email?.[0], phone?.[0]]);
+
   return found;
+}
+
+/** Which address field a label in front of an address line names. */
+function addressField(line) {
+  const label = line.includes(':') ? line.slice(0, line.indexOf(':')) : '';
+  if (/контакт|contact/i.test(label)) {
+    return 'contactAddress';
+  }
+  if (/экстрен|emergency/i.test(label)) {
+    return 'emergencyAddress';
+  }
+  return 'permanentAddress';
+}
+
+/**
+ * Adds the addresses in a message to what was found in it.
+ *
+ * An address takes a line of its own, so the text is read line by line. A
+ * label in front of it says which address it is; without one it is the
+ * permanent address, the one the form asks for first.
+ *
+ * `others` are values already read out of the text, as written: a phone or an
+ * email on the address line belongs to its own field, not the address.
+ */
+function parseAddresses(text, found, others) {
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    const field = addressField(line);
+    if (found[field] || !looksLikeAddress(line)) {
+      continue;
+    }
+    let address = stripAddressLabel(line);
+    for (const other of others) {
+      if (other) {
+        address = address.replace(other, '');
+      }
+    }
+    found[field] = address.replace(/[\s,;]+$/, '').trim();
+  }
 }
 
 /**

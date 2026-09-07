@@ -103,7 +103,11 @@ export default [
   {
     // The callbacks passed to page.evaluate() are serialized and run inside the
     // browser, where the DOM globals apply.
-    files: ['src/evisa-fill.mjs', 'src/evisa-required.mjs'],
+    files: [
+      'src/evisa-fill.mjs',
+      'src/evisa-required.mjs',
+      'src/evisa-session.mjs',
+    ],
     languageOptions: {
       globals: {
         document: 'readonly',

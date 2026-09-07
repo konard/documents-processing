@@ -13,6 +13,13 @@ FROM mcr.microsoft.com/playwright:v1.62.1-noble
 
 ENV NODE_ENV=production
 
+# The passport's machine-readable zone is read with the tesseract command,
+# which the browser image does not carry. Without it every photo is taken for a
+# portrait, and the form gets no passport at all.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends tesseract-ocr \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Dependencies are installed from the lockfile alone, before the source is

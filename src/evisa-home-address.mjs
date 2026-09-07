@@ -15,9 +15,9 @@ import { transliterate, hasCyrillic, editDistance } from './translit.mjs';
 
 /** Country names as they appear at the head of an address. */
 const COUNTRIES = {
-  россия: 'Russia',
-  'российская федерация': 'Russia',
-  рф: 'Russia',
+  россия: 'Russian Federation',
+  'российская федерация': 'Russian Federation',
+  рф: 'Russian Federation',
   беларусь: 'Belarus',
   белоруссия: 'Belarus',
   украина: 'Ukraine',
@@ -234,15 +234,150 @@ function renderUnit(unit) {
 export function latinAddress(value) {
   const text = stripAddressNote(stripAddressLabel(value));
   if (!hasCyrillic(text)) {
-    return text;
+    return normalizeLatinAddress(text);
   }
-  return separateUnits(text)
+  return normalizeLatinAddress(
+    separateUnits(text)
+      .split(',')
+      .map(renderUnit)
+      .filter(Boolean)
+      .join(', ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+/**
+ * Words that stay in lower case inside an address: the markers and street
+ * types, and the joiners inside a name such as Rostov-on-Don.
+ */
+const LOWER_WORDS = new Set([
+  'apt',
+  'apartment',
+  'flat',
+  'bld',
+  'bldg',
+  'building',
+  'korpus',
+  'block',
+  'floor',
+  'office',
+  'entrance',
+  'room',
+  'house',
+  'ul',
+  'ulitsa',
+  'bulvar',
+  'prospekt',
+  'pereulok',
+  'shosse',
+  'naberezhnaya',
+  'ploshchad',
+  'mikroraion',
+  'oblast',
+  'district',
+  'region',
+  'kv',
+  'dom',
+  'of',
+  'on',
+  'na',
+  'de',
+  'la',
+  'le',
+  'du',
+  'and',
+  'the',
+]);
+
+/** The joiners among the lower-case words, which sit inside names only. */
+const JOINERS = new Set([
+  'of',
+  'on',
+  'na',
+  'de',
+  'la',
+  'le',
+  'du',
+  'and',
+  'the',
+]);
+
+/** Short forms that are written in capitals wherever they appear. */
+const ACRONYMS = new Set(['UK', 'USA', 'UAE', 'USSR', 'RF', 'DC', 'NY']);
+
+/**
+ * The one spelling for each country, whatever the applicant wrote: the
+ * passport says "Russian Federation", and every address should say the same.
+ */
+const COUNTRY_SPELLINGS = {
+  russia: 'Russian Federation',
+  'russian federation': 'Russian Federation',
+  'the russian federation': 'Russian Federation',
+  rf: 'Russian Federation',
+  'united states': 'United States of America',
+  'united states of america': 'United States of America',
+  usa: 'United States of America',
+  'united kingdom': 'United Kingdom',
+  uk: 'United Kingdom',
+  'great britain': 'United Kingdom',
+};
+
+/** One word of an address in the case it should carry. */
+function caseWord(word, first) {
+  const match = word.match(/^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u);
+  const [, before, core, after] = match;
+  if (!core) {
+    return word;
+  }
+  let cased;
+  if (/^\d/.test(core)) {
+    cased = core.toUpperCase();
+  } else if (
+    LOWER_WORDS.has(core.toLowerCase()) &&
+    (!first || !JOINERS.has(core.toLowerCase()))
+  ) {
+    // A marker is lower case wherever it stands ("apartment 16"); a joiner
+    // is lower case only inside a name, since "of" may open nothing.
+    cased = core.toLowerCase();
+  } else if (ACRONYMS.has(core.toUpperCase())) {
+    cased = core.toUpperCase();
+  } else {
+    cased = core
+      .split('-')
+      .map((part, index) =>
+        index > 0 && LOWER_WORDS.has(part.toLowerCase())
+          ? part.toLowerCase()
+          : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+      )
+      .join('-');
+  }
+  return before + cased + after;
+}
+
+/**
+ * Brings an address in Latin letters to one way of writing: names in
+ * capitals-first case, markers and street types in lower case, house
+ * letters in capitals, and the country by its one spelling. Someone typing
+ * in capitals, someone typing in lower case, and the rendering of a Russian
+ * address then all read alike on the form.
+ */
+export function normalizeLatinAddress(text) {
+  return String(text ?? '')
     .split(',')
-    .map(renderUnit)
+    .map((unit) => unit.trim().replace(/\s+/g, ' '))
     .filter(Boolean)
-    .join(', ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .map((unit) => {
+      const spelling = COUNTRY_SPELLINGS[unit.toLowerCase()];
+      if (spelling) {
+        return spelling;
+      }
+      return unit
+        .split(' ')
+        .map((word, index) => caseWord(word, index === 0))
+        .join(' ');
+    })
+    .join(', ');
 }
 
 /**
@@ -281,7 +416,7 @@ export function addressParts(value) {
     const marked = /^(?:г|гор|город)\.?\s+/i.test(trimmed);
     const key = trimmed.toLowerCase().replace(/^(?:г|гор|город)\.?\s+/, '');
     if (COUNTRIES[key] || /^(?:russia|russian federation)$/i.test(key)) {
-      parts.country = COUNTRIES[key] ?? 'Russia';
+      parts.country = COUNTRIES[key] ?? 'Russian Federation';
     } else if (/^\d{6}$/.test(trimmed)) {
       parts.postalCode = trimmed;
     } else if (
@@ -319,14 +454,31 @@ function titleCase(word) {
  *
  * The native half names the city or the country; the best known cities get
  * their English names, a city one misread letter away from one is taken as
- * it, and the rest is transliterated. The Latin half is kept as printed, and
- * two halves naming the same country give it a single time. A value with no
- * Cyrillic in it is left exactly as given.
+ * it, and the rest is transliterated. The Latin half is kept, and two halves
+ * naming the same country give it a single time. The whole is then written
+ * the way an address is, so "RUSSIA" and "Russia" read alike.
  */
+/**
+ * True for a city or country the dictionaries know, in Russian, allowing one
+ * misread letter in a name of five or more.
+ */
+export function isKnownPlace(name) {
+  const key = String(name ?? '')
+    .toLowerCase()
+    .replace(/^(?:г|гор|город)\.?\s*/, '')
+    .trim();
+  if (CITIES[key] || BIRTH_COUNTRIES[key]) {
+    return true;
+  }
+  return Object.keys({ ...CITIES, ...BIRTH_COUNTRIES }).some(
+    (known) => known.length >= 5 && editDistance(known, key) <= 1
+  );
+}
+
 export function latinPlaceOfBirth(value) {
   const text = String(value ?? '').trim();
   if (!hasCyrillic(text)) {
-    return text;
+    return normalizeLatinAddress(text);
   }
   const halves = text
     .split('/')
@@ -359,5 +511,5 @@ export function latinPlaceOfBirth(value) {
         (other) => other.toLowerCase() === part.toLowerCase()
       ) === index
   );
-  return unique.join(', ');
+  return normalizeLatinAddress(unique.join(', '));
 }

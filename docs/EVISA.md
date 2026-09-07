@@ -192,11 +192,15 @@ spelled the way the passport's machine-readable zone would spell it:
 becomes
 
 ```
-Russia, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5
+Russian Federation, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5
 ```
 
-The order is left as the applicant wrote it. An address already in Latin
-letters is not touched. Units written without commas (`г. Москва ул. Пушкина
+The order is left as the applicant wrote it. Every address, typed in Latin
+letters or rendered from Russian, is then written one way: names with a
+capital first letter, markers and street types in lower case, house letters in
+capitals, and the country by one spelling (`Russian Federation`, never
+`Russia` or `RUSSIA`), so the permanent, contact and emergency addresses read
+alike on the form. Units written without commas (`г. Москва ул. Пушкина
 д. 10 кв. 5`) are split apart, and a remark after a dash or in brackets
 (`- адрес для всех`) is dropped.
 

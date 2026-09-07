@@ -24,12 +24,14 @@ import {
 import {
   MESSAGES,
   IDLE_FILL_MS,
+  REVIEW_MS,
   CHAT_TTL_MS,
   detectLanguage,
   describeChecklist,
   describeSummary,
   describeOutcome,
   isConfirmation,
+  isCancellation,
   NOT_ASKED,
   parseFreeText,
   createSessionStore,
@@ -65,6 +67,8 @@ const { Bot, InputFile } = await import('grammy');
 const sessions = createSessionStore();
 const browsers = new Map();
 const timers = new Map();
+// Chats waiting out the review pause, each with the function that ends it.
+const reviews = new Map();
 
 /**
  * With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, so an
@@ -133,6 +137,7 @@ async function endChat(chatId) {
   }
   sessions.clear(chatId);
   disarmIdleFill(chatId);
+  settleReview(chatId, 'stop');
 }
 
 /**
@@ -144,6 +149,7 @@ async function endChat(chatId) {
  */
 async function restartChat(chatId) {
   disarmIdleFill(chatId);
+  settleReview(chatId, 'stop');
   sessions.clear(chatId);
   const held = browsers.get(chatId);
   if (!browserAlive(held)) {
@@ -230,15 +236,44 @@ function showStatus(ctx, action) {
 }
 
 /**
- * Tells the applicant what will go on the form, then fills it and captures
- * the page into `dir`.
+ * Waits for the applicant to read the summary, and says how the wait ended:
+ * "go" or "stop" from them, or "timeout" when they said nothing.
+ */
+function reviewPause(chatId) {
+  return new Promise((resolve) => {
+    const finish = (verdict) => {
+      clearTimeout(timer);
+      reviews.delete(chatId);
+      resolve(verdict);
+    };
+    const timer = setTimeout(() => finish('timeout'), REVIEW_MS);
+    reviews.set(chatId, finish);
+  });
+}
+
+/** Ends a chat's review pause with the verdict; false when none is running. */
+function settleReview(chatId, verdict) {
+  const finish = reviews.get(chatId);
+  if (!finish) {
+    return false;
+  }
+  finish(verdict);
+  return true;
+}
+
+/**
+ * Tells the applicant what will go on the form, waits for them to read it,
+ * then fills the form and captures the page into `dir`. Returns null when
+ * the applicant stopped it during the wait.
  *
  * The chat shows "typing" throughout, so the applicant knows the bot is at
  * work without a message saying so. A document already on the page is not
  * uploaded again, and a value already told to the applicant is not repeated.
+ * With nothing new to tell, there is nothing to review, and no wait.
  */
-async function fillPage(ctx, chatId, page, dir) {
+async function fillPage(ctx, chatId, page, dir, review) {
   const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
   const busy = showStatus(ctx, 'typing');
   try {
     const applicant = normalizeApplicant(session.data);
@@ -250,13 +285,22 @@ async function fillPage(ctx, chatId, page, dir) {
       session.reported
     );
     if (summary) {
-      await ctx.reply(summary, { parse_mode: 'HTML' });
+      const note = review ? `\n\n${strings.reviewNote(REVIEW_MS / 1000)}` : '';
+      await ctx.reply(summary + note, { parse_mode: 'HTML' });
     }
     for (const [key, value] of Object.entries(applicant)) {
       if (value) {
         session.reported[key] = value;
       }
     }
+    if (summary && review) {
+      const verdict = await reviewPause(chatId);
+      log(chatId, `review pause ended: ${verdict}`);
+      if (verdict === 'stop') {
+        return null;
+      }
+    }
+    session.filling = true;
 
     const uploads = {};
     for (const [key, file] of Object.entries(session.uploads)) {
@@ -275,6 +319,7 @@ async function fillPage(ctx, chatId, page, dir) {
     }
     return result;
   } finally {
+    session.filling = false;
     busy();
   }
 }
@@ -323,10 +368,11 @@ function logFill(chatId, result) {
 /**
  * Fills the form with what the chat has provided and sends back the page.
  *
+ * With `review`, the applicant gets the review pause after the summary.
  * Whatever goes wrong, the browser stays open with the form as far as it
  * got: that is where an operator or the applicant carries on by hand.
  */
-async function fillAndShow(ctx, chatId) {
+async function fillAndShow(ctx, chatId, review) {
   const session = sessions.get(chatId);
   // Opening a browser takes seconds too, and the status covers them.
   const opening = showStatus(ctx, 'typing');
@@ -339,7 +385,10 @@ async function fillAndShow(ctx, chatId) {
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
   try {
-    const result = await fillPage(ctx, chatId, page, dir);
+    const result = await fillPage(ctx, chatId, page, dir, review);
+    if (!result) {
+      return;
+    }
     logFill(chatId, result);
 
     // Ask the page itself what is still required, so a change on their side
@@ -385,21 +434,23 @@ function armIdleFill(ctx, chatId) {
   const stop = showStatus(ctx, 'typing');
   const timer = setTimeout(() => {
     disarmIdleFill(chatId);
-    fillNow(ctx, chatId);
+    fillNow(ctx, chatId, { review: true });
   }, IDLE_FILL_MS);
   timers.set(chatId, { timer, stop });
 }
 
 /**
- * Fills right away, and tells the chat when that fails.
+ * Fills, and tells the chat when that fails.
  *
- * The failure is logged whole, and the browser is left as it is: the form
- * with whatever got onto it is worth more to the applicant than a fresh one.
+ * A fill the quiet timer starts gives the applicant the review pause; one
+ * they asked for by name does not. The failure is logged whole, and the
+ * browser is left as it is: the form with whatever got onto it is worth
+ * more to the applicant than a fresh one.
  */
-async function fillNow(ctx, chatId) {
+async function fillNow(ctx, chatId, { review = false } = {}) {
   disarmIdleFill(chatId);
   try {
-    await fillAndShow(ctx, chatId);
+    await fillAndShow(ctx, chatId, review);
   } catch (error) {
     log(chatId, `filling failed: ${error.stack ?? error.message}`);
     const strings = MESSAGES[sessions.get(chatId).language];
@@ -456,6 +507,26 @@ bot.command('start', async (ctx) => {
   // No timer yet: filling an empty form would tell the applicant nothing.
 });
 
+/**
+ * "Стой": nothing is filled until the applicant says otherwise.
+ *
+ * A fill that has already started is not interrupted, since a half-filled
+ * form is not a danger: nothing submits it. The applicant is told so.
+ */
+async function stopFilling(ctx, chatId) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  if (session.filling) {
+    log(chatId, 'stop received during a fill');
+    await ctx.reply(strings.alreadyFilling);
+    return;
+  }
+  const pending = settleReview(chatId, 'stop');
+  disarmIdleFill(chatId);
+  log(chatId, `stop received; ${pending ? 'review' : 'quiet timer'} ended`);
+  await ctx.reply(strings.stopped);
+}
+
 bot.command('fill', async (ctx) => {
   touch(ctx.chat.id);
   log(ctx.chat.id, '/fill');
@@ -471,6 +542,7 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
   touch(chatId);
+  settleReview(chatId, 'stop');
   const busy = showStatus(ctx, 'typing');
 
   const file = await ctx.getFile();
@@ -552,13 +624,22 @@ bot.on('message:text', async (ctx) => {
   const session = sessions.get(chatId);
   touch(chatId);
   session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
-  if (isConfirmation(ctx.message.text)) {
-    // "Подтверждаю", "go": the form is filled now, not after the quiet
-    // window. Never submitted, whatever the word.
-    log(chatId, 'confirmation received; filling now');
-    await fillNow(ctx, chatId);
+  if (isCancellation(ctx.message.text)) {
+    await stopFilling(ctx, chatId);
     return;
   }
+  if (isConfirmation(ctx.message.text)) {
+    // "Подтверждаю", "go": the form is filled now, not after the quiet
+    // window or the review pause. Never submitted, whatever the word.
+    log(chatId, 'confirmation received; filling now');
+    if (!settleReview(chatId, 'go')) {
+      await fillNow(ctx, chatId);
+    }
+    return;
+  }
+  // New details make a pending fill stale: it is dropped, and the quiet
+  // timer starts over with a summary of what changed.
+  settleReview(chatId, 'stop');
   const parsed = parseFreeText(ctx.message.text);
   // The text itself is logged too: what was not read out of it is only
   // diagnosable against the words that were sent.

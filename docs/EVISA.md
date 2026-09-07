@@ -278,9 +278,15 @@ read from the passport itself and whether they matched, what the site had
 read differently, what could not be filled, what is still needed, and that
 the form is not submitted.
 
-A message that is only a word of confirmation, `Подтверждаю`, `Отправляй`,
-`Заполняй`, `go`, `fill`, fills the form at once instead of after the quiet
-window. Nothing submits the form, whatever the word says.
+After the summary comes a pause of 30 seconds, said in the message, to read
+it over. `Стой`, `стоп`, `отмена`, `stop` or `cancel` in that time drops the
+fill; the applicant then sends corrections, and the quiet timer starts over
+with a summary of what changed. New details during the pause do the same on
+their own. A message that is only a word of confirmation, `Подтверждаю`,
+`Отправляй`, `Заполняй`, `go`, `fill`, ends the pause at once, or fills at
+once when nothing is pending. Nothing submits the form, whatever the word
+says; a stop word during a fill already under way is answered with that, and
+the fill runs on. `/fill` fills without the pause.
 
 With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, for an
 operator at the machine who wants to watch the fill or take over. A fill that

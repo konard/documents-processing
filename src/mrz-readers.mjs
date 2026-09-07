@@ -293,6 +293,17 @@ const macVision = generalOcrReader({
   check: 'import Vision, Quartz',
 });
 
+/**
+ * PaddleOCR: the most widely used open-source OCR engine, Apache-2.0 and
+ * CPU-only, so it needs no GPU.
+ */
+const paddleOcr = generalOcrReader({
+  name: 'PaddleOCR (general, Apache-2.0)',
+  license: 'Apache-2.0',
+  script: path.join(engineDir, 'paddle-ocr.py'),
+  check: 'from paddleocr import PaddleOCR',
+});
+
 /** RapidOCR: a general ONNX-based engine, portable across platforms. */
 const rapidOcr = generalOcrReader({
   name: 'RapidOCR (general, Apache-2.0)',
@@ -308,4 +319,5 @@ export const availableReaders = [
   mrzScanner,
   macVision,
   rapidOcr,
+  paddleOcr,
 ];

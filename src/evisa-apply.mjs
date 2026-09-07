@@ -28,6 +28,7 @@ import {
   mergeSources,
 } from './evisa-data.mjs';
 import { openForm, prepareDocument, fillAndCapture } from './evisa-session.mjs';
+import { lookupAddress, renderVerifiedAddress } from './evisa-geocode.mjs';
 
 /** Parses the flags above into a plain options object. */
 export function parseArgs(argv) {
@@ -136,6 +137,31 @@ export async function resolveApplicant(options) {
   };
 }
 
+/**
+ * Checks the home addresses against the map and takes the map's rendering
+ * where it confirms the house, so a Latin-typed address gains the postal
+ * code and city it lacked. One the map cannot place stays as written.
+ */
+async function verifyAddresses(applicant) {
+  for (const key of [
+    'permanentAddress',
+    'contactAddress',
+    'emergencyAddress',
+  ]) {
+    if (!applicant[key]) {
+      continue;
+    }
+    const found = await lookupAddress(applicant[key]);
+    const verified = renderVerifiedAddress(applicant[key], found);
+    if (verified) {
+      console.log(`${key} confirmed by the map: ${verified}`);
+      applicant[key] = verified;
+    } else {
+      console.log(`${key} not confirmed by the map; kept as written`);
+    }
+  }
+}
+
 /** Prints what was filled, what the site had already read, and what changed. */
 function reportFill(result) {
   console.log(`Filled ${result.filled.length} fields.`);
@@ -199,6 +225,7 @@ async function main() {
     return;
   }
 
+  await verifyAddresses(resolved.applicant);
   fs.mkdirSync(options.out, { recursive: true });
 
   const uploads = {};

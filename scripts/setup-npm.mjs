@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -9,10 +10,37 @@ import { fileURLToPath } from 'node:url';
  * npm trusted publishing requires npm >= 11.5.1
  * Node.js 20.x ships with npm 10.x, so we need to update
  *
- * Uses link-foundation libraries:
- * - use-m: Dynamic package loading without package.json dependencies
- * - command-stream: Modern shell command execution with streaming support
+ * Commands run through the shell shim below, on Node's own child_process,
+ * so the release job depends on nothing fetched at run time.
  */
+
+/**
+ * A tagged template that runs its command in a shell: `await $\`cmd\`` runs
+ * it with the job's output; `$\`cmd\`.run({ capture: true })` returns its
+ * stdout instead.
+ */
+function shell(strings, ...values) {
+  const command = strings.reduce(
+    (out, part, index) => out + part + (values[index] ?? ''),
+    ''
+  );
+  const run = ({ capture = false } = {}) => {
+    try {
+      const stdout = execSync(command, {
+        encoding: 'utf8',
+        shell: '/bin/bash',
+        stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+      });
+      return Promise.resolve({ stdout: stdout ?? '' });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  };
+  return {
+    run,
+    then: (onResolved, onRejected) => run().then(onResolved, onRejected),
+  };
+}
 
 export const NPM_MIN_VERSION = '11.5.1';
 export const NODE_MIN_VERSION = '22.14.0';
@@ -250,14 +278,7 @@ if (isMainModule()) {
       failUnsupportedNodeVersion(process.version);
     }
 
-    // Load use-m dynamically only for CLI execution, so tests can import the
-    // pure version helpers without fetching dependencies or mutating npm.
-    const { use } = eval(
-      await (await fetch('https://unpkg.com/use-m/use.js')).text()
-    );
-    const { $ } = await use('command-stream');
-
-    await setupNpm($);
+    await setupNpm(shell);
   } catch (error) {
     console.error('Error updating npm:', error.message);
     process.exit(1);

@@ -162,13 +162,39 @@ describe('no personal data is committed', () => {
 
   it('never sends applicant data anywhere but the government form', () => {
     for (const { file, text } of sources) {
-      // No outbound HTTP of its own: the only network traffic is the browser
-      // navigating to evisa.gov.vn.
-      expect(`${file}:${/\bfetch\s*\(/.test(text)}`).toBe(`${file}:false`);
+      // The bot fetches from Telegram, which is where its documents come from
+      // and where its replies go; it is the applicant's own chat, so that one
+      // host is allowed. Everything else makes no outbound request at all.
+      const allowsTelegram = file === 'evisa-bot-run.mjs';
+      if (!allowsTelegram) {
+        expect(`${file}:${/\bfetch\s*\(/.test(text)}`).toBe(`${file}:false`);
+      }
       expect(`${file}:${/axios|node-fetch|https?\.request/.test(text)}`).toBe(
         `${file}:false`
       );
     }
+  });
+
+  it('only ever fetches from Telegram in the bot', () => {
+    const bot = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    const urls = bot.match(/https?:\/\/[^\s'"`$]+/g) ?? [];
+    for (const url of urls) {
+      expect(
+        url.startsWith('https://api.telegram.org/') ||
+          url.startsWith('https://evisa.gov.vn/')
+      ).toBe(true);
+    }
+  });
+
+  it('keeps nothing about an applicant after their chat ends', () => {
+    const bot = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    // Documents live in temporary directories that are removed, and the
+    // session is dropped; nothing is written to a lasting location.
+    expect(bot.includes('sessions.clear(chatId)')).toBe(true);
+    expect(bot.includes('rmSync')).toBe(true);
+    expect(/writeFileSync\(\s*['"`][^'"`]*(?:data|home|Users)/.test(bot)).toBe(
+      false
+    );
   });
 
   it('only ever navigates to the official e-visa site', () => {

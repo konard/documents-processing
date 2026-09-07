@@ -23,13 +23,32 @@ const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
  */
 export async function readPassportMrz(imagePath) {
   const image = await renderImage(imagePath);
-  const canvas = upscale(regionCanvas(image, MRZ_REGION), 3);
-  const text = ocrCanvas(canvas, { whitelist: MRZ_WHITELIST, psm: 6 });
 
-  const lines = text
-    .split('\n')
-    .map((line) => line.replace(/\s/g, ''))
-    .filter((line) => line.length > 25);
+  // The MRZ sits at the bottom of a data page, and somewhere in the middle of a
+  // photo of a whole passport. A few plausible bands are read in turn and the
+  // first that parses is kept; a wrong band simply yields no MRZ.
+  const bands = [
+    MRZ_REGION,
+    { x: 0, y: 0.86, w: 1, h: 0.14 },
+    { x: 0, y: 0.6, w: 1, h: 0.2 },
+    { x: 0, y: 0.68, w: 1, h: 0.16 },
+    { x: 0, y: 0.45, w: 1, h: 0.2 },
+    { x: 0, y: 0, w: 1, h: 1 },
+  ];
+
+  let lines = [];
+  for (const band of bands) {
+    const canvas = upscale(regionCanvas(image, band), 3);
+    const text = ocrCanvas(canvas, { whitelist: MRZ_WHITELIST, psm: 6 });
+    const candidate = text
+      .split('\n')
+      .map((line) => line.replace(/\s/g, ''))
+      .filter((line) => line.length > 25);
+    if (candidate.some((line) => parseMrzLine2(line))) {
+      lines = candidate;
+      break;
+    }
+  }
 
   let line1 = null;
   let line2 = null;
@@ -80,36 +99,132 @@ export async function readPassportMrz(imagePath) {
 }
 
 /**
- * Finds the passport data page inside a larger scan and crops it out.
+ * Finds the passport data page inside a wider photo and crops it out.
  *
- * The page is detected as the dominant document rectangle via `sharp`'s trim,
- * which removes the uniform scanner background around the document.
+ * A photo of a whole passport, or a page on a desk, carries background the form
+ * has no use for. The page is found as the bright rectangle of paper against a
+ * darker surround, which holds up where reading the print on it does not: a
+ * dense page of text defeats that, a sheet of paper on a desk does not.
+ *
+ * The crop is lossless where it can be. Nothing is resized or re-encoded beyond
+ * the single JPEG write, so quality is unchanged except for that one pass, and
+ * when no MRZ is found the original is copied through untouched.
  */
 export async function cropPassportPage(inputPath, outputPath) {
   const sharp = (await import('sharp')).default;
-  const image = sharp(inputPath, { failOn: 'none' });
-  const meta = await image.metadata();
+  const meta = await sharp(inputPath, { failOn: 'none' }).metadata();
 
-  // `trim` removes a uniform border; the offsets it reports tell us where the
-  // document sits on the platen.
-  const trimmed = await sharp(inputPath, { failOn: 'none' })
-    .trim({ threshold: 20 })
-    .toBuffer({ resolveWithObject: true })
-    .catch(() => null);
-
-  if (!trimmed) {
-    await sharp(inputPath, { failOn: 'none' })
-      .jpeg({ quality: 92 })
-      .toFile(outputPath);
+  const band = await findMrzBand(inputPath, meta);
+  // Cropping wrongly costs more than not cropping: it can cut away the very
+  // fields the form needs. The page is only cut out when the band was found and
+  // sits clearly inside a larger photo, which is the case a crop is meant for.
+  const looksLikeWholePage =
+    !band ||
+    (band.width > meta.width * 0.92 && band.height > meta.height * 0.92);
+  if (looksLikeWholePage) {
+    fs.copyFileSync(inputPath, outputPath);
     return { cropped: false, width: meta.width, height: meta.height };
   }
 
-  await sharp(trimmed.data).jpeg({ quality: 92 }).toFile(outputPath);
+  // A TD3 page is about 125x88mm and its MRZ sits along the bottom, so the page
+  // is roughly the MRZ width and about 1.4 times as tall as it is wide.
+  const pageWidth = Math.min(meta.width, Math.round(band.width * 1.06));
+  const pageHeight = Math.min(meta.height, Math.round(pageWidth * 0.72));
+  const left = Math.max(
+    0,
+    Math.round(band.left - (pageWidth - band.width) / 2)
+  );
+  const bottom = Math.min(
+    meta.height,
+    band.top + band.height + Math.round(pageHeight * 0.06)
+  );
+  const top = Math.max(0, bottom - pageHeight);
+
+  await sharp(inputPath, { failOn: 'none' })
+    .extract({
+      left,
+      top,
+      width: Math.min(pageWidth, meta.width - left),
+      height: Math.min(pageHeight, meta.height - top),
+    })
+    .jpeg({ quality: 95 })
+    .toFile(outputPath);
+
   return {
-    cropped:
-      trimmed.info.width !== meta.width || trimmed.info.height !== meta.height,
-    width: trimmed.info.width,
-    height: trimmed.info.height,
+    cropped: true,
+    width: Math.min(pageWidth, meta.width - left),
+    height: Math.min(pageHeight, meta.height - top),
+  };
+}
+
+/**
+ * Finds the bright document within a photo taken against a darker background.
+ *
+ * A passport page is paper: brighter and flatter than a desk, a table or a
+ * hand. Rows and columns whose average brightness stands well above the darkest
+ * parts of the image bound the document, which is a steadier signal than trying
+ * to recognise the print on it.
+ *
+ * Returns null when the page already fills the frame, which is the common case
+ * and needs no crop at all.
+ */
+async function findMrzBand(inputPath, meta) {
+  const sharp = (await import('sharp')).default;
+  const width = 320;
+  const height = Math.max(1, Math.round((meta.height / meta.width) * width));
+
+  const { data } = await sharp(inputPath, { failOn: 'none' })
+    .resize(width, height, { fit: 'fill' })
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const rowMean = new Array(height).fill(0);
+  const colMean = new Array(width).fill(0);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const value = data[y * width + x];
+      rowMean[y] += value / width;
+      colMean[x] += value / height;
+    }
+  }
+
+  const all = [...rowMean, ...colMean];
+  const darkest = Math.min(...all);
+  const brightest = Math.max(...all);
+  // Without a clear dark surround there is nothing to crop away.
+  if (brightest - darkest < 45) {
+    return null;
+  }
+  const bar = darkest + (brightest - darkest) * 0.55;
+
+  const span = (means) => {
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < means.length; i++) {
+      if (means[i] >= bar) {
+        if (first === -1) {
+          first = i;
+        }
+        last = i;
+      }
+    }
+    return first === -1 ? null : { first, last };
+  };
+
+  const rows = span(rowMean);
+  const columns = span(colMean);
+  if (!rows || !columns) {
+    return null;
+  }
+
+  const scaleX = meta.width / width;
+  const scaleY = meta.height / height;
+  return {
+    left: Math.round(columns.first * scaleX),
+    width: Math.round((columns.last - columns.first + 1) * scaleX),
+    top: Math.round(rows.first * scaleY),
+    height: Math.round((rows.last - rows.first + 1) * scaleY),
   };
 }
 

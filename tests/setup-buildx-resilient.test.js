@@ -132,7 +132,7 @@ describeSubprocess('setup-buildx-resilient pre-pull script', () => {
     expect(result.tagged.trim()).toBe('');
   });
 
-  it('recovers via the mirror and re-tags to canonical when Docker Hub is down (issue #75)', () => {
+  it('recovers via the mirror and re-tags to canonical when Docker Hub is down', () => {
     const result = runCase({ canonicalOk: false, mirrorOk: true });
 
     expect(result.status).toBe(0);

@@ -986,17 +986,11 @@ function countCreaseVotes(data, width, height, { top, floor, reach, blur }) {
  * MRZ print is grey on white, so the ink threshold is deliberately generous; a
  * darker one misses the band completely.
  */
-async function findMrzBand(inputPath, meta) {
-  const sharp = (await import('sharp')).default;
-  const width = 500;
-  const height = Math.max(1, Math.round((meta.height / meta.width) * width));
-
-  const { data } = await sharp(inputPath, { failOn: 'none' })
-    .resize(width, height, { fit: 'fill' })
-    .greyscale()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
+/**
+ * For each row of a greyscale image: how often it crosses between ink and
+ * paper, and where its ink begins and ends.
+ */
+function inkRows(data, width, height) {
   const rows = [];
   for (let y = 0; y < height; y++) {
     let crossings = 0;
@@ -1018,6 +1012,23 @@ async function findMrzBand(inputPath, meta) {
     }
     rows.push({ crossings, first, last });
   }
+  return rows;
+}
+
+async function findMrzBand(inputPath, meta) {
+  if (!meta?.width || !meta?.height) {
+    return null;
+  }
+  const sharp = (await import('sharp')).default;
+  const width = 500;
+  const height = Math.max(1, Math.round((meta.height / meta.width) * width));
+
+  const { data } = await sharp(inputPath, { failOn: 'none' })
+    .resize(width, height, { fit: 'fill' })
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const rows = inkRows(data, width, height);
 
   // The zone runs along the bottom of a data page. Searching only the lower
   // part keeps a fold from being mistaken for it: a crease crosses between

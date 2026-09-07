@@ -1,7 +1,7 @@
 /**
  * Tests for merge-changesets.mjs release-time changeset merging.
- * Reproduces issue #87: malformed changesets must fail instead of being
- * skipped while valid changesets are merged.
+ * Malformed changesets must fail and not be skipped while valid
+ * changesets are merged.
  */
 
 import { spawnSync } from 'node:child_process';

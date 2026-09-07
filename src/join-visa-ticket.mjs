@@ -82,7 +82,10 @@ for (const name of names) {
   ticketPages.forEach((pg) => out.addPage(pg));
 
   const outName = `${name}${OUT_SUFFIX}`;
-  fs.writeFileSync(path.join(DIR, outName), await out.save());
+  fs.writeFileSync(
+    path.join(DIR, outName),
+    await out.save({ useObjectStreams: false })
+  );
   console.log(
     `✓ ${outName}  (visa p1 + ${ticketPages.length} ticket page${ticketPages.length > 1 ? 's' : ''} = ${out.getPageCount()} pages)`
   );

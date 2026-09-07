@@ -870,10 +870,11 @@ function addressFieldFor(line, inContact) {
 }
 
 /**
- * Holds one chat's collected values for the life of the process.
+ * Holds one chat's collected values in memory.
  *
- * Nothing is written to disk, and a chat's entry is dropped as soon as its form
- * has been shown, so the conversation in Telegram stays the only record.
+ * Nothing here is written to disk. A chat's entry lives until /reset, or
+ * until the chat has been quiet for the chat lifetime and its browser is
+ * closed, so an applicant can add to a form for as long as they are at it.
  */
 export function createSessionStore() {
   const sessions = new Map();

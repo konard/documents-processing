@@ -6,6 +6,17 @@ import { parseMrzLine1, parseMrzLine2 } from '../src/mrz-lib.mjs';
 const LINE1 = 'P<RUSTRAVELLER<<SAMPLE<<<<<<<<<<<<<<<<<<<';
 const LINE2 = '7123456783RUS8703123M3201015<<<<<<<<<<<<<<06';
 
+describe('the century of an expiry year', () => {
+  it('is this one even for a passport that expired years ago', () => {
+    // Expiry 30 June 2012, with its own check digit; the composite check at
+    // the end is not what is under test.
+    const expired = LINE2.replace('3201015', '1206304');
+    const parsed = parseMrzLine2(expired);
+    expect(parsed.expiry).toBe('2012-06-30');
+    expect(parsed.expiryCheckOk).toBe(true);
+  });
+});
+
 describe('parseMrzLine1', () => {
   it('splits the surname from the given names', () => {
     const parsed = parseMrzLine1(LINE1);

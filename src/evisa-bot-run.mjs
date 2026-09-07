@@ -15,6 +15,7 @@ import path from 'node:path';
 import { loadEnv } from './env.mjs';
 import {
   log,
+  withholdFromLog,
   describeFields,
   announce,
   valuesAllowed,
@@ -61,6 +62,8 @@ if (!token) {
   );
   process.exit(1);
 }
+// Whatever an error message carries, the token never reaches the log.
+withholdFromLog(token);
 
 const { Bot, InputFile } = await import('grammy');
 
@@ -449,15 +452,22 @@ function armIdleFill(ctx, chatId) {
  */
 async function fillNow(ctx, chatId, { review = false } = {}) {
   disarmIdleFill(chatId);
-  try {
-    await fillAndShow(ctx, chatId, review);
-  } catch (error) {
-    log(chatId, `filling failed: ${error.stack ?? error.message}`);
-    const strings = MESSAGES[sessions.get(chatId).language];
-    await ctx
-      .reply(strings.fillFailed(error.message.split('\n')[0]))
-      .catch(() => {});
-  }
+  const session = sessions.get(chatId);
+  // One fill at a time on a chat's page: a second asked for while one runs
+  // waits its turn, since two would type over each other.
+  const turn = (session.fillChain ?? Promise.resolve()).then(async () => {
+    try {
+      await fillAndShow(ctx, chatId, review);
+    } catch (error) {
+      log(chatId, `filling failed: ${error.stack ?? error.message}`);
+      const strings = MESSAGES[sessions.get(chatId).language];
+      await ctx
+        .reply(strings.fillFailed(error.message.split('\n')[0]))
+        .catch(() => {});
+    }
+  });
+  session.fillChain = turn;
+  await turn;
 }
 
 /**
@@ -538,17 +548,58 @@ bot.command('reset', async (ctx) => {
   await ctx.reply('Cleared. Send /start to begin again.');
 });
 
-bot.on(['message:photo', 'message:document'], async (ctx) => {
+/**
+ * Runs a chat's messages one at a time, in the order they arrived.
+ *
+ * Two photos sent together would otherwise be read at once and write their
+ * fields over each other; a "стой" sent while a photo is being read must
+ * take effect after the reading, not before the timer it is meant to stop
+ * has even been set.
+ */
+function inTurn(chatId, work) {
+  const session = sessions.get(chatId);
+  const turn = (session.queue ?? Promise.resolve()).then(work, work);
+  session.queue = turn.catch(() => {});
+  return turn;
+}
+
+/** Downloads a file Telegram holds, without letting the token into an error. */
+async function downloadFile(ctx) {
+  const file = await ctx.getFile();
+  const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+  const response = await fetch(url).catch((error) => {
+    throw new Error(`could not download the file: ${error.message}`);
+  });
+  if (!response.ok) {
+    throw new Error(`could not download the file: HTTP ${response.status}`);
+  }
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    extension: path.extname(file.file_path || '.jpg') || '.jpg',
+  };
+}
+
+bot.on(['message:photo', 'message:document'], (ctx) =>
+  inTurn(ctx.chat.id, () => receiveDocument(ctx))
+);
+
+async function receiveDocument(ctx) {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
   touch(chatId);
   settleReview(chatId, 'stop');
   const busy = showStatus(ctx, 'typing');
 
-  const file = await ctx.getFile();
-  const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-  const buffer = Buffer.from(await (await fetch(url)).arrayBuffer());
-  const extension = path.extname(file.file_path || '.jpg') || '.jpg';
+  let buffer;
+  let extension;
+  try {
+    ({ buffer, extension } = await downloadFile(ctx));
+  } catch (error) {
+    busy();
+    log(chatId, error.message);
+    await ctx.reply(MESSAGES[session.language].unreadable);
+    return;
+  }
   log(
     chatId,
     `document received: ${extension}, ${Math.round(buffer.length / 1024)} KB`
@@ -617,9 +668,11 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
   ).finally(busy);
 
   armIdleFill(ctx, chatId);
-});
+}
 
-bot.on('message:text', async (ctx) => {
+bot.on('message:text', (ctx) => inTurn(ctx.chat.id, () => receiveText(ctx)));
+
+async function receiveText(ctx) {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
   touch(chatId);
@@ -630,10 +683,11 @@ bot.on('message:text', async (ctx) => {
   }
   if (isConfirmation(ctx.message.text)) {
     // "Подтверждаю", "go": the form is filled now, not after the quiet
-    // window or the review pause. Never submitted, whatever the word.
+    // window or the review pause. Never submitted, whatever the word. The
+    // fill runs on its own, so a "стой" sent after it is still heard.
     log(chatId, 'confirmation received; filling now');
     if (!settleReview(chatId, 'go')) {
-      await fillNow(ctx, chatId);
+      fillNow(ctx, chatId);
     }
     return;
   }
@@ -658,12 +712,25 @@ bot.on('message:text', async (ctx) => {
     }
   }
   armIdleFill(ctx, chatId);
+}
+
+// A handler that throws must not stop the bot for every other chat: the
+// error is logged with its chat, and the applicant hears that it failed.
+bot.catch(async (error) => {
+  const chatId = error.ctx?.chat?.id ?? '?';
+  log(chatId, `handler failed: ${error.error?.stack ?? error.message}`);
+  const language = error.ctx?.chat ? sessions.get(chatId).language : 'en';
+  await error.ctx
+    ?.reply(MESSAGES[language].fillFailed(String(error.error?.message ?? '')))
+    .catch(() => {});
 });
 
 process.on('SIGINT', async () => {
-  for (const chatId of [...browsers.keys()]) {
-    await endChat(chatId);
-  }
+  // Browsers get a few seconds to close; one that hangs must not keep the
+  // process from exiting.
+  const closing = Promise.all([...browsers.keys()].map(endChat));
+  const grace = new Promise((resolve) => setTimeout(resolve, 5000));
+  await Promise.race([closing, grace]);
   process.exit(0);
 });
 

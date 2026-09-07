@@ -224,6 +224,8 @@ export async function autoConsent(baseDir, options = {}) {
       rejectCode(new Error(`consent error: ${error}`));
     }
   });
+  // A port that cannot be bound must fail the flow, not leave it waiting.
+  server.on('error', rejectCode);
   await new Promise((resolve) => server.listen(0, resolve));
   const { port } = server.address();
   const callbackHost = `http://localhost:${port}`;

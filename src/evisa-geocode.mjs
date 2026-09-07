@@ -162,10 +162,12 @@ async function fetchFeatures(query, fetchImpl) {
 
 /** True for a house on the map whose number begins with the one written. */
 function isHouseNumbered(feature, written) {
+  if (feature?.properties?.type !== 'house' || !written) {
+    return false;
+  }
+  const number = String(feature.properties.housenumber ?? '');
   return (
-    feature?.properties?.type === 'house' &&
-    Boolean(written) &&
-    new RegExp(`^${written}(?!\\d)`).test(feature.properties.housenumber ?? '')
+    number.startsWith(written) && !/^\d/.test(number.slice(written.length))
   );
 }
 

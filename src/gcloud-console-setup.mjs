@@ -786,10 +786,13 @@ async function waitForDownloadedJson(timeoutMs = 120000) {
   const start = now();
   while (now() - start < timeoutMs) {
     await wait(2500);
+    // Only a file that appeared during this run: a client_secret JSON left
+    // from an earlier setup, or another project's, must not be taken.
     const hit = fs
       .readdirSync(downloads)
       .filter((name) => /client_secret.*\.json$/i.test(name))
       .map((name) => path.join(downloads, name))
+      .filter((file) => fs.statSync(file).mtimeMs >= start - 5000)
       .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
     if (hit) {
       try {

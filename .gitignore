@@ -173,6 +173,11 @@ data/fetch-run.log
 data/gmail-status.log
 # Resume cache of fetched emails (raw message bodies) — never commit.
 data/flight-cancellations-cache/
+# Fetched emails and the exhibits built from them hold personal travel data.
+flight-cancellations-originals/
+flight-cancellation-final/
+# The exhibit list names a real booking; only the example template is tracked.
+data/frro-exhibits.json
 # Cached / downloaded fonts (never shipped in this repo).
 data/fonts/
 # Debug/render artifacts and any real scanned documents kept alongside the code.

@@ -569,7 +569,7 @@ function checkDates(data, errors, warnings) {
       );
     }
   }
-  if (birth && birth > new Date()) {
+  if (birth && birth > today()) {
     errors.push('dateOfBirth is in the future');
   }
 }

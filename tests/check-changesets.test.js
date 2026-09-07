@@ -1,7 +1,7 @@
 /**
  * Tests for check-changesets.mjs CLI behavior.
- * Reproduces issue #86: stray Markdown docs in .changeset must not count as
- * pending release changesets.
+ * Stray Markdown docs in .changeset must not count as pending release
+ * changesets.
  */
 
 import { describe, it, expect } from 'test-anywhere';

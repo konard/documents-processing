@@ -160,6 +160,15 @@ export function toLino(record) {
 export function extractArchive(archivePath) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-archive-'));
   execFileSync('unzip', ['-qq', '-o', archivePath, '-d', dir]);
+  // The documents inside are used for as long as the run lasts, and hold
+  // personal data, so the directory goes when the process does.
+  process.once('exit', () => {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort temp cleanup */
+    }
+  });
   return dir;
 }
 

@@ -33,7 +33,7 @@
  *   - skip_bump: 'true' if version bump should be skipped (version not yet published)
  *
  * Addresses issues documented in:
- * - Issue #36: Release job silently skips when PRs merge without changesets
+ * - Guards against the release job silently skipping when PRs merge without changesets
  */
 
 import { appendFileSync } from 'fs';

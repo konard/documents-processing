@@ -32,6 +32,9 @@ export const MESSAGES = {
       'I keep nothing: this chat is the only record.',
     readFromPassport: 'read from your passport photo',
     detected: 'From your documents I read:',
+    siteAgreed: (n) =>
+      `The site read ${n} field(s) from your passport and they matched what I had.`,
+    siteCorrected: 'I corrected what the site read differently:',
     assumed:
       'I assumed these, because they were not given. Change any of them in ' +
       'the browser before submitting:',
@@ -57,6 +60,9 @@ export const MESSAGES = {
       'Я ничего не сохраняю: единственная запись — эта переписка.',
     readFromPassport: 'прочитаю с фото паспорта',
     detected: 'Из ваших документов я прочитал:',
+    siteAgreed: (n) =>
+      `Сайт распознал полей с паспорта: ${n}. Они совпали с моими данными.`,
+    siteCorrected: 'Исправил то, что сайт распознал иначе:',
     assumed:
       'Эти данные я подставил сам, вы их не указали. Любое можно исправить ' +
       'в браузере перед отправкой:',
@@ -265,6 +271,32 @@ export function describeChecklist(fields, language) {
 
   parts.push('', strings.checklistFooter);
   return parts.join('\n');
+}
+
+/**
+ * Reports how the values sent to the form compared with the site's own reading.
+ *
+ * The site extracts several fields from the passport image and asks the
+ * applicant to check them. Saying which ones matched, and which were replaced
+ * and with what, is the difference between a form the applicant can verify and
+ * one they have to re-read line by line.
+ */
+export function describeCorrections(result, language) {
+  const strings = MESSAGES[language] ?? MESSAGES.en;
+  const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
+  const parts = [];
+
+  if (result.agreed?.length) {
+    parts.push(strings.siteAgreed(result.agreed.length));
+  }
+  if (result.corrected?.length) {
+    parts.push(strings.siteCorrected);
+    for (const change of result.corrected) {
+      const name = prompts[change.field] ?? change.field;
+      parts.push(`• ${name}: "${change.was}" → "${change.now}"`);
+    }
+  }
+  return parts.length ? parts.join('\n') : null;
 }
 
 /**

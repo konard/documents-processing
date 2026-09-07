@@ -84,6 +84,39 @@ export function canonicalPurpose(value) {
 const pad2 = (n) => String(n).padStart(2, '0');
 
 /**
+ * Picks the English half of a `<Russian>/<English>` value.
+ *
+ * A Russian passport prints place of birth and issuing authority in both
+ * languages, separated by a slash. Only one half is meant to be read by a
+ * foreign authority, and it is the one already in Latin letters.
+ *
+ * A value with no slash, or whose halves are both in one script, is returned
+ * unchanged: a name like `SMITH/JONES` is not a translation pair.
+ */
+export function preferEnglishHalf(value) {
+  const text = String(value ?? '').trim();
+  const slash = text.indexOf('/');
+  if (slash === -1) {
+    return text;
+  }
+  const left = text.slice(0, slash).trim();
+  const right = text.slice(slash + 1).trim();
+  if (!left || !right) {
+    return text;
+  }
+  // Only treat it as a pair when one half is Cyrillic and the other is not.
+  const leftCyrillic = /[Ѐ-ӿ]/.test(left);
+  const rightCyrillic = /[Ѐ-ӿ]/.test(right);
+  if (leftCyrillic && !rightCyrillic) {
+    return right;
+  }
+  if (rightCyrillic && !leftCyrillic) {
+    return left;
+  }
+  return text;
+}
+
+/**
  * Free-text fields that may arrive in Cyrillic.
  *
  * These are copied onto a form that accepts Latin only, so they are converted.
@@ -320,8 +353,18 @@ export function normalizeApplicant(input) {
 
   normalizeFields(out);
 
-  // Cyrillic is transliterated the way the passport's own machine-readable zone
-  // does it, so the spelling on the visa matches the document.
+  // A Russian passport prints these fields as <Russian>/<English>, so the half
+  // after the slash is the one the form wants. Taking the Cyrillic half and
+  // transliterating it would turn МОСКВА/USSR into MOSKVA, which is not what
+  // the document says in English.
+  for (const key of TRANSLITERATED_FIELDS) {
+    if (out[key]) {
+      out[key] = preferEnglishHalf(out[key]);
+    }
+  }
+
+  // Whatever remains in Cyrillic is transliterated the way the passport's own
+  // machine-readable zone does it, so the spelling matches the document.
   for (const key of TRANSLITERATED_FIELDS) {
     if (out[key]) {
       out[key] = toLatin(out[key]).value;

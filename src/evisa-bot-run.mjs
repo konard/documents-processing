@@ -20,6 +20,7 @@ import {
   describeMissing,
   describeChecklist,
   describeSummary,
+  describeCorrections,
   NOT_ASKED,
   parseFreeText,
   createSessionStore,
@@ -109,6 +110,11 @@ async function fillAndShow(ctx, chatId) {
     });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  const corrections = describeCorrections(result, session.language);
+  if (corrections) {
+    await ctx.reply(corrections);
   }
 
   for (const failure of result.failures.slice(0, 5)) {

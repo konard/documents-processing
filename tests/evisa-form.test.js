@@ -145,6 +145,35 @@ describe('passport page cropping', () => {
   });
 });
 
+describe("the site's own extraction", () => {
+  const source = readFileSync('src/evisa-fill.mjs', 'utf8');
+
+  it('reads what the site filled before typing anything', () => {
+    // The site extracts several fields from the passport image and asks the
+    // applicant to double-check them, so a correct one is left as it is.
+    expect(source.includes('readFilledFields')).toBe(true);
+    expect(
+      source.includes('const extracted = await readFilledFields(page)')
+    ).toBe(true);
+  });
+
+  it('leaves a field alone when the site already has the same value', () => {
+    expect(source.includes('agreed.push(key)')).toBe(true);
+  });
+
+  it('records what it replaced, and with what', () => {
+    expect(source.includes('corrected.push({ field: key, was: already')).toBe(
+      true
+    );
+  });
+
+  it('waits for the extraction to appear, on any timing', () => {
+    // It took over five seconds when measured, so a short fixed pause makes
+    // the site's extraction look absent and overwrites all of it.
+    expect(source.includes('waitForFunction')).toBe(true);
+  });
+});
+
 describe('parseArgs', () => {
   it('collects repeated inputs', () => {
     const options = parseArgs(['--input', 'a.json', '--input', 'b.lino']);

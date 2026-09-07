@@ -75,6 +75,22 @@ the site's 2 MB limit. The portrait is cropped to the 2:3 aspect of the required
 Per the instruction page, the photo must be recent, front-facing, in formal
 attire, with no hat and no glasses, on a white background.
 
+A scan of the open passport shows two pages with the fold between them, and
+the data page is cut out on that fold. Every column of the image is searched
+for the crease, a shadow darker than the paper above and below it, and the row
+that nearly every column dips at is the seam. Print never reaches both margins,
+so a heading or the signature rule on the facing page cannot be mistaken for
+it. The cut goes on the lower edge of the crease, where the data page's own
+margin begins, and is kept only if the machine-readable zone still reads
+afterwards.
+
+Real scans never enter the repository, so the tests draw the shapes involved.
+To check the cut on your own scans as well, name the folder holding them:
+
+```sh
+EVISA_SCANS_DIR=~/passports npm test
+```
+
 Uploads happen before any typing, because the site reads the passport image and
 prefills fields from it; typing afterwards means your verified values win.
 

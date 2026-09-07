@@ -57,9 +57,9 @@ const ICAO_9303 = {
  * Latin back to Cyrillic, the longer pairs first so "SH" is Ш and not С+Н.
  *
  * The reverse of ICAO 9303 loses what the forward mapping lost (soft signs,
- * Й against И), so the result is a near spelling, not the word: "[REDACTED]"
- * for [REDACTED]. That is enough for a map search that allows a letter or
- * two of difference, which is what it is for.
+ * Й against И), so the result is a near spelling, not the word: "Тверскои"
+ * for Тверской, "Ярославл" for Ярославль. That is enough for a map search
+ * that allows a letter or two of difference, which is what it is for.
  */
 const LATIN_TO_CYRILLIC = [
   ['SHCH', 'Щ'],

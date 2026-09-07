@@ -150,8 +150,11 @@ whole run with the parameters nudged by under 1% each time, only
 measured once says little.
 
 **Voting across the transforms is dependable.** The full set settled all 15
-fields with nothing disputed on every run, at about 3.3 s per passport. That is
-100% from a single engine, under one licence, with no second engine installed.
+fields with nothing disputed on four runs out of five, at about 3.8 s per
+passport. The fifth left one field disputed, which is the method working as
+intended: the transforms genuinely disagreed and it said so instead of guessing.
+That is 100% from a single engine, under one licence, with no second engine
+installed.
 
 `blur` is applied in whole pixels. Its kernel steps one pixel at a time, so a
 fractional radius samples between pixels: 1.9 and 2.05 both read nothing, while

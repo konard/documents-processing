@@ -10,16 +10,14 @@
 // the sampling grid differently. Agreement across those readings is then real
 // evidence, from one engine under one licence.
 
-import {
-  renderImage,
-  regionCanvas,
-  upscale,
-  rotate,
-  grayscale,
-  contrast,
-  blur,
-  ocrCanvas,
-} from './ocr-lib.mjs';
+// The OCR helpers wrap native image libraries, so they are imported on demand.
+// That keeps the transform ranges and variant list readable, and testable,
+// without loading them.
+let ocr = null;
+async function loadOcr() {
+  ocr ??= await import('./ocr-lib.mjs');
+  return ocr;
+}
 
 /** The band of a TD3 data page that holds the machine-readable zone. */
 export const MRZ_REGION = { x: 0, y: 0.883, w: 1, h: 0.112 };
@@ -81,23 +79,29 @@ export function sampleParameters({ amount = 0.01, random = Math.random } = {}) {
  * neighbourhood around the optimum.
  */
 export const VARIANTS = {
-  plain: (canvas, p) => upscale(canvas, p.scale),
-  'rotate-left': (canvas, p) =>
-    rotate(upscale(canvas, p.scale), -Math.abs(p.rotateDegrees)),
-  'rotate-right': (canvas, p) =>
-    rotate(upscale(canvas, p.scale), Math.abs(p.rotateDegrees)),
-  grayscale: (canvas, p) => grayscale(upscale(canvas, p.scale)),
-  contrast: (canvas, p) => contrast(upscale(canvas, p.scale), p.contrastGamma),
-  soften: (canvas, p) => blur(upscale(canvas, p.scale), p.blurRadius),
-  'soften-contrast': (canvas, p) =>
-    contrast(blur(upscale(canvas, p.scale), p.blurRadius), p.contrastGamma),
-  'rotate-contrast': (canvas, p) =>
-    contrast(
-      rotate(upscale(canvas, p.scale), Math.abs(p.rotateDegrees)),
+  plain: (f, canvas, p) => f.upscale(canvas, p.scale),
+  'rotate-left': (f, canvas, p) =>
+    f.rotate(f.upscale(canvas, p.scale), -Math.abs(p.rotateDegrees)),
+  'rotate-right': (f, canvas, p) =>
+    f.rotate(f.upscale(canvas, p.scale), Math.abs(p.rotateDegrees)),
+  grayscale: (f, canvas, p) => f.grayscale(f.upscale(canvas, p.scale)),
+  contrast: (f, canvas, p) =>
+    f.contrast(f.upscale(canvas, p.scale), p.contrastGamma),
+  soften: (f, canvas, p) => f.blur(f.upscale(canvas, p.scale), p.blurRadius),
+  'soften-contrast': (f, canvas, p) =>
+    f.contrast(
+      f.blur(f.upscale(canvas, p.scale), p.blurRadius),
       p.contrastGamma
     ),
-  'small-scale': (canvas, p) => upscale(canvas, Math.max(1.5, p.scale / 2)),
-  'large-scale': (canvas, p) => upscale(canvas, Math.min(4, p.scale * 1.3)),
+  'rotate-contrast': (f, canvas, p) =>
+    f.contrast(
+      f.rotate(f.upscale(canvas, p.scale), Math.abs(p.rotateDegrees)),
+      p.contrastGamma
+    ),
+  'small-scale': (f, canvas, p) =>
+    f.upscale(canvas, Math.max(1.5, p.scale / 2)),
+  'large-scale': (f, canvas, p) =>
+    f.upscale(canvas, Math.min(4, p.scale * 1.3)),
 };
 
 /**
@@ -125,10 +129,17 @@ export const RECOMMENDED_VARIANTS = [
  * A failure yields an empty list: a transform that defeats the engine should
  * drop out of the vote, not stop the run.
  */
-export function readVariant(image, transform, parameters) {
+export function readVariant(helpers, image, transform, parameters) {
   try {
-    const canvas = transform(regionCanvas(image, MRZ_REGION), parameters);
-    const text = ocrCanvas(canvas, { whitelist: MRZ_WHITELIST, psm: 6 });
+    const canvas = transform(
+      helpers,
+      helpers.regionCanvas(image, MRZ_REGION),
+      parameters
+    );
+    const text = helpers.ocrCanvas(canvas, {
+      whitelist: MRZ_WHITELIST,
+      psm: 6,
+    });
     return text
       .split('\n')
       .map((line) => line.replace(/\s/g, ''))
@@ -146,12 +157,14 @@ export async function readAllVariants(imagePath, options = {}) {
   // Defaults to every variant: the full set settled all fields on every run,
   // where the smaller subset occasionally left one disputed.
   const { only = Object.keys(VARIANTS), jitter = 0.01, random } = options;
-  const image = await renderImage(imagePath);
+  const helpers = await loadOcr();
+  const image = await helpers.renderImage(imagePath);
   const readings = {};
   for (const name of only) {
     const transform = VARIANTS[name];
     if (transform) {
       readings[name] = readVariant(
+        helpers,
         image,
         transform,
         sampleParameters({ amount: jitter, random })

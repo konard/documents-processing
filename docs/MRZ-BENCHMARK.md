@@ -118,6 +118,46 @@ at 261 ms.
 shipped alongside, which does not suit a public-domain package, so it is
 benchmarked for reference and not used.
 
+## One engine, several views of the same image
+
+An OCR engine is deterministic: run it twice on the same pixels and it repeats
+its mistakes, so re-running proves nothing. Changing the pixels first does
+help — resampling, a fraction of a degree of rotation, softening, a tonal
+shift — because each transform lands the glyph edges on the sampling grid
+differently and the errors move. `src/mrz-variants.mjs` reads through ten such
+transforms and votes on the results.
+
+Sweeping each parameter over the real passports found where it works, and how
+narrow that window is:
+
+| Transform | Usable range | Optimum | Alone |
+| --------- | ------------ | ------- | ----- |
+| scale     | 1.5 – 4      | 3       | 9/15  |
+| rotate    | −1° – 1°     | +0.25°  | 14/15 |
+| contrast  | 0.6 – 0.8    | 0.7     | 15/15 |
+| blur      | 1 – 4 px     | 2 px    | 15/15 |
+
+Outside those bounds the transforms do real damage: rotating by 1.5° read
+nothing at all, and thresholding hard enough to remove the security pattern
+took the glyphs with it (0/15 and 2/15).
+
+Two results are worth stating plainly.
+
+**A single transform is not dependable, however well it scores.** Repeating the
+whole run with the parameters nudged by under 1% each time, only
+`rotate-contrast` held 15/15 on every run. The others swing: `plain` went
+15 → 12 → 12, `contrast` 15 → 11 → 12, `large-scale` 6 → 12 → 3. A number
+measured once says little.
+
+**Voting across the transforms is dependable.** The full set settled all 15
+fields with nothing disputed on every run, at about 3.3 s per passport. That is
+100% from a single engine, under one licence, with no second engine installed.
+
+`blur` is applied in whole pixels. Its kernel steps one pixel at a time, so a
+fractional radius samples between pixels: 1.9 and 2.05 both read nothing, while
+2, 3 and 4 all read everything. That looked like a knife-edge optimum until the
+cause was found, which is why the jitter leaves integer parameters alone.
+
 ## GPU acceleration
 
 Short answer: it does not help here, and it was measured rather than assumed.

@@ -30,6 +30,8 @@ export default [
         __filename: 'readonly',
         require: 'readonly',
         module: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
         // Node.js 18+ globals
         fetch: 'readonly',
         AbortController: 'readonly',

@@ -186,15 +186,34 @@ describe('no personal data is committed', () => {
     }
   });
 
-  it('keeps nothing about an applicant after their chat ends', () => {
+  it("writes an applicant's documents only to the temp directory", () => {
+    // Documents are kept for diagnosis, so where they land matters: the system
+    // clears its temp directory, and nothing else does.
     const bot = readFileSync('src/evisa-bot-run.mjs', 'utf8');
-    // Documents live in temporary directories that are removed, and the
-    // session is dropped; nothing is written to a lasting location.
-    expect(bot.includes('sessions.clear(chatId)')).toBe(true);
-    expect(bot.includes('rmSync')).toBe(true);
-    expect(/writeFileSync\(\s*['"`][^'"`]*(?:data|home|Users)/.test(bot)).toBe(
+    const helpers = readFileSync('src/evisa-bot.mjs', 'utf8');
+    expect(helpers.includes('os.tmpdir()')).toBe(true);
+    expect(/writeFileSync\(\s*['"`][^'"`]*(?:home|Users)/.test(bot)).toBe(
       false
     );
+    expect(bot.includes('sessions.clear(chatId)')).toBe(true);
+  });
+
+  it('clears what it kept on a schedule, so it cannot pile up', () => {
+    // A machine left running for weeks would otherwise hold every document it
+    // was ever sent.
+    const logging = readFileSync('src/evisa-log.mjs', 'utf8');
+    expect(logging.includes('RETENTION_DAYS')).toBe(true);
+    expect(logging.includes('rmSync')).toBe(true);
+    // The sweep only touches directories this bot made.
+    expect(logging.includes('evisa-(bot|doc|shot)-')).toBe(true);
+  });
+
+  it('says nothing to an applicant about how their documents are handled', () => {
+    // A promise that is not kept is worse than none, so the messages make no
+    // claim either way.
+    const messages = readFileSync('src/evisa-bot.mjs', 'utf8');
+    expect(messages.includes('I keep nothing')).toBe(false);
+    expect(messages.includes('ничего не сохраняю')).toBe(false);
   });
 
   it('only ever navigates to the official e-visa site', () => {

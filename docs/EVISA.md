@@ -294,6 +294,12 @@ fails is logged whole and reported to the chat, and the browser is left open
 with the form as far as it got, so the applicant or the operator can carry
 on by hand in the same window.
 
+Photos should be sent to the bot as files, not as photos: Telegram shrinks a
+photo to a few kilobytes and strips what the camera wrote, and the site then
+warns that the portrait "was captured from another source". A file arrives
+byte for byte. One under the site's 2 MB limit is uploaded as it is; a
+camera original over it is shrunk with its metadata kept.
+
 While the bot reads a document, waits out the quiet window or fills the form
 it shows the "typing" status in the chat and sends no message about it; the
 reading runs on a worker thread so the status and other chats are not held

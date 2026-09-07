@@ -579,6 +579,49 @@ async function downloadFile(ctx) {
   };
 }
 
+/**
+ * Takes a passport's reading into the chat's data and its page for upload.
+ *
+ * The zone's fields replace whatever was held; the printed side's only fill
+ * gaps, since a value the applicant typed is surer than a reading of print
+ * over a pattern.
+ */
+function keepPassport(session, read, extension) {
+  for (const [key, value] of Object.entries(read.data)) {
+    if (PRINTED_SIDE.includes(key)) {
+      session.data[key] ??= value;
+    } else {
+      session.data[key] = value;
+    }
+  }
+  session.uploads.passportPage = keepForUpload(
+    read.prepared.path,
+    `passport${extension}`
+  );
+}
+
+/**
+ * Keeps an image with no passport in it as the portrait, which is the other
+ * image the form wants and needs no reading.
+ *
+ * The prepared copy is the file as sent when it fits the site's 2 MB limit,
+ * and a shrunk one when it does not, as a camera original sent as a file
+ * would not.
+ */
+function keepPortrait(chatId, session, read, local, extension) {
+  const portrait = read?.prepared?.path ?? local;
+  if (read?.prepared && !read.prepared.unchanged) {
+    log(
+      chatId,
+      `portrait shrunk to ${Math.round(read.prepared.bytes / 1024)} KB`
+    );
+  }
+  session.uploads.portraitPhoto = keepForUpload(
+    portrait,
+    `portrait${extension}`
+  );
+}
+
 bot.on(['message:photo', 'message:document'], (ctx) =>
   inTurn(ctx.chat.id, () => receiveDocument(ctx))
 );
@@ -637,28 +680,10 @@ async function receiveDocument(ctx) {
       );
 
       if (read && Object.keys(read.data).length) {
-        // The zone's fields replace whatever was held; the printed side's
-        // only fill gaps, since a value the applicant typed is surer than a
-        // reading of print over a pattern.
-        for (const [key, value] of Object.entries(read.data)) {
-          if (PRINTED_SIDE.includes(key)) {
-            session.data[key] ??= value;
-          } else {
-            session.data[key] = value;
-          }
-        }
-        session.uploads.passportPage = keepForUpload(
-          read.prepared.path,
-          `passport${extension}`
-        );
+        keepPassport(session, read, extension);
       } else {
         log(chatId, 'no passport zone found; treating it as the portrait');
-        // Not a passport: treat it as the portrait, which is the other image the
-        // form wants and needs no reading.
-        session.uploads.portraitPhoto = keepForUpload(
-          local,
-          `portrait${extension}`
-        );
+        keepPortrait(chatId, session, read, local, extension);
       }
     },
     // Kept while debugging, under the system temp directory. What eventually

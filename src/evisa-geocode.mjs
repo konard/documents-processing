@@ -12,7 +12,11 @@
 // The lookup is best effort: the map can lack a house, and the service can be
 // down. Either way the caller falls back to rendering the address as written.
 
-import { addressParts, latinUnit } from './evisa-home-address.mjs';
+import {
+  addressParts,
+  latinUnit,
+  normalizeLatinAddress,
+} from './evisa-home-address.mjs';
 
 /** Photon indexes OpenStreetMap and answers without a key. */
 export const GEOCODER_URL =
@@ -174,13 +178,15 @@ export function renderVerifiedAddress(text, found) {
   // the house as the applicant wrote it, which carries the building the
   // map's own number may fold in or leave out.
   const [, ...afterStreet] = parts.street;
-  return [
-    found.country || parts.country,
-    found.postalCode || parts.postalCode,
-    found.city || parts.city,
-    latinUnit(found.street),
-    ...afterStreet.map((unit) => unit.trim()),
-  ]
-    .filter(Boolean)
-    .join(', ');
+  return normalizeLatinAddress(
+    [
+      found.country || parts.country,
+      found.postalCode || parts.postalCode,
+      found.city || parts.city,
+      latinUnit(found.street),
+      ...afterStreet.map((unit) => unit.trim()),
+    ]
+      .filter(Boolean)
+      .join(', ')
+  );
 }

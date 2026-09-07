@@ -13,6 +13,7 @@ import {
   upscale,
   ocrCanvas,
   ocrData,
+  rowsFromWords,
   keepBlack,
   grayscale,
   binarize,
@@ -21,6 +22,7 @@ import { parseMrzLine1, parseMrzLine2 } from './mrz-lib.mjs';
 import { PHOTO_RULES, countryName, sexLabel } from './evisa-schema.mjs';
 import { normalizeName } from './evisa-data.mjs';
 import { editDistance } from './translit.mjs';
+import { isKnownPlace } from './evisa-home-address.mjs';
 
 // The machine-readable zone is Latin-only by design, so an English-trained
 // engine reads it whatever language the rest of the page is in. The printed
@@ -359,14 +361,26 @@ function findDateWithin(page, iso, rectangle) {
   for (const prepared of preparations(strip)) {
     const words = ocrData(prepared, { psm: 11, whitelist: '0123456789.' });
     debug('date within', iso, words.map((word) => word.text).join(' '));
-    const word = words.find((candidate) => printedDate(candidate.text) === iso);
-    if (word) {
+    // The date often comes back in pieces, "07" "12." "1985", so each row of
+    // pieces is read as one, and the box is the span of the row.
+    for (const row of rowsFromWords(words)) {
+      // The row holds the date when its digits do, allowing for a leading
+      // zero that light print drops.
+      const digits = row.map((word) => word.text.replace(/\D/g, '')).join('');
+      const wanted = `${iso.slice(8)}${iso.slice(5, 7)}${iso.slice(0, 4)}`;
+      if (!digits.includes(wanted) && !digits.includes(wanted.slice(1))) {
+        continue;
+      }
+      const left = Math.min(...row.map((word) => word.x));
+      const right = Math.max(...row.map((word) => word.x + word.w));
+      const top = Math.min(...row.map((word) => word.y));
+      const bottom = Math.max(...row.map((word) => word.y + word.h));
       return {
         iso,
-        x: Math.max(0, rectangle.left) + word.x / 2,
-        y: Math.max(0, rectangle.top) + word.y / 2,
-        w: word.w / 2,
-        h: word.h / 2,
+        x: Math.max(0, rectangle.left) + left / 2,
+        y: Math.max(0, rectangle.top) + top / 2,
+        w: (right - left) / 2,
+        h: (bottom - top) / 2,
         votes: 1,
       };
     }
@@ -513,6 +527,21 @@ const LATIN_PLACES = [
   'CHINA',
 ];
 
+/** The words of the labels printed over the values, which name no place. */
+const LABEL_WORDS = new Set([
+  'МЕСТО',
+  'РОЖДЕНИЯ',
+  'ДАТА',
+  'ПОЛ',
+  'ЛИЧНЫЙ',
+  'КОД',
+  'PLACE',
+  'BIRTH',
+  'DATE',
+  'SEX',
+  'PERSONAL',
+]);
+
 /** Snaps a Latin word to the country it is one misread away from. */
 function knownPlace(word) {
   if (word.length < 4) {
@@ -530,7 +559,7 @@ function placeWords(reading) {
   const words = reading
     .toUpperCase()
     .split(/[^\p{L}]+/u)
-    .filter((word) => word.length >= 3)
+    .filter((word) => word.length >= 3 && !LABEL_WORDS.has(word))
     .map(asCyrillic);
   return {
     native: words.filter((word) => /^[Ѐ-ӿ]+$/.test(word)),
@@ -545,16 +574,25 @@ function placeWords(reading) {
  * The word the readings agree on, or the only one offered. Several words
  * seen once each settle nothing.
  */
-function agreedWord(words) {
+function agreedWord(words, trusted = () => false) {
   const counts = new Map();
   for (const word of words) {
     counts.set(word, (counts.get(word) ?? 0) + 1);
   }
-  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  // A place the dictionary knows outranks any word it does not, however
+  // often the other was read: the pattern reads as letters more often than
+  // as a known name.
+  const known = [...counts.entries()].filter(([word]) => trusted(word));
+  const ranked = (known.length ? known : [...counts.entries()]).sort(
+    (a, b) => b[1] - a[1]
+  );
   if (!ranked.length || (ranked.length > 1 && ranked[0][1] === ranked[1][1])) {
     return null;
   }
-  return ranked[0][0];
+  // A word with a single reading behind it is usually the pattern read as
+  // letters; it counts only when it is a place the dictionary knows.
+  const [word, count] = ranked[0];
+  return count >= 2 || trusted(word) ? word : null;
 }
 
 /**
@@ -564,21 +602,33 @@ function agreedWord(words) {
  * up one reading here and another there.
  */
 function readPlace(page, rectangle, lang) {
-  const cut = cutPixels(page, rectangle);
-  if (cut.width < 8 || cut.height < 8) {
+  const row = cutPixels(page, rectangle);
+  if (row.width < 8 || row.height < 8) {
     return null;
   }
-  const strip = upscale(cut, 2);
+  // The anchor can land a line high, on the label over the value, so a
+  // block taking in the next two lines is read as well, as sparse text; the
+  // label's own words never name a place and drop out of the vote.
+  const block = cutPixels(page, { ...rectangle, height: rectangle.height * 2 });
+  const readings = [
+    [upscale(row, 2), 7],
+    [upscale(block, 2), 11],
+  ];
   const native = [];
   const latin = [];
-  for (const prepared of preparations(strip)) {
-    const reading = ocrCanvas(prepared, { psm: 7, lang });
-    const words = placeWords(reading);
-    debug('place', reading, words);
-    native.push(...words.native);
-    latin.push(...words.latin);
+  for (const [strip, psm] of readings) {
+    for (const prepared of preparations(strip)) {
+      const reading = ocrCanvas(prepared, { psm, lang });
+      const words = placeWords(reading);
+      debug('place', psm, reading, words);
+      native.push(...words.native);
+      latin.push(...words.latin);
+    }
   }
-  const halves = [agreedWord(native), agreedWord(latin)].filter(Boolean);
+  const halves = [
+    agreedWord(native, isKnownPlace),
+    agreedWord(latin, (word) => LATIN_PLACES.includes(word)),
+  ].filter(Boolean);
   return halves.length ? halves.join('/') : null;
 }
 

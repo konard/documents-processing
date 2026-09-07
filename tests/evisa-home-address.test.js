@@ -24,7 +24,7 @@ const TYPED =
 describe('rendering a home address in Latin letters', () => {
   it('translates the markers and names the country and city in English', () => {
     expect(latinAddress(MOSCOW)).toBe(
-      'Russia, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5'
     );
   });
 
@@ -50,9 +50,15 @@ describe('rendering a home address in Latin letters', () => {
     );
   });
 
-  it('leaves an address already in Latin letters alone', () => {
+  it('keeps an address already in Latin letters, in one way of writing', () => {
     expect(latinAddress('12 Baker Street, London, UK')).toBe(
-      '12 Baker Street, London, UK'
+      '12 Baker Street, London, United Kingdom'
+    );
+    expect(
+      latinAddress('RUSSIAN FEDERATION, [REDACTED] BULVAR 18A, APARTMENT 16')
+    ).toBe('Russian Federation, [REDACTED] bulvar 18A, apartment 16');
+    expect(latinAddress('russia, rostov-on-don, ul. mira 5, apt. 7')).toBe(
+      'Russian Federation, Rostov-on-Don, ul. Mira 5, apt. 7'
     );
   });
 
@@ -72,7 +78,7 @@ describe('rendering a home address in Latin letters', () => {
     );
     expect(stripAddressNote('ул. Мира, 1 (прописка)')).toBe('ул. Мира, 1');
     expect(latinAddress(TYPED)).toBe(
-      'Russia, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
     );
   });
 
@@ -84,7 +90,7 @@ describe('rendering a home address in Latin letters', () => {
 
   it('takes an address apart for a map lookup, without the flat', () => {
     const parts = addressParts(TYPED);
-    expect(parts.country).toBe('Russia');
+    expect(parts.country).toBe('Russian Federation');
     expect(parts.postalCode).toBe('101000');
     expect(parts.city).toBe('Moscow');
     expect(parts.written).toEqual([
@@ -101,7 +107,9 @@ describe('rendering a home address in Latin letters', () => {
 describe('a place of birth as a passport prints it', () => {
   it('names the city in English and keeps the country as printed', () => {
     expect(latinPlaceOfBirth('Г.МОСКВА/USSR')).toBe('Moscow, USSR');
-    expect(latinPlaceOfBirth('г. Химки/RUSSIA')).toBe('Khimki, RUSSIA');
+    expect(latinPlaceOfBirth('г. Химки/RUSSIA')).toBe(
+      'Khimki, Russian Federation'
+    );
   });
 
   it('gives a country a single time when both halves name it', () => {
@@ -113,8 +121,8 @@ describe('a place of birth as a passport prints it', () => {
     expect(editDistance('москве', 'москва')).toBe(1);
   });
 
-  it('leaves a Latin value alone', () => {
-    expect(latinPlaceOfBirth('INDIA')).toBe('INDIA');
+  it('writes a Latin value the way an address is written', () => {
+    expect(latinPlaceOfBirth('INDIA')).toBe('India');
   });
 
   it('reaches the form rendered whole', () => {
@@ -146,7 +154,7 @@ describe('checking an address against the map', () => {
     expect(found.houseMatches).toBe(true);
     expect(found.postalCodeMatches).toBe(true);
     expect(renderVerifiedAddress(TYPED, found)).toBe(
-      'Russia, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
     );
   });
 
@@ -220,7 +228,7 @@ describe('an address in a chat message', () => {
   it('reaches the form in Latin letters, and serves as the contact address', () => {
     const applicant = normalizeApplicant({ permanentAddress: MOSCOW });
     expect(applicant.permanentAddress).toBe(
-      'Russia, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5'
     );
     expect(applicant.contactAddress).toBe(applicant.permanentAddress);
     expect(applicant.purpose).toBe('Tourist');

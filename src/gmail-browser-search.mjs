@@ -142,6 +142,13 @@ async function readOpenMessage(page) {
     })
     .catch(() => []);
 
+  // A sender's name or a date read off the page is text, not markup: what it
+  // holds must not become tags in the synthesized body.
+  const asText = (value) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   // Header fields come from the first (top) message; the full body concatenates
   // every message so the .eml carries the entire correspondence.
   const first = messages[0] || {};
@@ -154,8 +161,8 @@ async function readOpenMessage(page) {
       : nonEmpty
           .map(
             (message) =>
-              `<hr><div><b>From:</b> ${message.fromName || ''} &lt;${message.from || ''}&gt;` +
-              `${message.dateText ? ` &nbsp;<b>Date:</b> ${message.dateText}` : ''}</div>` +
+              `<hr><div><b>From:</b> ${asText(message.fromName)} &lt;${asText(message.from)}&gt;` +
+              `${message.dateText ? ` &nbsp;<b>Date:</b> ${asText(message.dateText)}` : ''}</div>` +
               `<div>${message.bodyHtml}</div>`
           )
           .join('\n');

@@ -43,5 +43,8 @@ def read_lines(path, accurate=True):
 
 if __name__ == "__main__":
     accurate = "--fast" not in sys.argv
-    target = [a for a in sys.argv[1:] if not a.startswith("--")][0]
-    print(json.dumps({"lines": read_lines(target, accurate)}))
+    targets = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if not targets:
+        sys.stderr.write("usage: vision-ocr.py [--fast] <image>\n")
+        sys.exit(2)
+    print(json.dumps({"lines": read_lines(targets[0], accurate)}))

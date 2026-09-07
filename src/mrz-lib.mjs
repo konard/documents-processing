@@ -30,13 +30,14 @@ function mrzCheck(str) {
 // in '32 would be read as 1932.
 const yy = (y, kind = 'past') => {
   const n = +y;
-  // Passports run at most ~10 years, so an expiry year sits in a narrow window
-  // around today. Reading it with the birth-year pivot of 30 would turn a
-  // passport expiring in '32 into 1932; sliding the window forward keeps both
-  // recently expired and long-dated passports in the right century.
+  // An expiry year is always this century: no passport read today expired
+  // before 2000, and none runs past 2099. Reading it with the birth-year
+  // pivot of 30 would turn a passport expiring in '32 into 1932.
   if (kind === 'future') {
-    return n < (new Date().getUTCFullYear() % 100) - 10 ? 2100 + n : 2000 + n;
+    return 2000 + n;
   }
+  // Birth years: '00 to '30 are this century, the rest the last. Someone
+  // born after 2030 will need this pivot moved.
   return n <= 30 ? 2000 + n : 1900 + n;
 };
 
@@ -258,6 +259,9 @@ const D2L = { 0: 'O', 1: 'I', 5: 'S', 8: 'B', 2: 'Z', 6: 'G', 4: 'A', 7: 'T' };
 export function parseMrzLine1(raw) {
   const s = raw
     .toUpperCase()
+    // A digit with no letter it is mistaken for is noise and is dropped: a
+    // name is read between fillers, not by position, so the letters around
+    // it still make the name.
     .replace(/[0-9]/g, (digit) => D2L[digit] ?? '')
     .replace(/[^A-Z<]/g, '');
   const m = s.match(/^P[A-Z<]?([A-Z]{3})([A-Z<]+)$/);

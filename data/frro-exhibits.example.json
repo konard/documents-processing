@@ -1,0 +1,15 @@
+{
+  "supportDir": "PNR123-Airline-support-request",
+  "exhibits": [
+    {
+      "match": "2026-01-02-noreply@airline.example-Change_in_Itinerary",
+      "out": "Airline-PNR123-1-XX1234-AAA-BBB-rescheduled.pdf",
+      "bundle": "PNR123-2026-01-02-XX1234-AAA-BBB-rescheduled"
+    },
+    {
+      "match": "2026-01-09-noreply@airline.example-Change_in_Itinerary",
+      "out": "Airline-PNR123-2-XX5678-BBB-AAA-cancelled.pdf",
+      "bundle": "PNR123-2026-01-09-XX5678-BBB-AAA-cancelled"
+    }
+  ]
+}

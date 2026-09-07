@@ -175,7 +175,9 @@ export async function readPassportDocumentInWorker(inputPath, outputPath) {
       new URL('./evisa-passport-worker.mjs', import.meta.url),
       { workerData: { inputPath, outputPath } }
     );
+    let answered = false;
     worker.once('message', (message) => {
+      answered = true;
       if (message.ok) {
         resolve(message.result);
       } else {
@@ -183,8 +185,10 @@ export async function readPassportDocumentInWorker(inputPath, outputPath) {
       }
     });
     worker.once('error', reject);
+    // A worker that ends without answering, whatever its exit code, must not
+    // leave the caller waiting for ever.
     worker.once('exit', (code) => {
-      if (code !== 0) {
+      if (!answered) {
         reject(new Error(`passport reader exited with code ${code}`));
       }
     });

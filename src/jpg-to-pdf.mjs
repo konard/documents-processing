@@ -56,7 +56,7 @@ for (const f of files) {
   const page = pdf.addPage([img.width, img.height]);
   page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
 
-  fs.writeFileSync(pdfPath, await pdf.save());
+  fs.writeFileSync(pdfPath, await pdf.save({ useObjectStreams: false }));
   count++;
   console.log(`✓ ${f}  ->  ${base}.pdf  (${img.width}×${img.height})`);
 }

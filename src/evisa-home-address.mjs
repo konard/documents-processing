@@ -46,7 +46,9 @@ const CITIES = {
   спб: 'Saint Petersburg',
   'нижний новгород': 'Nizhny Novgorod',
   екатеринбург: 'Yekaterinburg',
-  ростов: 'Rostov-on-Don',
+  // Plain "Ростов" is not named after the Don: the small Rostov near
+  // Yaroslavl is also just "Ростов".
+  ростов: 'Rostov',
   'ростов-на-дону': 'Rostov-on-Don',
   севастополь: 'Sevastopol',
   ярославль: 'Yaroslavl',

@@ -30,14 +30,30 @@ export function logPath() {
 
 const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
+/** Strings that must never be written, such as the bot's token. */
+const withheld = new Set();
+
+/** Keeps a secret out of every line written from here on. */
+export function withholdFromLog(secret) {
+  if (secret) {
+    withheld.add(String(secret));
+  }
+}
+
 /**
  * Writes one line, to the console and the log file.
  *
  * A chat is identified by its number alone. That is enough to follow one
- * conversation through the file without recording who it belongs to.
+ * conversation through the file without recording who it belongs to. A
+ * secret that found its way into a message, in an error's URL for one, is
+ * blanked before the line is written.
  */
 export function log(chatId, message) {
-  const line = `${stamp()} [chat ${chatId}] ${message}`;
+  let text = String(message);
+  for (const secret of withheld) {
+    text = text.split(secret).join('[withheld]');
+  }
+  const line = `${stamp()} [chat ${chatId}] ${text}`;
   console.log(line);
   try {
     fs.appendFileSync(logPath(), `${line}\n`);

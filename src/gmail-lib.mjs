@@ -86,6 +86,15 @@ function runConsentFlow(oauth2Client, baseDir) {
       try {
         const requestUrl = new URL(request.url, 'http://localhost');
         const code = requestUrl.searchParams.get('code');
+        const denied = requestUrl.searchParams.get('error');
+        if (denied) {
+          // Google sends the user back with an error when consent is refused;
+          // the flow must end then, not wait for a code that never comes.
+          response.writeHead(400).end(`Authorization failed: ${denied}`);
+          server.close();
+          reject(new Error(`consent error: ${denied}`));
+          return;
+        }
         if (!code) {
           response.writeHead(400).end('Missing authorization code.');
           return;

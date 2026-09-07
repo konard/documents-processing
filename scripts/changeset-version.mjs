@@ -18,9 +18,7 @@
  * - command-stream: Modern shell command execution with streaming support
  *
  * Addresses issues documented in:
- * - Issue #21: Supporting both single and multi-language repository structures
- * - Reference: link-assistant/agent PR #112 (--legacy-peer-deps fix)
- * - Reference: link-assistant/agent PR #114 (configurable package root)
+ * - Supports both single and multi-language repository structures
  */
 
 import { getJsRoot, needsCd, parseJsRootConfig } from './js-paths.mjs';
@@ -55,7 +53,7 @@ try {
   console.log('\nSynchronizing package-lock.json...');
 
   // Use --legacy-peer-deps to handle peer dependency conflicts
-  // This addresses npm ERESOLVE errors documented in issue #111 / PR #112
+  // This avoids npm ERESOLVE errors on repositories with conflicting peers
   if (needsCd({ jsRoot })) {
     await $`cd ${jsRoot} && npm install --package-lock-only --legacy-peer-deps`;
     process.chdir(originalCwd);

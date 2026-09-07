@@ -408,10 +408,10 @@ function runTesseract(
   canvas,
   { whitelist, psm = 6, tsv = false, lang = null } = {}
 ) {
-  const tmp = path.join(
-    os.tmpdir(),
-    `ocr-${process.pid}-${Math.random().toString(36).slice(2)}`
-  );
+  // A directory of its own, made exclusively, so nothing else can put a
+  // file under the name tesseract is about to read.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-'));
+  const tmp = path.join(tmpDir, 'page');
   fs.writeFileSync(`${tmp}.png`, canvas.toBuffer('image/png'));
   const args = [`${tmp}.png`, tsv ? tmp : '-', '--psm', String(psm)];
   // A language model other than English, such as `rus+eng` for the printed
@@ -437,12 +437,10 @@ function runTesseract(
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } finally {
-    for (const e of ['.png', '.tsv']) {
-      try {
-        fs.unlinkSync(tmp + e);
-      } catch {
-        /* best-effort cleanup: temp file may already be gone */
-      }
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort cleanup: temp files may already be gone */
     }
   }
 }
@@ -638,13 +636,15 @@ export function parseSaneDate(text) {
   const day = +match[1],
     month = +match[2],
     year = +match[3];
+  if (year < 1980 || year > 2035) {
+    return null;
+  }
+  // A real calendar day: 31.04 or 30.02 is a misread, not a date.
+  const date = new Date(Date.UTC(year, month - 1, day));
   if (
-    day < 1 ||
-    day > 31 ||
-    month < 1 ||
-    month > 12 ||
-    year < 1980 ||
-    year > 2035
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
   ) {
     return null;
   }

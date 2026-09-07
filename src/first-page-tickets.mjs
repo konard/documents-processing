@@ -132,7 +132,10 @@ for (const file of inputs) {
     ? toFilenameBase(name)
     : path.basename(file, path.extname(file));
   const fileName = `${base}-TICKET.pdf`;
-  fs.writeFileSync(path.join(OUT_DIR, fileName), await out.save());
+  fs.writeFileSync(
+    path.join(OUT_DIR, fileName),
+    await out.save({ useObjectStreams: false })
+  );
 
   count++;
   console.log(

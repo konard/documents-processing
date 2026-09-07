@@ -224,3 +224,60 @@ describe('no personal data is committed', () => {
     }
   });
 });
+
+describe('the container keeps the bot self-contained', () => {
+  const dockerfile = readFileSync('Dockerfile', 'utf8');
+  const compose = readFileSync('compose.yaml', 'utf8');
+
+  it('never bakes the token into the image', () => {
+    // An image carrying the token would leak it to anyone who pulls it, so the
+    // token is only ever supplied at run time.
+    expect(dockerfile.includes('EVISA_BOT_TOKEN')).toBe(false);
+    expect(compose.includes('env_file')).toBe(true);
+    // A literal token in either file would defeat the point.
+    expect(/\d{8,}:[A-Za-z0-9_-]{30,}/.test(dockerfile + compose)).toBe(false);
+  });
+
+  it('never copies the .env file into the image', () => {
+    // `COPY . .` would pull in an un-ignored .env; the copies are explicit.
+    expect(/^COPY \. /m.test(dockerfile)).toBe(false);
+    expect(dockerfile.includes('.env')).toBe(false);
+  });
+
+  it('keeps logs and documents inside the container', () => {
+    // Everything an applicant sends stays in one volume, which is what makes it
+    // both reachable for diagnosis and removable in one step.
+    expect(dockerfile.includes('TMPDIR=/data/tmp')).toBe(true);
+    expect(dockerfile.includes('EVISA_BOT_LOG=/data/')).toBe(true);
+    expect(compose.includes('/data')).toBe(true);
+  });
+
+  it('asks the system where temporary files go', () => {
+    // Setting TMPDIR only redirects the documents if the code honours it, which
+    // is what puts them in the volume and not the container's own /tmp.
+    const bot = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    const logging = readFileSync('src/evisa-log.mjs', 'utf8');
+    expect(/mkdtempSync\(\s*path\.join\(\s*['"`]\/tmp/.test(bot)).toBe(false);
+    expect(logging.includes("path.join('/tmp'")).toBe(false);
+    expect(logging.includes('os.tmpdir()')).toBe(true);
+  });
+
+  it('comes back on its own after a crash', () => {
+    expect(compose.includes('restart: unless-stopped')).toBe(true);
+  });
+
+  it('builds on the Playwright image matching the installed client', () => {
+    // The client refuses to drive a browser build it does not recognise, and
+    // the mismatch only shows up at run time, on the first page it opens.
+    const wanted = JSON.parse(
+      readFileSync('package.json', 'utf8')
+    ).dependencies.playwright.replace(/^[^\d]*/, '');
+    expect(dockerfile.includes(`playwright:v${wanted}`)).toBe(true);
+  });
+
+  it('runs the browser as an unprivileged user', () => {
+    // Chromium's sandbox refuses to start as root, and running as root would be
+    // worth avoiding regardless.
+    expect(dockerfile.includes('USER pwuser')).toBe(true);
+  });
+});

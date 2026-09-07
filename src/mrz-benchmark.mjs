@@ -33,6 +33,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { namesAgree } from './mrz-consensus.mjs';
 
 /** Normalizes a value so formatting differences do not count as errors. */
 const norm = (value) =>
@@ -41,33 +42,13 @@ const norm = (value) =>
     .replace(/[^A-Z0-9]/g, '');
 
 /**
- * Normalizes a name for comparison.
+ * True when a reading is the expected name plus OCR'd MRZ filler.
  *
- * The MRZ pads every name field with `<` filler, and OCR reads that padding as
- * runs of a repeated letter. Whether a reader strips the padding is a
- * formatting choice, so a reading counts as correct when it starts with the
- * expected name and the rest is filler.
+ * Uses the same comparison the consensus does, so a reader is not marked wrong
+ * for a difference the voting treats as agreement.
  */
-function normName(value) {
-  return String(value ?? '')
-    .toUpperCase()
-    .replace(/[^A-Z]/g, '');
-}
-
-/** True when `got` is `want` followed only by OCR'd MRZ filler. */
 function nameMatches(want, got) {
-  const a = normName(want);
-  const b = normName(got);
-  if (a === b) {
-    return true;
-  }
-  if (!a || !b.startsWith(a)) {
-    return false;
-  }
-  // Whatever follows the name must be a single repeated character to count as
-  // padding; real extra names would vary.
-  const tail = b.slice(a.length);
-  return new Set(tail).size <= 1;
+  return got !== null && got !== undefined && namesAgree(want, got);
 }
 
 /** The fields every reader is scored on. */

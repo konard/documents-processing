@@ -19,30 +19,42 @@ only. No discrete GPU is involved, and none of these engines needs one.
 
 | Reader                         | Fields | Accuracy | Clean images | Median    |
 | ------------------------------ | ------ | -------- | ------------ | --------- |
-| **PaddleOCR (Apache-2.0)**     | 25/25  | **100%** | **5/5**      | 15 131 ms |
-| **Consensus of all engines**   | 25/25  | **100%** | **5/5**      | 19 904 ms |
-| built-in (Tesseract + mrz-lib) | 24/25  | 96%      | 4/5          | 261 ms    |
-| macOS Vision (system)          | 24/25  | 96%      | 4/5          | 473 ms    |
-| PassportEye (Python, MIT)      | 24/25  | 96%      | 4/5          | 1 924 ms  |
-| Tesseract + `mrz` (npm, MIT)   | 22/25  | 88%      | 2/5          | 253 ms    |
-| mrz-scanner (AGPL)             | 17/25  | 68%      | 2/5          | 677 ms    |
-| RapidOCR (Apache-2.0)          | 15/25  | 60%      | 2/5          | 1 146 ms  |
+| **macOS Vision (system)**      | 25/25  | **100%** | **5/5**      | 493 ms    |
+| **Consensus of all engines**   | 25/25  | **100%** | **5/5**      | 24 791 ms |
+| built-in (Tesseract + mrz-lib) | 24/25  | 96%      | 4/5          | 260 ms    |
+| PassportEye (Python, MIT)      | 24/25  | 96%      | 4/5          | 1 935 ms  |
+| PaddleOCR band (Apache-2.0)    | 24/25  | 96%      | 4/5          | 4 978 ms  |
+| PaddleOCR (Apache-2.0)         | 24/25  | 96%      | 4/5          | 14 737 ms |
+| Tesseract + `mrz` (npm, MIT)   | 23/25  | 92%      | 3/5          | 264 ms    |
+| mrz-scanner (AGPL)             | 17/25  | 68%      | 2/5          | 672 ms    |
+| RapidOCR (Apache-2.0)          | 15/25  | 60%      | 2/5          | 1 179 ms  |
 
-PaddleOCR is the most widely used open-source OCR engine (89k stars,
-Apache-2.0) and the only single reader that got every field right. It is also
-by far the slowest here: about 10 s per image of inference on CPU, which
-downscaling barely improves because these scans are already small.
+macOS Vision reads every field correctly in under half a second, making it both
+the most accurate and, after the Tesseract readers, the fastest. It is a system
+framework, so there is nothing to download and it is already GPU-accelerated
+through Metal.
+
+PaddleOCR is the most-starred open-source OCR engine (89k stars, Apache-2.0)
+and reads the MRZ reliably, but it is the slowest here by a wide margin: about
+10 s per image of CPU inference. Restricting it to the MRZ band cuts that to
+about 5 s at the same accuracy.
 
 ## What the numbers show
 
-**No single engine read every passport correctly.** Three tie at 96%, and each
-misses a different field: the built-in reader misses one given name, Vision
-misses a different given name, PassportEye misses a birth date.
+**One engine does read every field correctly here**, and it is the general
+system OCR rather than any of the purpose-built MRZ readers.
 
-**The errors are independent, so combining engines fixes them.** Every field is
-read correctly by at least four of the six, so a majority vote reaches 100%.
-That is what `src/mrz-consensus.mjs` does, and it is measured as its own row
-above rather than assumed.
+**The others fail on different fields, so combining them also reaches 100%.**
+Three engines that share no code — Tesseract, Apple Vision and RapidOCR — agree
+on every field between them, at 1.90 s per passport. That is what
+`src/mrz-consensus.mjs` does, and it is measured rather than assumed.
+
+**Comparing names needs care.** Engines render the MRZ's `<` padding
+differently: some strip it, some return a run of one letter, some garble it,
+and some absorb a single `<` into the name as an extra character. Scoring those
+as different readings made three engines look worse than they are and hid a
+combination that was already correct. `namesAgree` in `src/mrz-consensus.mjs`
+treats them as the same reading, and both the benchmark and the voting use it.
 
 **A dedicated MRZ library is not automatically better than a general OCR
 engine.** macOS Vision, which simply reads the whole page, matched the
@@ -59,18 +71,19 @@ answer. Counting them as three votes overstates the evidence.
 
 Five genuinely distinct engines are represented: Tesseract, Apple Vision,
 RapidOCR's ONNX models, PaddlePaddle, and mrz-scanner's ONNX models. Restricted
-to one reader per engine, every combination that reaches 100% includes
-PaddleOCR, costing about 16 s.
+to one reader per engine, the cheapest combination reaching 100% is
+**Tesseract + Apple Vision + RapidOCR at 1.90 s**, with no shared code between
+them.
 
 ## Recommended: cheap engines first, expensive one only when they disagree
 
 `tieredConsensus` in `src/mrz-consensus.mjs` runs the fast engines and calls a
 slow one only if they leave something unsettled.
 
-With Tesseract, Apple Vision and RapidOCR as the fast tier and PaddleOCR as the
-fallback, this reads **25/25 fields correctly at 5.05 s per passport** — the
-same accuracy as running everything, at about a quarter of the cost. Only one
-of the five passports needed the fallback at all.
+It is worth having, but on these passports it is not needed: Tesseract, Apple
+Vision and RapidOCR already agree on all 25 fields at **1.90 s per passport**,
+so no fallback is triggered. The tiering matters for scans where the fast
+engines disagree.
 
 For a single fast reader where 96% is acceptable, the built-in one is cheapest
 at 261 ms.
@@ -79,6 +92,49 @@ at 261 ms.
 **AGPL-3.0-or-later**. Depending on it would impose that licence on anything
 shipped alongside, which does not suit a public-domain package, so it is
 benchmarked for reference and not used.
+
+## GPU acceleration
+
+Short answer: it does not help here, and it was measured rather than assumed.
+
+The machine is an Apple M3 Pro with an 18-core GPU and 18 GB of unified memory,
+so the usual CUDA path does not apply. Each engine was checked separately:
+
+| Engine       | GPU option on this machine | Result                                                                           |
+| ------------ | -------------------------- | -------------------------------------------------------------------------------- |
+| PaddleOCR    | none                       | No CUDA and no Metal build; no `paddlepaddle-gpu` wheel exists for Apple Silicon |
+| RapidOCR     | `CoreMLExecutionProvider`  | Available, and **slower than CPU**                                               |
+| Apple Vision | Metal, always on           | Already accelerated; nothing to enable                                           |
+| Tesseract    | none                       | CPU-only by design                                                               |
+
+CoreML was the one real candidate, and onnxruntime does offer it. Timing the
+RapidOCR detection model directly:
+
+| Input size | CPU     | CoreML  |
+| ---------- | ------- | ------- |
+| 640×640    | 0.026 s | 0.071 s |
+| 960×960    | 0.060 s | 0.230 s |
+| 1280×1280  | 0.112 s | 0.585 s |
+
+CoreML is slower at every size, and the gap widens with resolution. The cause is
+visible in its own diagnostics: it takes 320 of the model's 328 nodes but splits
+them across **6 partitions**, so tensors cross between CPU and GPU six times per
+run. These models are small enough that the transfers cost more than the compute
+they save.
+
+Apple Vision already runs on the GPU through Metal, which is why it is fast
+without any configuration.
+
+### What did help: search less of the page
+
+Cost scales with the area searched, not with the hardware. PaddleOCR's slowest
+step is scanning a full page for text, and the MRZ occupies the bottom strip.
+Cropping to that strip cut it from 9.16 s to 1.65 s per image — about six times
+faster — while reading the same values, on all five passports. The `--band` flag
+on `src/ocr-engines/paddle-ocr.py` does this, and it is benchmarked as its own
+row above.
+
+That is worth more than any accelerator available here.
 
 ## Notes on individual engines
 

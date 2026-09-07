@@ -193,22 +193,32 @@ async function findFoldAbove(inputPath, meta, mrzTop) {
     means.push(sum / width);
   }
 
-  // Look between the top of the image and the zone, ignoring the very edges.
-  let best = null;
-  for (let y = Math.round(height * 0.1); y < limit - height * 0.15; y++) {
-    const step = Math.abs(means[y] - means[y - 1]);
-    if (step > 20 && (!best || step > best.step)) {
-      best = { y, step };
+  // A spread shows several dark lines around the seam: the edge of the facing
+  // page, the crease itself, and the top edge of the page below. Each is a
+  // local dip in row brightness. The data page begins after the last of them,
+  // so the lowest qualifying dip is the one to cut on, not the darkest.
+  const dips = [];
+  for (let y = Math.round(height * 0.15); y < limit - height * 0.15; y++) {
+    const window = means.slice(Math.max(0, y - 8), y + 9);
+    const around =
+      window.reduce((sum, value) => sum + value, 0) / window.length;
+    const isLocalMin = means[y] <= Math.min(...means.slice(y - 2, y + 3));
+    if (means[y] < around - 12 && isLocalMin) {
+      dips.push(y);
     }
   }
-  if (!best) {
+  if (dips.length === 0) {
     return null;
   }
 
-  // The seam has thickness: the step marks where it starts, and the facing page
-  // runs on for a few rows past it. Cutting below the crease leaves none of it.
-  const crease = Math.round(height * 0.02);
-  return Math.round(((best.y + crease) / height) * meta.height);
+  // The lowest dip is the top edge of the data page itself, and its heading
+  // sits immediately below; cutting there would clip the passport number. The
+  // seam is the dip above it, so the cut lands in the gap between the pages.
+  const seam = dips.length > 1 ? dips[dips.length - 2] : dips[0];
+  // Land in the gap between the pages: past the seam, but above the heading
+  // that runs along the top of the data page.
+  const clearance = Math.round(height * 0.004);
+  return Math.round(((seam + clearance) / height) * meta.height);
 }
 
 /**

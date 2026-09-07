@@ -4,6 +4,7 @@ import {
   trimNameFiller,
   describeConsensus,
   tieredConsensus,
+  namesAgree,
 } from '../src/mrz-consensus.mjs';
 import { scoreReading, summarize } from '../src/mrz-benchmark.mjs';
 import { findMrzLines } from '../src/mrz-readers.mjs';
@@ -20,6 +21,34 @@ describe('trimNameFiller', () => {
 
   it('keeps a genuine second name', () => {
     expect(trimNameFiller('JOHN JAMES')).toBe('JOHNJAMES');
+  });
+
+  it('keeps a name whose own letters repeat', () => {
+    // A doubled letter inside a name is not padding.
+    expect(trimNameFiller('ANNA')).toBe('ANNA');
+    expect(trimNameFiller('JOANNA')).toBe('JOANNA');
+  });
+});
+
+describe('namesAgree', () => {
+  it('treats the same reading with different filler as agreement', () => {
+    // Engines render the MRZ's `<` padding differently; all of these are the
+    // same name.
+    expect(namesAgree('MARTIN', 'MARTIN')).toBe(true);
+    expect(namesAgree('MARTIN', 'MARTINS')).toBe(true);
+    expect(namesAgree('MARTIN', 'MARTIN      K KSKKKKKKEKKS')).toBe(true);
+    expect(namesAgree('JANE', 'JANEKKKK')).toBe(true);
+  });
+
+  it('still tells genuinely different names apart', () => {
+    expect(namesAgree('DOE', 'ROE')).toBe(false);
+    expect(namesAgree('JOHN', 'JOHN JAMES')).toBe(false);
+    expect(namesAgree('ANNA', 'ANNABELLE')).toBe(false);
+  });
+
+  it('reports no agreement when a reading is missing', () => {
+    expect(namesAgree('DOE', '')).toBe(false);
+    expect(namesAgree('', 'DOE')).toBe(false);
   });
 });
 
@@ -82,10 +111,13 @@ describe('consensus', () => {
       {
         a: { surname: 'DOE' },
         b: { surname: 'DOEKKKKKKKK' },
+        c: { surname: 'DOES' },
       },
       { fields: ['surname'] }
     );
-    expect(result.agreement.surname.votes).toBe(2);
+    // All three read the same name; only the leftover filler differs.
+    expect(result.agreement.surname.votes).toBe(3);
+    expect(result.data.surname).toBe('DOE');
   });
 
   it('needs the requested level of agreement', () => {

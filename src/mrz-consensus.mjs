@@ -16,14 +16,59 @@ const key = (value) =>
 /**
  * Trims OCR'd MRZ filler from a name.
  *
- * The MRZ pads names with `<`, which engines read as runs of a repeated letter.
- * Dropping a trailing run of one repeated character keeps those readings
- * comparable while leaving a genuine second name intact.
+ * The MRZ pads names with `<`, and engines render that padding differently:
+ * some strip it, some return a run of one repeated letter, some a jumble of
+ * letters, and some absorb a single `<` into the name as one extra character.
+ * All of those are the same reading, so the padding is removed before values
+ * are compared.
+ *
+ * The name itself is kept: only a trailing region that looks like filler is
+ * dropped, which is a stretch of one dominant repeated character, or a single
+ * trailing letter left over from one absorbed `<`.
  */
 export function trimNameFiller(value) {
   const text = key(value);
-  const match = text.match(/^(.*?)(.)\2{2,}$/);
-  return match ? match[1] : text;
+  if (text.length <= 3) {
+    return text;
+  }
+
+  // Padding is whatever the engine rendered `<` as, repeated. Find the first
+  // run of three or more identical characters and drop it and everything after,
+  // which is where the name ends and the filler begins.
+  const run = text.match(/(.)\1{2,}/);
+  if (run && run.index >= 2) {
+    return text.slice(0, run.index);
+  }
+
+  return text;
+}
+
+/**
+ * True when two name readings differ only by leftover filler.
+ *
+ * One engine reading `MARTIN` and another `MARTINS`, where the trailing S is an
+ * absorbed `<`, are the same reading and should count as agreement.
+ */
+export function namesAgree(a, b) {
+  const left = trimNameFiller(a);
+  const right = trimNameFiller(b);
+  if (!left || !right) {
+    return false;
+  }
+  if (left === right) {
+    return true;
+  }
+  // Filler that OCR garbled into mixed letters survives trimming, so one
+  // reading can carry a tail the other does not. Treat them as the same name
+  // when the shorter is a prefix of the longer and the extra part is short
+  // enough to be padding.
+  const [shorter, longer] =
+    left.length <= right.length ? [left, right] : [right, left];
+  if (!longer.startsWith(shorter)) {
+    return false;
+  }
+  const extra = longer.length - shorter.length;
+  return extra <= Math.max(1, Math.floor(shorter.length / 2));
 }
 
 /** Groups readings of one field into candidate values with their supporters. */
@@ -40,10 +85,26 @@ function tally(readings, field) {
     if (!id) {
       continue;
     }
-    if (!groups.has(id)) {
-      groups.set(id, { value: raw, supporters: [] });
+    // Names are grouped by agreement, since two engines can render the same
+    // reading with different leftover filler.
+    const existing = isName
+      ? [...groups.keys()].find((seen) => namesAgree(seen, id))
+      : groups.has(id)
+        ? id
+        : undefined;
+    const slot = existing ?? id;
+    if (!groups.has(slot)) {
+      groups.set(slot, { value: raw, supporters: [] });
     }
-    groups.get(id).supporters.push(reader);
+    // Prefer the tidiest rendering as the value shown to a caller.
+    const group = groups.get(slot);
+    if (
+      isName &&
+      trimNameFiller(raw).length < trimNameFiller(group.value).length
+    ) {
+      group.value = raw;
+    }
+    group.supporters.push(reader);
   }
 
   return [...groups.values()].sort(

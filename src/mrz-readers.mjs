@@ -243,7 +243,7 @@ export function findMrzLines(lines) {
 }
 
 /** Builds a reader around a general OCR engine that reads the whole page. */
-function generalOcrReader({ name, license, script, check }) {
+function generalOcrReader({ name, license, script, check, args = [] }) {
   return {
     name,
     license,
@@ -256,7 +256,7 @@ function generalOcrReader({ name, license, script, check }) {
       }
     },
     async read(image) {
-      const { stdout } = await run('python3', [script, image], {
+      const { stdout } = await run('python3', [script, ...args, image], {
         timeout: 300000,
         maxBuffer: 16 * 1024 * 1024,
       });
@@ -304,6 +304,20 @@ const paddleOcr = generalOcrReader({
   check: 'from paddleocr import PaddleOCR',
 });
 
+/**
+ * PaddleOCR restricted to the MRZ band.
+ *
+ * Its cost scales with the area searched, so narrowing to the strip that holds
+ * the machine-readable zone is several times faster at the same accuracy.
+ */
+const paddleOcrBand = generalOcrReader({
+  name: 'PaddleOCR band (general, Apache-2.0)',
+  license: 'Apache-2.0',
+  script: path.join(engineDir, 'paddle-ocr.py'),
+  args: ['--band'],
+  check: 'from paddleocr import PaddleOCR',
+});
+
 /** RapidOCR: a general ONNX-based engine, portable across platforms. */
 const rapidOcr = generalOcrReader({
   name: 'RapidOCR (general, Apache-2.0)',
@@ -320,4 +334,5 @@ export const availableReaders = [
   macVision,
   rapidOcr,
   paddleOcr,
+  paddleOcrBand,
 ];

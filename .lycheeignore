@@ -24,3 +24,9 @@ https://medium\.com
 
 # Web Archive returns 502 to link checkers (bot protection)
 https://web\.archive\.org
+
+# The Vietnam e-visa site sends only its leaf certificate, omitting the
+# intermediate, so a strict checker reports "unable to verify the first
+# certificate". Browsers and curl fill the gap from their own stores and the
+# site loads normally.
+https://evisa\.gov\.vn

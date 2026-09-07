@@ -19,7 +19,7 @@ import {
   detectLanguage,
   describeMissing,
   describeChecklist,
-  describeDetected,
+  describeSummary,
   NOT_ASKED,
   parseFreeText,
   createSessionStore,
@@ -92,6 +92,11 @@ async function fillAndShow(ctx, chatId) {
 
   await ctx.reply(strings.filling);
   const applicant = normalizeApplicant(session.data);
+  // Show what will go on the form, before showing the form itself.
+  const summary = describeSummary(applicant, session.data, session.language);
+  if (summary) {
+    await ctx.reply(summary);
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
   const result = await fillAndCapture(page, applicant, {
     uploads: session.uploads,
@@ -183,10 +188,6 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
     const read = await readPassport(source).catch(() => null);
     if (read && Object.keys(read).length) {
       Object.assign(session.data, read);
-      const summary = describeDetected(read, session.language);
-      if (summary) {
-        await ctx.reply(summary);
-      }
       // Keep the page for upload; it is copied because the temp file goes away.
       const kept = path.join(
         fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),

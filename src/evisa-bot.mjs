@@ -32,6 +32,9 @@ export const MESSAGES = {
       'I keep nothing: this chat is the only record.',
     readFromPassport: 'read from your passport photo',
     detected: 'From your documents I read:',
+    assumed:
+      'I assumed these, because they were not given. Change any of them in ' +
+      'the browser before submitting:',
     needed: 'Still needed:',
     reading: 'Reading your document...',
     filling:
@@ -54,6 +57,9 @@ export const MESSAGES = {
       'Я ничего не сохраняю: единственная запись — эта переписка.',
     readFromPassport: 'прочитаю с фото паспорта',
     detected: 'Из ваших документов я прочитал:',
+    assumed:
+      'Эти данные я подставил сам, вы их не указали. Любое можно исправить ' +
+      'в браузере перед отправкой:',
     needed: 'Ещё нужно:',
     reading: 'Читаю документ...',
     filling: 'Пауза в сообщениях, заполняю форму тем, что уже есть.',
@@ -262,18 +268,35 @@ export function describeChecklist(fields, language) {
 }
 
 /**
- * Reports what was read from a document, so the applicant can check it.
+ * Reports everything the form will be filled with, in one message.
  *
- * A value taken off a passport by machine is worth showing: it is theirs, it
- * ends up on a government form, and OCR is not infallible.
+ * The two halves are separated because they carry different weight: what was
+ * read off a document is the applicant's own data, which OCR may have got
+ * wrong, while what was assumed is a decision made on their behalf. Both end up
+ * on a government form, so the message states each one plainly.
  */
-export function describeDetected(data, language) {
+export function describeSummary(applicant, supplied, language) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
-  const lines = Object.entries(data)
-    .filter(([, value]) => value)
-    .map(([key, value]) => `• ${prompts[key] ?? key}: ${value}`);
-  return lines.length ? `${strings.detected}\n${lines.join('\n')}` : null;
+  const line = ([key, value]) => `• ${prompts[key] ?? key}: ${value}`;
+
+  const known = Object.entries(applicant).filter(
+    ([key, value]) => value && prompts[key]
+  );
+  const given = known.filter(([key]) => supplied[key]);
+  const assumed = known.filter(([key]) => !supplied[key]);
+
+  const parts = [];
+  if (given.length) {
+    parts.push(strings.detected, ...given.map(line));
+  }
+  if (assumed.length) {
+    if (parts.length) {
+      parts.push('');
+    }
+    parts.push(strings.assumed, ...assumed.map(line));
+  }
+  return parts.length ? parts.join('\n') : null;
 }
 
 /**

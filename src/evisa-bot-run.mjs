@@ -679,4 +679,26 @@ console.log(
 setInterval(() => sweepKeptFiles(), 24 * 60 * 60 * 1000).unref();
 // Browsers of chats that have gone quiet are closed on the same principle.
 setInterval(() => sweepIdleChats(), 10 * 60 * 1000).unref();
-bot.start();
+
+/**
+ * Starts polling, waiting out a predecessor.
+ *
+ * Telegram allows one poller per token and answers a second with 409 until
+ * the first's request ends, which after a restart can be half a minute. A
+ * restart should not die in that window, so the start is retried for a
+ * while before giving up.
+ */
+async function startPolling(attempt = 1) {
+  try {
+    await bot.start();
+  } catch (error) {
+    if (error.error_code === 409 && attempt <= 12) {
+      console.log('another instance still holds the poll; retrying in 5 s');
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      return startPolling(attempt + 1);
+    }
+    throw error;
+  }
+}
+
+startPolling();

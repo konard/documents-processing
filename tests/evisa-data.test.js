@@ -159,7 +159,8 @@ describe('validateApplicant', () => {
     const result = validateApplicant(normalizeApplicant({ surname: 'ONLY' }));
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('passportNumber'))).toBe(true);
-    expect(result.errors.some((e) => e.includes('entryBorderGate'))).toBe(true);
+    // A field with no default; the border gates and passport type are filled in.
+    expect(result.errors.some((e) => e.includes('nationality'))).toBe(true);
   });
 
   it('rejects a validity window longer than 90 days', () => {

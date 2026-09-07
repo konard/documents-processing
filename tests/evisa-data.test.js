@@ -421,3 +421,26 @@ describe('mergeSources', () => {
     expect(merged.data.givenName).toBe('NEW');
   });
 });
+
+describe('dates nobody supplied', () => {
+  it('sets entry a week out, allowing for processing', () => {
+    // Processing takes about three working days, so a nearer date risks the
+    // visa arriving after the applicant meant to travel.
+    const out = normalizeApplicant({});
+    expect(out.entryDate).toBe(atOffset(7));
+  });
+
+  it('runs the validity window from entry for the full 90 days', () => {
+    // A shorter window only limits the applicant and costs the same.
+    const out = normalizeApplicant({});
+    expect(out.validFrom).toBe(atOffset(7));
+    // Both ends count, so the last day is 89 days after the first.
+    expect(out.validTo).toBe(atOffset(7 + 89));
+  });
+
+  it('runs the window from an entry date the applicant did give', () => {
+    const out = normalizeApplicant({ entryDate: atOffset(60) });
+    expect(out.validFrom).toBe(atOffset(60));
+    expect(out.validTo).toBe(atOffset(60 + 89));
+  });
+});

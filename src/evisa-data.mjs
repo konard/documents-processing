@@ -450,13 +450,13 @@ function splitAddress(out) {
 /**
  * Fills the trip dates that follow from one another.
  *
- * An applicant who has not named a date is usually planning some weeks ahead,
- * so entry defaults to seven weeks out. The validity window then runs from that
- * date for the full 90 days the visa allows, since a shorter window only limits
- * the applicant and costs the same.
+ * Entry defaults to a week out: processing takes about three working days, so a
+ * nearer date risks the visa arriving after it. The validity window then runs
+ * from that date for the full 90 days the visa allows, since a shorter window
+ * only limits the applicant and costs the same.
  */
 function applyDateDefaults(out) {
-  const entry = parseDate(out.entryDate) ?? addDays(today(), 7 * 7);
+  const entry = parseDate(out.entryDate) ?? addDays(today(), 7);
   out.entryDate ??= toFormDate(entry);
 
   const from = parseDate(out.validFrom) ?? entry;

@@ -309,9 +309,19 @@ export async function uploadFile(page, id, filePath) {
   const before = await page.evaluate(() => [window.scrollX, window.scrollY]);
   await page.setInputFiles(`#${id}`, filePath);
   await page.evaluate(([x, y]) => window.scrollTo(x, y), before);
-  // The site verifies each image server-side and may auto-fill passport fields
-  // from it, so give that round trip a moment before the next action.
-  await page.waitForTimeout(2500);
+
+  // The site checks each image server-side, and for the passport it then fills
+  // several fields from what it read. Waiting for a field to appear beats
+  // guessing a duration: the round trip took over five seconds when measured,
+  // and reading too early makes its extraction look absent.
+  await page
+    .waitForFunction(
+      () => (document.getElementById('basic_ttcnHo')?.value ?? '') !== '',
+      undefined,
+      { timeout: 30000 }
+    )
+    .catch(() => {});
+  await page.waitForTimeout(1000);
 }
 
 /**
@@ -332,6 +342,35 @@ async function fillField(page, field, value) {
   } else {
     await fillText(page, field.id, value);
   }
+}
+
+/**
+ * Reads what the site has already put in the form.
+ *
+ * After the passport image is uploaded the site runs its own extraction and
+ * fills several fields, telling the applicant to double-check them. Those
+ * values are worth reading before anything is typed, so a field it got right
+ * is left alone.
+ */
+export function readFilledFields(page) {
+  return page.evaluate((fields) => {
+    const out = {};
+    for (const [name, field] of Object.entries(fields)) {
+      const element = document.getElementById(field.id);
+      if (!element) {
+        continue;
+      }
+      const selected = element
+        .closest('.ant-select')
+        ?.querySelector('.ant-select-selection-item')
+        ?.textContent?.trim();
+      const value = selected || element.value;
+      if (value) {
+        out[name] = value;
+      }
+    }
+    return out;
+  }, FIELDS);
 }
 
 export async function fillForm(page, applicant, { uploads = {} } = {}) {
@@ -361,15 +400,33 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
     }
   }
 
+  // The site fills several fields from the passport image it was just given.
+  // Reading them first means a value it got right is left untouched, and only
+  // a genuine disagreement is overwritten.
+  const extracted = await readFilledFields(page);
+  const corrected = [];
+  const agreed = [];
+
   for (const [key, field] of Object.entries(FIELDS)) {
     const value = applicant[key];
     if (value === undefined || value === null || value === '') {
       continue;
     }
+    const already = extracted[key];
+    if (already) {
+      const same =
+        String(already).trim().toUpperCase() ===
+        String(value).trim().toUpperCase();
+      if (same) {
+        agreed.push(key);
+        continue;
+      }
+      corrected.push({ field: key, was: already, now: value });
+    }
     await attempt(key, () => fillField(page, field, value));
   }
 
-  return { filled, failures };
+  return { filled, failures, extracted, corrected, agreed };
 }
 
 /** Captures the whole filled form, including the parts below the fold. */

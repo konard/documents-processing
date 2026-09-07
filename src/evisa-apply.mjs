@@ -128,6 +128,24 @@ export async function resolveApplicant(options) {
   };
 }
 
+/** Prints what was filled, what the site had already read, and what changed. */
+function reportFill(result) {
+  console.log(`Filled ${result.filled.length} fields.`);
+  if (result.agreed?.length) {
+    console.log(
+      `The site read ${result.agreed.length} field(s) from the passport and they matched: ${result.agreed.join(', ')}`
+    );
+  }
+  for (const change of result.corrected ?? []) {
+    console.log(
+      `  corrected ${change.field}: the site read "${change.was}", replaced with "${change.now}"`
+    );
+  }
+  for (const failure of result.failures) {
+    console.log(`  could not fill ${failure.field}: ${failure.error}`);
+  }
+}
+
 function report(resolved) {
   const { validation, ocrNotes } = resolved;
   for (const note of ocrNotes) {
@@ -200,10 +218,7 @@ async function main() {
         ? path.join(options.out, 'evisa-form.png')
         : null,
     });
-    console.log(`Filled ${result.filled.length} fields.`);
-    for (const failure of result.failures) {
-      console.log(`  could not fill ${failure.field}: ${failure.error}`);
-    }
+    reportFill(result);
     if (result.screenshot) {
       console.log(`Screenshot: ${result.screenshot}`);
     }

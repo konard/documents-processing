@@ -31,6 +31,10 @@ export async function readPassportMrz(imagePath) {
   const bands = [
     MRZ_REGION,
     { x: 0, y: 0.86, w: 1, h: 0.14 },
+    // A cropped page puts the zone lower in the frame, and some passports
+    // print it on a tinted band that needs a taller slice to catch cleanly.
+    { x: 0, y: 0.72, w: 1, h: 0.28 },
+    { x: 0, y: 0.78, w: 1, h: 0.22 },
     { x: 0, y: 0.6, w: 1, h: 0.2 },
     { x: 0, y: 0.68, w: 1, h: 0.16 },
     { x: 0, y: 0.45, w: 1, h: 0.2 },
@@ -136,9 +140,12 @@ export async function cropPassportPage(inputPath, outputPath) {
     0,
     Math.round(band.left - (pageWidth - band.width) / 2)
   );
+  // The bottom edge is measured from the zone itself, with a margin below it
+  // scaled to the zone's own height. Deriving it from an estimated page height
+  // can land above the zone and cut it off.
   const bottom = Math.min(
     meta.height,
-    band.top + band.height + Math.round(pageHeight * 0.06)
+    band.top + band.height + Math.round(band.height * 0.8)
   );
   // Prefer the fold when the photo shows one: it is where the page actually
   // ends, while the proportional height is only an estimate.
@@ -225,12 +232,14 @@ async function findFoldAbove(inputPath, meta, mrzTop) {
       trough.depth > deepest.depth * 0.6 &&
       Math.abs(trough.y - deepest.y) < height * 0.06
   );
-  const seam = nearby[nearby.length - 1].y;
-
-  // Cut just above the line, so the fold stays partly visible: it shows the
-  // page was photographed whole, and nothing of the data page is lost.
-  const keepLine = Math.round(height * 0.008);
-  return Math.round(((seam - keepLine) / height) * meta.height);
+  // The line has thickness, and the rows around its darkest point belong to
+  // it. Cutting through the middle of that run leaves the lower half of the
+  // fold showing: enough to see the page was photographed whole, while the
+  // remaining edge is close to the paper's own colour.
+  const first = nearby[0].y;
+  const last = nearby[nearby.length - 1].y;
+  const middle = Math.round((first + last) / 2);
+  return Math.round((middle / height) * meta.height);
 }
 
 /**
@@ -277,7 +286,13 @@ async function findMrzBand(inputPath, meta) {
     rows.push({ crossings, first, last });
   }
 
-  const busiest = Math.max(...rows.map((row) => row.crossings));
+  // The zone runs along the bottom of a data page. Searching only the lower
+  // part keeps a fold from being mistaken for it: a crease crosses between
+  // light and dark more often than the printed glyphs do, so on a spread it
+  // would otherwise win.
+  const lowest = Math.round(height * 0.6);
+  const lower = rows.slice(lowest);
+  const busiest = Math.max(...lower.map((row) => row.crossings));
   if (busiest < 30) {
     return null;
   }
@@ -286,7 +301,7 @@ async function findMrzBand(inputPath, meta) {
   // machine-readable zone, since nothing on a passport sits below it.
   const marked = rows
     .map((row, y) => ({ ...row, y }))
-    .filter((row) => row.crossings >= busiest * 0.75);
+    .filter((row) => row.y >= lowest && row.crossings >= busiest * 0.75);
   if (marked.length === 0) {
     return null;
   }

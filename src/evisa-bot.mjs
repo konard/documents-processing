@@ -44,13 +44,21 @@ export const MESSAGES = {
     checklistFooter:
       'Photos, PDFs and forwarded messages all work, in any order.',
     readFromPassport: 'read from your passport photo',
-    detected: 'From your documents I read:',
+    summary: 'Going on the form:',
+    sections: {
+      applicant: 'Applicant',
+      passport: 'Passport',
+      contacts: 'Contacts',
+      emergency: 'Emergency contact',
+      trip: 'Trip',
+    },
+    assumedMark: '(assumed)',
+    assumedNote:
+      'What is marked "(assumed)" was not given, so I chose it. Change any ' +
+      'of it in the browser before submitting.',
     siteAgreed: (n) =>
       `The site read ${n} field(s) from your passport and they matched what I had.`,
     siteCorrected: 'I corrected what the site read differently:',
-    assumed:
-      'I assumed these, because they were not given. Change any of them in ' +
-      'the browser before submitting:',
     needed: 'Still needed:',
     filled: (n) => `Filled ${n} fields. Here is the whole page:`,
     failed: (field, why) => `Could not fill ${field}: ${why}`,
@@ -68,13 +76,21 @@ export const MESSAGES = {
     checklistFooter:
       'Подойдут фото, PDF и пересланные сообщения, в любом порядке.',
     readFromPassport: 'прочитаю с фото паспорта',
-    detected: 'Из ваших документов я прочитал:',
+    summary: 'В анкету пойдёт:',
+    sections: {
+      applicant: 'Заявитель',
+      passport: 'Паспорт',
+      contacts: 'Контакты',
+      emergency: 'Экстренный контакт',
+      trip: 'Поездка',
+    },
+    assumedMark: '(по умолчанию)',
+    assumedNote:
+      'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Любое ' +
+      'можно исправить в браузере перед отправкой.',
     siteAgreed: (n) =>
       `Сайт распознал полей с паспорта: ${n}. Они совпали с моими данными.`,
     siteCorrected: 'Исправил то, что сайт распознал иначе:',
-    assumed:
-      'Эти данные я подставил сам, вы их не указали. Любое можно исправить ' +
-      'в браузере перед отправкой:',
     needed: 'Ещё нужно:',
     filled: (n) => `Заполнено полей: ${n}. Вот вся страница:`,
     failed: (field, why) => `Не удалось заполнить ${field}: ${why}`,
@@ -104,6 +120,7 @@ export const FIELD_PROMPTS = {
     passportType: 'your passport type (usually Ordinary)',
     passportIssueDate: 'the passport issue date',
     passportExpiryDate: 'the passport expiry date',
+    passportIssuingAuthority: 'the authority that issued the passport',
     permanentAddress: 'your permanent address',
     contactAddress: 'your contact address',
     phone: 'your phone number',
@@ -137,6 +154,7 @@ export const FIELD_PROMPTS = {
     passportType: 'тип паспорта (обычно Ordinary)',
     passportIssueDate: 'дату выдачи паспорта',
     passportExpiryDate: 'дату окончания паспорта',
+    passportIssuingAuthority: 'кем выдан паспорт',
     permanentAddress: 'адрес постоянной регистрации',
     contactAddress: 'контактный адрес',
     phone: 'номер телефона',
@@ -308,39 +326,104 @@ export function describeCorrections(result, language) {
   return parts.length ? parts.join('\n') : null;
 }
 
+/** The form's fields in groups, in the order a reader looks for them. */
+export const SECTIONS = [
+  [
+    'applicant',
+    [
+      'surname',
+      'givenName',
+      'dateOfBirth',
+      'sex',
+      'nationality',
+      'placeOfBirth',
+      'religion',
+    ],
+  ],
+  [
+    'passport',
+    [
+      'passportNumber',
+      'passportType',
+      'passportIssueDate',
+      'passportExpiryDate',
+      'passportIssuingAuthority',
+    ],
+  ],
+  ['contacts', ['email', 'phone', 'permanentAddress', 'contactAddress']],
+  [
+    'emergency',
+    [
+      'emergencyName',
+      'emergencyRelationship',
+      'emergencyPhone',
+      'emergencyAddress',
+    ],
+  ],
+  [
+    'trip',
+    [
+      'purpose',
+      'entryDate',
+      'validFrom',
+      'validTo',
+      'stayLengthDays',
+      'entryBorderGate',
+      'exitBorderGate',
+      'addressInVietnam',
+      'provinceInVietnam',
+      'wardInVietnam',
+    ],
+  ],
+];
+
+/** Makes a value safe inside Telegram HTML, where the titles are bold. */
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /**
- * Reports everything the form will be filled with, in one message.
+ * Reports everything the form will be filled with, in one message, as
+ * Telegram HTML.
  *
- * The two halves are separated because they carry different weight: what was
- * read off a document is the applicant's own data, which OCR may have got
- * wrong, while what was assumed is a decision made on their behalf. Both end up
- * on a government form, so the message states each one plainly.
+ * Forty values in one list are hard to check, so they are grouped the way
+ * the form itself is: applicant, passport, contacts, emergency contact, trip.
+ * A value the applicant did not give is marked, since it is a decision made
+ * on their behalf that ends up on a government form. Only what has not been
+ * said already is listed: the second form of a conversation carries the same
+ * defaults as the first, and reading them twice tells the applicant nothing.
  */
 export function describeSummary(applicant, supplied, language, reported = {}) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
-  const line = ([key, value]) => `• ${prompts[key] ?? key}: ${value}`;
+  const fresh = (key) =>
+    applicant[key] && prompts[key] && reported[key] !== applicant[key];
+  let assumedAny = false;
 
-  // Only what has not been said already: the second form of a conversation
-  // carries the same defaults as the first, and reading them twice tells the
-  // applicant nothing.
-  const known = Object.entries(applicant).filter(
-    ([key, value]) => value && prompts[key] && reported[key] !== value
-  );
-  const given = known.filter(([key]) => supplied[key]);
-  const assumed = known.filter(([key]) => !supplied[key]);
-
-  const parts = [];
-  if (given.length) {
-    parts.push(strings.detected, ...given.map(line));
-  }
-  if (assumed.length) {
-    if (parts.length) {
-      parts.push('');
+  const blocks = SECTIONS.map(([section, keys]) => {
+    const lines = keys.filter(fresh).map((key) => {
+      const assumed = !supplied[key];
+      assumedAny ||= assumed;
+      const mark = assumed ? ` ${strings.assumedMark}` : '';
+      return `• ${prompts[key]}${mark}: ${escapeHtml(applicant[key])}`;
+    });
+    if (!lines.length) {
+      return null;
     }
-    parts.push(strings.assumed, ...assumed.map(line));
+    return [`<b>${strings.sections[section]}</b>`, ...lines].join('\n');
+  });
+  const shown = blocks.filter(Boolean);
+  if (!shown.length) {
+    return null;
   }
-  return parts.length ? parts.join('\n') : null;
+  const parts = [strings.summary, '', shown.join('\n\n')];
+  if (assumedAny) {
+    parts.push('', strings.assumedNote);
+  }
+  return parts.join('\n');
 }
 
 /**

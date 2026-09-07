@@ -262,9 +262,15 @@ with their labels: `дата выдачи 17.02.2020`, `место рожден�
 and phone, and the contact's name, address and phone under `Сестра:`, sent
 alongside the passport and the portrait.
 
-While the bot reads a document or fills the form it shows the "typing" status
-in the chat and sends no message about it; the reading runs on a worker
-thread so the status and other chats are not held up. The screenshot is sent
+Before filling, the bot lists what goes on the form, grouped as the form is:
+applicant, passport, contacts, emergency contact, trip. A value the applicant
+did not give is marked `(assumed)` or `(по умолчанию)`, and a note under the
+list says those can be changed in the browser.
+
+While the bot reads a document, waits out the quiet window or fills the form
+it shows the "typing" status in the chat and sends no message about it; the
+reading runs on a worker thread so the status and other chats are not held
+up. The screenshot is sent
 as a file, not a photo, because Telegram shrinks a photo to fit a screen and a
 page several screens tall comes out unreadable. It is taken once the page has
 stopped changing and every value set is on it; a field the page emptied while

@@ -265,7 +265,28 @@ alongside the passport and the portrait.
 Before filling, the bot lists what goes on the form, grouped as the form is:
 applicant, passport, contacts, emergency contact, trip. A value the applicant
 did not give is marked `(assumed)` or `(по умолчанию)`, and a note under the
-list says those can be changed in the browser.
+list says those can be changed in the browser. A value that follows from one
+they gave is marked with its source instead: the contact address `(same as
+the permanent address)`, the visa's first day `(the entry date)`, its last
+day `(90 days, the most an e-visa allows)`. No address, phone or name is ever
+a default; the only defaults are the trip's purpose, gates, province and a
+hotel address in Ho Chi Minh City, the passport type and the religion.
+
+After the fill, one message: the captured page as a file, with everything
+about the fill in its caption: how many fields went in, how many the site
+read from the passport itself and whether they matched, what the site had
+read differently, what could not be filled, what is still needed, and that
+the form is not submitted.
+
+A message that is only a word of confirmation, `Подтверждаю`, `Отправляй`,
+`Заполняй`, `go`, `fill`, fills the form at once instead of after the quiet
+window. Nothing submits the form, whatever the word says.
+
+With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, for an
+operator at the machine who wants to watch the fill or take over. A fill that
+fails is logged whole and reported to the chat, and the browser is left open
+with the form as far as it got, so the applicant or the operator can carry
+on by hand in the same window.
 
 While the bot reads a document, waits out the quiet window or fills the form
 it shows the "typing" status in the chat and sends no message about it; the

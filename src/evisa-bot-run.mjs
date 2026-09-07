@@ -26,10 +26,10 @@ import {
   IDLE_FILL_MS,
   CHAT_TTL_MS,
   detectLanguage,
-  describeMissing,
   describeChecklist,
   describeSummary,
-  describeCorrections,
+  describeOutcome,
+  isConfirmation,
   NOT_ASKED,
   parseFreeText,
   createSessionStore,
@@ -65,6 +65,13 @@ const { Bot, InputFile } = await import('grammy');
 const sessions = createSessionStore();
 const browsers = new Map();
 const timers = new Map();
+
+/**
+ * With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, so an
+ * operator sitting at the machine can watch a fill and, when it fails, carry
+ * on by hand in the same window: a fill that fails leaves its browser open.
+ */
+const HEADED = process.env.EVISA_BOT_HEADED === '1';
 
 /** Fields read off the printed side of a passport, which fill gaps only. */
 const PRINTED_SIDE = [
@@ -108,8 +115,11 @@ async function pageFor(chatId) {
     browsers.delete(chatId);
     sessions.get(chatId).uploaded = {};
   }
-  log(chatId, 'opening a browser on the form');
-  const { browser, page } = await openForm({ headless: true });
+  log(
+    chatId,
+    `opening a ${HEADED ? 'visible' : 'headless'} browser on the form`
+  );
+  const { browser, page } = await openForm({ headless: !HEADED });
   browsers.set(chatId, { browser, page });
   return page;
 }
@@ -220,73 +230,72 @@ function showStatus(ctx, action) {
 }
 
 /**
- * Fills the form on a chat's page and sends the applicant the captured result.
+ * Tells the applicant what will go on the form, then fills it and captures
+ * the page into `dir`.
  *
- * The chat shows "typing" while the form is filled and "sending a file" while
- * the capture goes out, so the applicant knows the bot is at work without a
- * message saying so. A document already on the page is not uploaded again,
- * and a value already told to the applicant is not repeated.
+ * The chat shows "typing" throughout, so the applicant knows the bot is at
+ * work without a message saying so. A document already on the page is not
+ * uploaded again, and a value already told to the applicant is not repeated.
  */
-async function fillAndSend(ctx, chatId, page) {
+async function fillPage(ctx, chatId, page, dir) {
   const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
+  const busy = showStatus(ctx, 'typing');
   try {
-    const busy = showStatus(ctx, 'typing');
-    let result;
-    try {
-      const applicant = normalizeApplicant(session.data);
-      log(chatId, `filling with: ${describeFields(applicant)}`);
-      // Show what will go on the form, before showing the form itself, and
-      // only what has not been shown before.
-      const summary = describeSummary(
-        applicant,
-        session.data,
-        session.language,
-        session.reported
-      );
-      if (summary) {
-        await ctx.reply(summary, { parse_mode: 'HTML' });
+    const applicant = normalizeApplicant(session.data);
+    log(chatId, `filling with: ${describeFields(applicant)}`);
+    const summary = describeSummary(
+      applicant,
+      session.data,
+      session.language,
+      session.reported
+    );
+    if (summary) {
+      await ctx.reply(summary, { parse_mode: 'HTML' });
+    }
+    for (const [key, value] of Object.entries(applicant)) {
+      if (value) {
+        session.reported[key] = value;
       }
-      for (const [key, value] of Object.entries(applicant)) {
-        if (value) {
-          session.reported[key] = value;
-        }
-      }
-
-      const uploads = {};
-      for (const [key, file] of Object.entries(session.uploads)) {
-        if (session.uploaded[key] !== file) {
-          uploads[key] = file;
-        }
-      }
-      result = await fillAndCapture(page, applicant, {
-        uploads,
-        screenshot: path.join(dir, 'form.png'),
-      });
-      for (const key of Object.keys(uploads)) {
-        if (result.filled.includes(key)) {
-          session.uploaded[key] = uploads[key];
-        }
-      }
-    } finally {
-      busy();
     }
 
-    // Sent as a file: Telegram shrinks a photo to fit a screen, and a page
-    // several screens tall comes out too small to read.
-    const sending = showStatus(ctx, 'upload_document');
-    try {
-      await ctx.replyWithDocument(
-        new InputFile(result.screenshot, 'form.png'),
-        { caption: strings.filled(result.filled.length) }
-      );
-    } finally {
-      sending();
+    const uploads = {};
+    for (const [key, file] of Object.entries(session.uploads)) {
+      if (session.uploaded[key] !== file) {
+        uploads[key] = file;
+      }
+    }
+    const result = await fillAndCapture(page, applicant, {
+      uploads,
+      screenshot: path.join(dir, 'form.png'),
+    });
+    for (const key of Object.keys(uploads)) {
+      if (result.filled.includes(key)) {
+        session.uploaded[key] = uploads[key];
+      }
     }
     return result;
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    busy();
+  }
+}
+
+/**
+ * Sends the captured page with everything there is to say about the fill
+ * under it, as one message.
+ *
+ * Sent as a file: Telegram shrinks a photo to fit a screen, and a page
+ * several screens tall comes out too small to read.
+ */
+async function sendOutcome(ctx, chatId, result, outstanding) {
+  const session = sessions.get(chatId);
+  const caption = describeOutcome(result, outstanding, session.language);
+  const sending = showStatus(ctx, 'upload_document');
+  try {
+    await ctx.replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
+      caption,
+    });
+  } finally {
+    sending();
   }
 }
 
@@ -311,10 +320,14 @@ function logFill(chatId, result) {
   }
 }
 
-/** Fills the form with what the chat has provided and sends back the page. */
+/**
+ * Fills the form with what the chat has provided and sends back the page.
+ *
+ * Whatever goes wrong, the browser stays open with the form as far as it
+ * got: that is where an operator or the applicant carries on by hand.
+ */
 async function fillAndShow(ctx, chatId) {
   const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
   // Opening a browser takes seconds too, and the status covers them.
   const opening = showStatus(ctx, 'typing');
   let page;
@@ -323,39 +336,30 @@ async function fillAndShow(ctx, chatId) {
   } finally {
     opening();
   }
-  const result = await fillAndSend(ctx, chatId, page);
-  logFill(chatId, result);
 
-  const corrections = describeCorrections(result, session.language);
-  if (corrections) {
-    await ctx.reply(corrections);
-  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
+  try {
+    const result = await fillPage(ctx, chatId, page, dir);
+    logFill(chatId, result);
 
-  for (const failure of result.failures.slice(0, 5)) {
-    await ctx.reply(
-      strings.failed(failure.field, failure.error.split('\n')[0])
-    );
-  }
-
-  // Ask the page itself what is still required, so a change on their side
-  // surfaces as a question to the applicant.
-  const report = await readRequiredFields(page);
-  const outstanding = outstandingFields(report, session.data, NOT_ASKED);
-  log(
-    chatId,
-    `still outstanding: ${outstanding.map((f) => f.name).join(', ') || 'nothing'}`
-  );
-  if (report.unmapped.length) {
-    // The form has grown a required field this tool does not know about.
+    // Ask the page itself what is still required, so a change on their side
+    // surfaces as a question to the applicant.
+    const report = await readRequiredFields(page);
+    const outstanding = outstandingFields(report, session.data, NOT_ASKED);
     log(
       chatId,
-      `required but unmapped: ${report.unmapped.map((u) => u.label).join(' | ')}`
+      `still outstanding: ${outstanding.map((f) => f.name).join(', ') || 'nothing'}`
     );
-  }
-  if (outstanding.length) {
-    await ctx.reply(describeMissing(outstanding, session.language));
-  } else {
-    await ctx.reply(strings.ready);
+    if (report.unmapped.length) {
+      // The form has grown a required field this tool does not know about.
+      log(
+        chatId,
+        `required but unmapped: ${report.unmapped.map((u) => u.label).join(' | ')}`
+      );
+    }
+    await sendOutcome(ctx, chatId, result, outstanding);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -381,11 +385,28 @@ function armIdleFill(ctx, chatId) {
   const stop = showStatus(ctx, 'typing');
   const timer = setTimeout(() => {
     disarmIdleFill(chatId);
-    fillAndShow(ctx, chatId).catch((error) =>
-      ctx.reply(`Could not fill the form: ${error.message}`).catch(() => {})
-    );
+    fillNow(ctx, chatId);
   }, IDLE_FILL_MS);
   timers.set(chatId, { timer, stop });
+}
+
+/**
+ * Fills right away, and tells the chat when that fails.
+ *
+ * The failure is logged whole, and the browser is left as it is: the form
+ * with whatever got onto it is worth more to the applicant than a fresh one.
+ */
+async function fillNow(ctx, chatId) {
+  disarmIdleFill(chatId);
+  try {
+    await fillAndShow(ctx, chatId);
+  } catch (error) {
+    log(chatId, `filling failed: ${error.stack ?? error.message}`);
+    const strings = MESSAGES[sessions.get(chatId).language];
+    await ctx
+      .reply(strings.fillFailed(error.message.split('\n')[0]))
+      .catch(() => {});
+  }
 }
 
 /**
@@ -437,7 +458,8 @@ bot.command('start', async (ctx) => {
 
 bot.command('fill', async (ctx) => {
   touch(ctx.chat.id);
-  await fillAndShow(ctx, ctx.chat.id);
+  log(ctx.chat.id, '/fill');
+  await fillNow(ctx, ctx.chat.id);
 });
 
 bot.command('reset', async (ctx) => {
@@ -530,6 +552,13 @@ bot.on('message:text', async (ctx) => {
   const session = sessions.get(chatId);
   touch(chatId);
   session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
+  if (isConfirmation(ctx.message.text)) {
+    // "Подтверждаю", "go": the form is filled now, not after the quiet
+    // window. Never submitted, whatever the word.
+    log(chatId, 'confirmation received; filling now');
+    await fillNow(ctx, chatId);
+    return;
+  }
   const parsed = parseFreeText(ctx.message.text);
   // The text itself is logged too: what was not read out of it is only
   // diagnosable against the words that were sent.

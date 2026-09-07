@@ -17,17 +17,17 @@ name) over five passports: 25 fields in total.
 Measured on an Apple M3 Pro (18-core GPU, 18 GB unified memory), CPU/Metal
 only. No discrete GPU is involved, and none of these engines needs one.
 
-| Reader                         | Fields | Accuracy | Clean images | Median    |
-| ------------------------------ | ------ | -------- | ------------ | --------- |
-| **macOS Vision (system)**      | 25/25  | **100%** | **5/5**      | 493 ms    |
-| **Consensus of all engines**   | 25/25  | **100%** | **5/5**      | 24 791 ms |
-| built-in (Tesseract + mrz-lib) | 24/25  | 96%      | 4/5          | 260 ms    |
-| PassportEye (Python, MIT)      | 24/25  | 96%      | 4/5          | 1 935 ms  |
-| PaddleOCR band (Apache-2.0)    | 24/25  | 96%      | 4/5          | 4 978 ms  |
-| PaddleOCR (Apache-2.0)         | 24/25  | 96%      | 4/5          | 14 737 ms |
-| Tesseract + `mrz` (npm, MIT)   | 23/25  | 92%      | 3/5          | 264 ms    |
-| mrz-scanner (AGPL)             | 17/25  | 68%      | 2/5          | 672 ms    |
-| RapidOCR (Apache-2.0)          | 15/25  | 60%      | 2/5          | 1 179 ms  |
+| Reader                          | Fields | Accuracy | Clean images | Median    |
+| ------------------------------- | ------ | -------- | ------------ | --------- |
+| **macOS Vision (system)**       | 25/25  | **100%** | **5/5**      | 491 ms    |
+| **PaddleOCR band (Apache-2.0)** | 25/25  | **100%** | **5/5**      | 5 495 ms  |
+| **PaddleOCR (Apache-2.0)**      | 25/25  | **100%** | **5/5**      | 15 877 ms |
+| **Consensus of all engines**    | 25/25  | **100%** | **5/5**      | 26 145 ms |
+| built-in (Tesseract + mrz-lib)  | 24/25  | 96%      | 4/5          | 267 ms    |
+| PassportEye (Python, MIT)       | 24/25  | 96%      | 4/5          | 1 976 ms  |
+| Tesseract + `mrz` (npm, MIT)    | 23/25  | 92%      | 3/5          | 264 ms    |
+| mrz-scanner (AGPL)              | 17/25  | 68%      | 2/5          | 694 ms    |
+| RapidOCR (Apache-2.0)           | 13/25  | 52%      | 2/5          | 1 334 ms  |
 
 macOS Vision reads every field correctly in under half a second, making it both
 the most accurate and, after the Tesseract readers, the fastest. It is a system
@@ -41,13 +41,32 @@ about 5 s at the same accuracy.
 
 ## What the numbers show
 
-**One engine does read every field correctly here**, and it is the general
-system OCR rather than any of the purpose-built MRZ readers.
+**Three engines read every field correctly**, and all are general OCR rather
+than purpose-built MRZ readers. Reaching that took fixing three bugs in this
+repository, each of which had been making an engine look worse than it is:
 
-**The others fail on different fields, so combining them also reaches 100%.**
-Three engines that share no code — Tesseract, Apple Vision and RapidOCR — agree
-on every field between them, at 1.90 s per passport. That is what
-`src/mrz-consensus.mjs` does, and it is measured rather than assumed.
+- Line 1 of an MRZ holds only letters, so a digit there is a misread. The
+  parser deleted them, turning `NIK0LAI` into `NIKLAI` and losing a letter;
+  they are now mapped back (`0` to `O`, `1` to `I`, and so on).
+- A line 2 that lost a character shifts every field after the gap, producing a
+  wrong number and a wrong date that both still look plausible. Such a line is
+  now refused. It is checked against the fixed TD3 layout rather than by
+  length, since several engines legitimately truncate the trailing filler.
+- Names were compared without accounting for how differently engines render
+  the `<` padding, which is described below.
+
+**Combining engines also reaches 100%, with a wider margin.** Two independent
+trios both get every field right, but not with equal confidence:
+
+| Combination                         | Time   | Unanimous fields |
+| ----------------------------------- | ------ | ---------------- |
+| Tesseract + Vision + PaddleOCR band | 6.26 s | **24 / 25**      |
+| Tesseract + Vision + RapidOCR       | 2.19 s | 12 / 25          |
+
+Both score 100%, but the second reaches it with 13 fields carried by a bare
+two-vote majority, because RapidOCR alone manages only 52%. The first has
+almost every field agreed by all three engines, so a single bad scan is far
+less likely to flip an answer. Speed is not the only thing being traded here.
 
 **Comparing names needs care.** Engines render the MRZ's `<` padding
 differently: some strip it, some return a run of one letter, some garble it,
@@ -70,20 +89,26 @@ Tesseract underneath, so they can repeat the same misread and outvote a correct
 answer. Counting them as three votes overstates the evidence.
 
 Five genuinely distinct engines are represented: Tesseract, Apple Vision,
-RapidOCR's ONNX models, PaddlePaddle, and mrz-scanner's ONNX models. Restricted
-to one reader per engine, the cheapest combination reaching 100% is
-**Tesseract + Apple Vision + RapidOCR at 1.90 s**, with no shared code between
-them.
+RapidOCR's ONNX models, PaddlePaddle, and mrz-scanner's ONNX models.
 
-## Recommended: cheap engines first, expensive one only when they disagree
+## Recommended
+
+**One engine:** macOS Vision. It reads every field correctly in 491 ms, needs no
+download, and is already GPU-accelerated through Metal. On a machine where it is
+unavailable, PaddleOCR restricted to the MRZ band is the portable equivalent at
+5.5 s.
+
+**Three engines, for a second opinion:** Tesseract + Apple Vision + PaddleOCR
+band, at 6.26 s. They share no code, and 24 of 25 fields come back unanimous, so
+a disagreement is a real signal rather than noise.
+
+## Cheap engines first, expensive one only when they disagree
 
 `tieredConsensus` in `src/mrz-consensus.mjs` runs the fast engines and calls a
 slow one only if they leave something unsettled.
 
-It is worth having, but on these passports it is not needed: Tesseract, Apple
-Vision and RapidOCR already agree on all 25 fields at **1.90 s per passport**,
-so no fallback is triggered. The tiering matters for scans where the fast
-engines disagree.
+On these passports the fast engines already settle everything, so no fallback
+is triggered. The tiering matters for scans where they disagree.
 
 For a single fast reader where 96% is acceptable, the built-in one is cheapest
 at 261 ms.

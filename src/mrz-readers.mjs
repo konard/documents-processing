@@ -210,6 +210,23 @@ const mrzScanner = {
  * MRZ is found by shape: line 2 of a TD3 document is mostly digits and carries
  * a sex marker.
  */
+/**
+ * Digits an OCR engine produces for a letter in a name field.
+ *
+ * Line 1 of an MRZ holds only letters and filler, so a digit there is always a
+ * misread and can be mapped back safely.
+ */
+const NAME_DIGITS = {
+  0: 'O',
+  1: 'I',
+  5: 'S',
+  8: 'B',
+  2: 'Z',
+  6: 'G',
+  4: 'A',
+  7: 'T',
+};
+
 export function findMrzLines(lines) {
   const cleaned = lines
     .map((line) =>
@@ -236,8 +253,31 @@ export function findMrzLines(lines) {
   if (!second) {
     return null;
   }
+
+  // A TD3 line 2 is exactly 44 characters. When OCR drops or inserts one, every
+  // field after the gap shifts and the parse yields a wrong number and a wrong
+  // date that still look plausible. Padding a short line is safe only when the
+  // missing part is the trailing filler, so a line whose data section is the
+  // wrong length is refused instead.
+  // The first 28 characters of a TD3 line 2 have a fixed layout: nine for the
+  // document number, a check digit, three for nationality, then two six-digit
+  // dates each with a check digit either side of a sex marker. When OCR drops
+  // or inserts a character every field after the gap shifts, and the parse
+  // yields a wrong number and a wrong date that both still look plausible.
+  // Checking that the sex marker and the digits around it fall where they
+  // belong catches that, and unlike a length count it survives a stray glyph in
+  // the trailing filler.
+  if (!/^[A-Z0-9<]{10}[A-Z0-9<]{3}\d{7}[MFX<]\d{7}/.test(second)) {
+    return null;
+  }
+  // Line 1 carries no digits, so any that OCR produced are letter misreads.
+  const repairedFirst = (first ?? '').replace(
+    /[0-9]/g,
+    (digit) => NAME_DIGITS[digit] ?? '<'
+  );
+
   return [
-    (first ?? '').padEnd(44, '<').slice(0, 44),
+    repairedFirst.padEnd(44, '<').slice(0, 44),
     second.padEnd(44, '<').slice(0, 44),
   ];
 }

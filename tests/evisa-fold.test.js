@@ -84,9 +84,11 @@ describe('on real scans, when a folder of them is named', () => {
   // Real passports stay outside the repository. Point EVISA_SCANS_DIR at a
   // folder of them to run this; the check itself carries no data.
   const dir = process.env.EVISA_SCANS_DIR ?? '';
-  const scans = existsSync(dir)
-    ? readdirSync(dir).filter((name) => /\.jpe?g$/i.test(name))
-    : [];
+  // Deno refuses an empty path outright, so it is not asked about one.
+  const scans =
+    dir && existsSync(dir)
+      ? readdirSync(dir).filter((name) => /\.jpe?g$/i.test(name))
+      : [];
 
   it('cuts every spread where the crease brightens into the page', async () => {
     const out = mkdtempSync(path.join(tmpdir(), 'evisa-scans-'));

@@ -143,20 +143,22 @@ async function fetchFeatures(query, fetchImpl) {
   url.searchParams.set('q', query);
   url.searchParams.set('lang', 'en');
   url.searchParams.set('limit', '5');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
     const response = await fetchImpl(url, {
       headers: { 'User-Agent': USER_AGENT },
       signal: controller.signal,
     });
-    clearTimeout(timer);
     if (!response.ok) {
       return [];
     }
     return (await response.json()).features ?? [];
   } catch {
     return [];
+  } finally {
+    // Cleared on every path, so a failed request leaves no timer behind.
+    clearTimeout(timer);
   }
 }
 

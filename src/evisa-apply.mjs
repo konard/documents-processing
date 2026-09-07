@@ -27,13 +27,7 @@ import {
   validateApplicant,
   mergeSources,
 } from './evisa-data.mjs';
-import {
-  FORM_URL,
-  acceptNoteModal,
-  waitForForm,
-  fillForm,
-  screenshotForm,
-} from './evisa-fill.mjs';
+import { openForm, prepareDocument, fillAndCapture } from './evisa-session.mjs';
 
 /** Parses the flags above into a plain options object. */
 export function parseArgs(argv) {
@@ -177,47 +171,41 @@ async function main() {
   fs.mkdirSync(options.out, { recursive: true });
 
   const uploads = {};
-  const { prepareUploadImage } = await import('./evisa-passport.mjs');
+  const describe = (prepared) =>
+    `${prepared.bytes} bytes${prepared.cropped ? ', data page cut out' : ''}` +
+    `${prepared.unchanged ? ', otherwise unchanged' : `, re-encoded at q${prepared.quality}`}`;
+
   if (options.portrait) {
     const out = path.join(options.out, 'portrait.jpg');
-    const prepared = await prepareUploadImage(options.portrait, out);
+    const prepared = await prepareDocument(options.portrait, out);
     uploads.portraitPhoto = prepared.path;
-    console.log(
-      `Portrait: ${prepared.path} (${prepared.bytes} bytes${prepared.unchanged ? ', unchanged' : `, re-encoded at q${prepared.quality}`})`
-    );
+    console.log(`Portrait: ${prepared.path} (${describe(prepared)})`);
   }
   if (options.passport) {
     const out = path.join(options.out, 'passport.jpg');
-    const prepared = await prepareUploadImage(options.passport, out);
+    // A photo may show the whole passport, so the data page is cut out first.
+    const prepared = await prepareDocument(options.passport, out, {
+      crop: true,
+    });
     uploads.passportPage = prepared.path;
-    console.log(
-      `Passport page: ${prepared.path} (${prepared.bytes} bytes${prepared.unchanged ? ', unchanged' : `, re-encoded at q${prepared.quality}`})`
-    );
+    console.log(`Passport page: ${prepared.path} (${describe(prepared)})`);
   }
 
-  const { launchBrowser } = await import('browser-commander');
-  const { browser, page } = await launchBrowser({
-    engine: 'playwright',
-    headless: false,
-  });
+  const { browser, page } = await openForm({ headless: false });
 
   try {
-    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
-    await acceptNoteModal(page);
-    await waitForForm(page);
-
-    const result = await fillForm(page, resolved.applicant, { uploads });
+    const result = await fillAndCapture(page, resolved.applicant, {
+      uploads,
+      screenshot: options.screenshot
+        ? path.join(options.out, 'evisa-form.png')
+        : null,
+    });
     console.log(`Filled ${result.filled.length} fields.`);
     for (const failure of result.failures) {
       console.log(`  could not fill ${failure.field}: ${failure.error}`);
     }
-
-    if (options.screenshot) {
-      const shot = await screenshotForm(
-        page,
-        path.join(options.out, 'evisa-form.png')
-      );
-      console.log(`Screenshot: ${shot}`);
+    if (result.screenshot) {
+      console.log(`Screenshot: ${result.screenshot}`);
     }
 
     console.log('\nThe form is filled but NOT submitted.');

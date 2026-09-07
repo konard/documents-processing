@@ -51,6 +51,8 @@ describe('documents-processing commands', () => {
     'mrz-variants.mjs',
     'evisa-required.mjs',
     'evisa-bot.mjs',
+    'evisa-session.mjs',
+    'env.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

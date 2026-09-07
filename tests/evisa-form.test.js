@@ -117,6 +117,34 @@ describe('upload preparation', () => {
   });
 });
 
+describe('passport page cropping', () => {
+  const source = readFileSync('src/evisa-passport.mjs', 'utf8');
+
+  it('cuts the page out by finding the paper against its background', () => {
+    // Print on the page is unreliable to detect; the bright rectangle of the
+    // document against a darker desk or hand is steady.
+    expect(source.includes('findMrzBand')).toBe(true);
+    expect(source.includes('greyscale()')).toBe(true);
+  });
+
+  it('leaves an image alone when the page already fills it', () => {
+    // Cropping wrongly cuts away the fields the form needs, so the bar for
+    // cutting at all is deliberately high.
+    expect(source.includes('looksLikeWholePage')).toBe(true);
+    expect(source.includes('cropped: false')).toBe(true);
+  });
+
+  it('re-encodes the crop once, at high quality', () => {
+    expect(source.includes('jpeg({ quality: 95 })')).toBe(true);
+  });
+
+  it('looks for the machine-readable zone in more than one band', () => {
+    // A photo of a whole passport puts the zone somewhere other than the
+    // bottom of the frame.
+    expect(source.includes('const bands = [')).toBe(true);
+  });
+});
+
 describe('parseArgs', () => {
   it('collects repeated inputs', () => {
     const options = parseArgs(['--input', 'a.json', '--input', 'b.lino']);

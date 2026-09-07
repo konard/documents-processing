@@ -98,7 +98,10 @@ export const FIELDS = {
   entryDate: { id: 'basic_ttcdThoiGianNcStr', kind: 'date', required: true },
   stayLengthDays: { id: 'basic_ttcdSoNgayTamTru', kind: 'text', max: 20 },
   phoneInVietnam: { id: 'basic_ttcdSdt', kind: 'text', max: 50 },
-  addressInVietnam: { id: 'basic_ttcdDcTamTru', kind: 'select' },
+  // An autocomplete that offers no options: it takes the house number and
+  // street as typed, so it is filled as text. The two beside it are true
+  // dropdowns, and the ward list depends on the province selected.
+  addressInVietnam: { id: 'basic_ttcdDcTamTru', kind: 'text', max: 255 },
   provinceInVietnam: { id: 'basic_ttcdTinhTp', kind: 'select' },
   wardInVietnam: { id: 'basic_ttcdPhuongXa', kind: 'select' },
   entryBorderGate: {
@@ -213,7 +216,11 @@ export const FIELD_DEFAULTS = {
   // dropdowns, which spell the city differently in each of them.
   entryBorderGate: 'Tan Son Nhat Int Airport (Ho Chi Minh City)',
   exitBorderGate: 'Tan Son Nhat Int Airport (Ho Chi Minh City)',
+  // The three address fields are required, so an applicant who has not booked
+  // anywhere yet still has to enter one. They stay editable in the browser.
+  addressInVietnam: '406/14 Cong Hoa',
   provinceInVietnam: 'HO CHI MINH City',
+  wardInVietnam: 'PHUONG TAN BINH',
 };
 
 /** Passport-type options, as worded in the form's dropdown. */

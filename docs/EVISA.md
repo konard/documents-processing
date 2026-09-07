@@ -105,6 +105,40 @@ tool rewrites common phrasings automatically:
 
 An ambiguous name is left alone and flagged, rather than guessed at.
 
+## Addresses in Vietnam
+
+The form asks for the address in three parts — street, province/city, and
+ward/commune — while an address from a booking or a map arrives as one line. Give
+it whole and it is split:
+
+```
+406/14 Cong Hoa, Tan Binh District, Tan Binh, Хошимин, Вьетнам
+```
+
+| Field                          | Value              |
+| ------------------------------ | ------------------ |
+| Residential address in Vietnam | `406/14 Cong Hoa`  |
+| Province/city                  | `HO CHI MINH City` |
+| Ward / commune                 | `PHUONG TAN BINH`  |
+
+The city is matched in English, Vietnamese or Russian, with or without
+diacritics, so `Хошимин`, `TP Hồ Chí Minh` and `Saigon` all reach the same
+option. The country is dropped: the form has no field for it.
+
+**There is no district field, and no numbered wards.** Vietnam merged its wards
+and abolished district-level administration in 2025, so the page now lists 167
+named wards for Ho Chi Minh City and nothing like `Ward 13`. Guidance written
+before that reform will not match the form. A district in a pasted address is
+used to identify the ward and then dropped; a part that identifies nothing is
+reported as unmatched instead of being guessed at.
+
+The ward list is read from the page, since it depends on the province selected
+and changes when boundaries are redrawn.
+
+An applicant who gives no address gets `406/14 Cong Hoa` in Ho Chi Minh City,
+because all three fields are required and someone who has not booked yet still
+has to enter one. Every value stays editable in the browser.
+
 ## The Telegram bot
 
 The same filling runs behind a bot that collects documents in conversation, in

@@ -5,6 +5,7 @@
 // reports what is missing or wrong before a browser is ever opened.
 
 import { toLatin } from './translit.mjs';
+import { parseVietnamAddress } from './evisa-address.mjs';
 import {
   FIELDS,
   RADIO_GROUPS,
@@ -353,6 +354,11 @@ export function normalizeApplicant(input) {
 
   normalizeFields(out);
 
+  // The address is split before the passport's bilingual halves are resolved.
+  // A house number carries a slash of its own, so "406/14 Cong Hoa, ..., Хошимин"
+  // reads as a <Latin>/<Cyrillic> pair and would be cut down to "406".
+  splitAddress(out);
+
   // A Russian passport prints these fields as <Russian>/<English>, so the half
   // after the slash is the one the form wants. Taking the Cyrillic half and
   // transliterating it would turn МОСКВА/USSR into MOSKVA, which is not what
@@ -406,6 +412,30 @@ export function normalizeApplicant(input) {
   applyDateDefaults(out);
 
   return out;
+}
+
+/**
+ * Splits a whole address into the three fields the form asks for.
+ *
+ * An address is normally given as one line — from a booking, a map, or a
+ * message — while the form wants the street, the city and the ward separately.
+ * A part the applicant already gave under its own key is kept, since it was
+ * stated directly.
+ *
+ * The ward is matched against the page's own list at fill time, where that list
+ * is known. Here it is resolved only where the name alone settles it.
+ */
+function splitAddress(out) {
+  if (!out.addressInVietnam || !out.addressInVietnam.includes(',')) {
+    return;
+  }
+  const parsed = parseVietnamAddress(out.addressInVietnam);
+  out.addressInVietnam = parsed.addressInVietnam || out.addressInVietnam;
+  for (const key of ['provinceInVietnam', 'wardInVietnam']) {
+    if (parsed[key]) {
+      out[key] ??= parsed[key];
+    }
+  }
 }
 
 /**

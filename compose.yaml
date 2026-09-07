@@ -1,0 +1,41 @@
+# compose.yaml
+#
+# Runs the e-visa Telegram bot as a service that comes back on its own.
+#
+#   docker compose up -d --build     start it, rebuilding if the source changed
+#   docker compose logs -f           watch what it is doing
+#   docker compose down              stop it
+#
+# The token is read from `.env`, which is git-ignored, so it is never baked into
+# the image and never reaches a registry.
+
+services:
+  evisa-bot:
+    build: .
+    image: documents-processing-evisa-bot
+    # Comes back after a crash and after the machine reboots, but stays down if
+    # it was stopped deliberately.
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Verbose by default, matching how the bot runs outside a container. The
+      # log then holds applicants' data, which is why it stays in the volume.
+      EVISA_BOT_DEBUG: ${EVISA_BOT_DEBUG:-1}
+      EVISA_BOT_RETENTION_DAYS: ${EVISA_BOT_RETENTION_DAYS:-7}
+    volumes:
+      # Logs and received documents live here. A named volume rather than a
+      # bind mount keeps them off the host filesystem by default, while leaving
+      # them readable with `docker compose cp` when something needs diagnosing.
+      - evisa-data:/data
+    # Chromium needs more shared memory than Docker's 64 MB default; below about
+    # this it crashes rendering a page as large as the form.
+    shm_size: 1gb
+    # A browser per chat is the memory cost here, and a runaway one should be
+    # killed rather than take the host down with it.
+    mem_limit: 4g
+    # Long enough for the open browsers to close on the way down.
+    stop_grace_period: 20s
+
+volumes:
+  evisa-data:

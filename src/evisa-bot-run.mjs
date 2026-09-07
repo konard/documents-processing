@@ -94,6 +94,24 @@ async function readPassport(file) {
   return data;
 }
 
+/**
+ * Copies a document somewhere it will outlive the temporary file it arrived in,
+ * since the form is uploaded from it long after the message was handled.
+ *
+ * The destination is whatever the system reports as its temp directory, so
+ * `TMPDIR` decides where these land. In a container that is the mounted volume,
+ * which is what makes the documents reachable for diagnosis and subject to the
+ * same sweep as the log.
+ */
+function keepForUpload(source, name) {
+  const kept = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-doc-')),
+    name
+  );
+  fs.copyFileSync(source, kept);
+  return kept;
+}
+
 /** Fills the form with what the chat has provided and sends back the page. */
 async function fillAndShow(ctx, chatId) {
   const session = sessions.get(chatId);
@@ -255,27 +273,23 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
       log(chatId, `read from the document: ${describeFields(read ?? {})}`);
       if (read && Object.keys(read).length) {
         Object.assign(session.data, read);
-        // Keep the page for upload; it is copied because the temp file goes away.
-        const kept = path.join(
-          fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),
+        session.uploads.passportPage = keepForUpload(
+          source,
           `passport${extension}`
         );
-        fs.copyFileSync(source, kept);
-        session.uploads.passportPage = kept;
       } else {
         log(chatId, 'no passport zone found; treating it as the portrait');
         // Not a passport: treat it as the portrait, which is the other image the
         // form wants and needs no reading.
-        const kept = path.join(
-          fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),
+        session.uploads.portraitPhoto = keepForUpload(
+          local,
           `portrait${extension}`
         );
-        fs.copyFileSync(local, kept);
-        session.uploads.portraitPhoto = kept;
       }
     },
-    // Kept while debugging. These live under the system temp directory, which
-    // the machine clears on restart, so they do not accumulate indefinitely.
+    // Kept while debugging, under the system temp directory. What eventually
+    // removes them is the sweep below, which runs daily: a container's volume
+    // survives restarts, so nothing else would.
     { keep: valuesAllowed() }
   );
 

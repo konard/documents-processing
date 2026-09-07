@@ -105,6 +105,54 @@ tool rewrites common phrasings automatically:
 
 An ambiguous name is left alone and flagged, rather than guessed at.
 
+## The Telegram bot
+
+The same filling runs behind a bot that collects documents in conversation, in
+English or Russian. It asks the live form what is required rather than carrying
+its own list, fills after 45 seconds of quiet, and replies with a full-height
+screenshot. It never submits.
+
+```sh
+cp .env.example .env        # then put the @BotFather token in it
+node src/evisa-bot-run.mjs
+```
+
+### In a container
+
+Running it under Docker gives it a browser matched to the Playwright client and
+keeps everything it writes in one volume.
+
+```sh
+docker compose up -d --build   # start, rebuilding if the source changed
+docker compose logs -f         # watch what it is doing
+docker compose down            # stop
+```
+
+`restart: unless-stopped` brings it back after a crash and after the machine
+reboots, but leaves it down when it was stopped deliberately.
+
+The token is read from `.env` at run time and never enters the image, so an
+image that is pushed to a registry carries no secret.
+
+Logs and received documents go to `/data`, a named volume, because `TMPDIR`
+points there and the code asks the system where temporary files belong. To read
+them:
+
+```sh
+docker compose exec evisa-bot cat /data/evisa-bot-debug.log
+docker compose cp evisa-bot:/data ./bot-data     # or copy the lot out
+```
+
+That volume holds applicants' documents and a log containing their data. It
+outlives the container, so removing it is a deliberate step:
+
+```sh
+docker compose down -v
+```
+
+The bot sweeps anything older than `EVISA_BOT_RETENTION_DAYS` (7) on startup and
+daily. Set `EVISA_BOT_DEBUG=0` to log field names without values.
+
 ## Privacy
 
 No applicant data is sent anywhere except the government form itself. The tool

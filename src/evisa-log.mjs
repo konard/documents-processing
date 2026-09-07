@@ -23,7 +23,9 @@ export function valuesAllowed() {
 
 /** Where the log goes; one file, so an operator can find and delete it. */
 export function logPath() {
-  return process.env.EVISA_BOT_LOG ?? path.join('/tmp', 'evisa-bot-debug.log');
+  return (
+    process.env.EVISA_BOT_LOG ?? path.join(os.tmpdir(), 'evisa-bot-debug.log')
+  );
 }
 
 const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19);

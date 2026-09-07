@@ -4,6 +4,7 @@
 // earlier Vietnam e-visa) into the exact shape the e-visa form expects, and
 // reports what is missing or wrong before a browser is ever opened.
 
+import { toLatin } from './translit.mjs';
 import {
   FIELDS,
   RADIO_GROUPS,
@@ -81,6 +82,30 @@ export function canonicalPurpose(value) {
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
+
+/**
+ * Free-text fields that may arrive in Cyrillic.
+ *
+ * These are copied onto a form that accepts Latin only, so they are converted.
+ * Dropdown values are excluded: those must match the site's own wording, which
+ * is already Latin.
+ */
+const TRANSLITERATED_FIELDS = [
+  'surname',
+  'givenName',
+  'emergencyName',
+  'placeOfBirth',
+  'passportIssuingAuthority',
+  'permanentAddress',
+  'contactAddress',
+  'emergencyAddress',
+  'employerName',
+  'employerAddress',
+  'position',
+  'occupationInfo',
+  'addressInVietnam',
+  'religion',
+];
 
 /**
  * Formats a Date as the DD/MM/YYYY string every date input on the form wants.
@@ -172,17 +197,89 @@ export function inclusiveDays(from, to) {
  * Uppercases and strips diacritics/punctuation from a name so it matches the
  * machine-readable zone, which is what the Immigration Department compares.
  */
-export function normalizeName(value) {
+/**
+ * Digits an OCR engine produces for a letter.
+ *
+ * A name holds no digits, so a digit in one is always a misread and can be
+ * mapped back to the letter it must be. Deleting it would shorten the name.
+ */
+const NAME_DIGIT_TO_LETTER = {
+  0: 'O',
+  1: 'I',
+  2: 'Z',
+  4: 'A',
+  5: 'S',
+  6: 'G',
+  7: 'T',
+  8: 'B',
+};
+
+export function normalizeName(value, { fromOcr = false } = {}) {
   if (typeof value !== 'string') {
     return '';
   }
+  // A digit is repaired only when the text came from OCR, where it is a known
+  // misreading. Someone who typed a digit into a name meant something by it, so
+  // it is left in place for validation to report.
+  const digits = fromOcr
+    ? (digit) => NAME_DIGIT_TO_LETTER[digit] ?? ' '
+    : (digit) => digit;
+
   return value
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
-    .replace(/[^A-Za-z\s'-]/g, ' ')
+    .replace(/[0-9]/g, digits)
+    .replace(/[^A-Za-z0-9\s'-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toUpperCase();
+}
+
+/**
+ * Reports why a name is unusable, or null when it is fine.
+ *
+ * The form is filled in English and a passport's machine-readable zone is
+ * Latin-only, so anything else is a misread or a transliteration the applicant
+ * still has to make. Saying which character is wrong is more use than refusing
+ * the whole value.
+ */
+export function checkName(value) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return 'is empty';
+  }
+  if (/[Ѐ-ӿ]/.test(text)) {
+    return `must be written in Latin letters: "${text}"`;
+  }
+  const offending = text.match(/[^A-Za-z\s'-]/g);
+  if (offending) {
+    return `contains ${[...new Set(offending)].map((c) => `"${c}"`).join(', ')}, which a name cannot`;
+  }
+  if (!/[A-Za-z]/.test(text)) {
+    return `has no letters: "${text}"`;
+  }
+  return null;
+}
+
+/**
+ * Reports why a date is unusable, or null when it is fine.
+ *
+ * Checked before the letter-to-digit repair runs, so a value like `O2/O3/199O`
+ * is refused. A date carries no letters, and guessing which ones were meant to
+ * be digits is how a wrong birth date reaches a government form.
+ */
+export function checkDateText(value) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return 'is empty';
+  }
+  const letters = text.match(/[A-Za-z]/g);
+  // Month names are written out on some documents and are unambiguous.
+  const isMonthName = /^\d{1,2}[\s-]*[A-Za-z]{3,}[\s-]*\d{4}$/.test(text);
+  if (letters && !isMonthName) {
+    return `contains ${[...new Set(letters)].map((c) => `"${c}"`).join(', ')}, which a date cannot`;
+  }
+  return null;
 }
 
 /**
@@ -223,9 +320,20 @@ export function normalizeApplicant(input) {
 
   normalizeFields(out);
 
-  for (const key of ['surname', 'givenName']) {
+  // Cyrillic is transliterated the way the passport's own machine-readable zone
+  // does it, so the spelling on the visa matches the document.
+  for (const key of TRANSLITERATED_FIELDS) {
     if (out[key]) {
-      out[key] = normalizeName(out[key]);
+      out[key] = toLatin(out[key]).value;
+    }
+  }
+
+  for (const key of ['surname', 'givenName', 'emergencyName']) {
+    if (out[key]) {
+      const cleaned = normalizeName(out[key]);
+      // Keep the original when normalizing empties it, so validation can say
+      // the name is not in Latin letters, which is the actual problem.
+      out[key] = cleaned || String(out[key]).trim();
     }
   }
 
@@ -409,11 +517,38 @@ function checkChoices(data, errors, warnings) {
   }
 }
 
+/**
+ * Checks names and dates character by character.
+ *
+ * OCR confuses O with 0 in both directions, and a wrong name or birth date on
+ * a government form is worth stopping for.
+ */
+function checkCharacters(data, errors) {
+  for (const key of ['surname', 'givenName', 'emergencyName']) {
+    if (data[key]) {
+      const problem = checkName(data[key]);
+      if (problem) {
+        errors.push(`${key} ${problem}`);
+      }
+    }
+  }
+  for (const [key, field] of Object.entries(FIELDS)) {
+    if (field.kind === 'date' && data[key]) {
+      const problem = checkDateText(data[key]);
+      if (problem) {
+        errors.push(`${key} ${problem}`);
+      }
+    }
+  }
+}
+
 export function validateApplicant(data) {
   const errors = [];
   const warnings = [];
 
   checkFields(data, errors);
+
+  checkCharacters(data, errors);
 
   if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
     errors.push(`email is not a valid address: ${data.email}`);

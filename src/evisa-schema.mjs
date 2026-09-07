@@ -208,6 +208,12 @@ export const AIR_BORDER_GATES = [
 export const FIELD_DEFAULTS = {
   passportType: 'Ordinary passport',
   religion: 'Christianity',
+  // Ho Chi Minh City takes the most international traffic, and its airport is
+  // the busiest approved gate. The wording is taken from the form's own
+  // dropdowns, which spell the city differently in each of them.
+  entryBorderGate: 'Tan Son Nhat Int Airport (Ho Chi Minh City)',
+  exitBorderGate: 'Tan Son Nhat Int Airport (Ho Chi Minh City)',
+  provinceInVietnam: 'HO CHI MINH City',
 };
 
 /** Passport-type options, as worded in the form's dropdown. */

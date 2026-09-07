@@ -9,6 +9,7 @@ import path from 'node:path';
 import { renderImage, regionCanvas, upscale, ocrCanvas } from './ocr-lib.mjs';
 import { parseMrzLine1, parseMrzLine2 } from './mrz-lib.mjs';
 import { PHOTO_RULES, countryName, sexLabel } from './evisa-schema.mjs';
+import { normalizeName } from './evisa-data.mjs';
 
 /** The MRZ occupies the bottom ~11% of a TD3 passport data page. */
 const MRZ_REGION = { x: 0, y: 0.883, w: 1, h: 0.112 };
@@ -83,8 +84,9 @@ export async function readPassportMrz(imagePath) {
     sex: sexLabel(line2.sex),
   };
   if (line1) {
-    data.surname = line1.surname;
-    data.givenName = line1.given;
+    // From OCR, so a digit in a name is a misread and is mapped back.
+    data.surname = normalizeName(line1.surname, { fromOcr: true });
+    data.givenName = normalizeName(line1.given, { fromOcr: true });
   }
 
   for (const key of Object.keys(data)) {
@@ -193,32 +195,42 @@ async function findFoldAbove(inputPath, meta, mrzTop) {
     means.push(sum / width);
   }
 
-  // A spread shows several dark lines around the seam: the edge of the facing
-  // page, the crease itself, and the top edge of the page below. Each is a
-  // local dip in row brightness. The data page begins after the last of them,
-  // so the lowest qualifying dip is the one to cut on, not the darkest.
-  const dips = [];
+  // A fold is a dark line with paper on both sides, so it shows as a trough:
+  // darker than the rows above it and the rows below. Measuring that depth
+  // separates it from the edge of a page, which is dark on one side only, and
+  // from a row of print, which is dark without either side being bright.
+  const troughs = [];
   for (let y = Math.round(height * 0.15); y < limit - height * 0.15; y++) {
-    const window = means.slice(Math.max(0, y - 8), y + 9);
-    const around =
-      window.reduce((sum, value) => sum + value, 0) / window.length;
-    const isLocalMin = means[y] <= Math.min(...means.slice(y - 2, y + 3));
-    if (means[y] < around - 12 && isLocalMin) {
-      dips.push(y);
+    const above =
+      means.slice(y - 10, y - 2).reduce((sum, value) => sum + value, 0) / 8;
+    const below =
+      means.slice(y + 3, y + 11).reduce((sum, value) => sum + value, 0) / 8;
+    // The shallower side decides: a true line is bright on both.
+    const depth = Math.min(above, below) - means[y];
+    if (depth > 15) {
+      troughs.push({ y, depth });
     }
   }
-  if (dips.length === 0) {
+  if (troughs.length === 0) {
     return null;
   }
 
-  // The lowest dip is the top edge of the data page itself, and its heading
-  // sits immediately below; cutting there would clip the passport number. The
-  // seam is the dip above it, so the cut lands in the gap between the pages.
-  const seam = dips.length > 1 ? dips[dips.length - 2] : dips[0];
-  // Land in the gap between the pages: past the seam, but above the heading
-  // that runs along the top of the data page.
-  const clearance = Math.round(height * 0.004);
-  return Math.round(((seam + clearance) / height) * meta.height);
+  // Keep the deepest, then take the lowest trough within reach of it, since
+  // the crease can register as two lines and the lower one is the true edge.
+  const deepest = troughs.reduce((best, candidate) =>
+    candidate.depth > best.depth ? candidate : best
+  );
+  const nearby = troughs.filter(
+    (trough) =>
+      trough.depth > deepest.depth * 0.6 &&
+      Math.abs(trough.y - deepest.y) < height * 0.06
+  );
+  const seam = nearby[nearby.length - 1].y;
+
+  // Cut just above the line, so the fold stays partly visible: it shows the
+  // page was photographed whole, and nothing of the data page is lost.
+  const keepLine = Math.round(height * 0.008);
+  return Math.round(((seam - keepLine) / height) * meta.height);
 }
 
 /**

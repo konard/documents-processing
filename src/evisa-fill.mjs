@@ -406,6 +406,11 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
   const extracted = await readFilledFields(page);
   const corrected = [];
   const agreed = [];
+  // What the site read and we did not: worth surfacing, since it is a value
+  // going onto the form that no reading of ours confirms.
+  const siteOnly = Object.keys(extracted).filter(
+    (key) => !applicant[key] && FIELDS[key]
+  );
 
   for (const [key, field] of Object.entries(FIELDS)) {
     const value = applicant[key];
@@ -426,7 +431,7 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
     await attempt(key, () => fillField(page, field, value));
   }
 
-  return { filled, failures, extracted, corrected, agreed };
+  return { filled, failures, extracted, corrected, agreed, siteOnly };
 }
 
 /** Captures the whole filled form, including the parts below the fold. */

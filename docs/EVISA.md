@@ -91,6 +91,15 @@ at once:
 - a passport expiring within 6 months of entry (warning)
 - border gates and purposes that the form's dropdowns do not offer (warning)
 
+## Dates
+
+Give an entry date and the validity window follows from it: `validFrom` is that
+date and `validTo` is 89 days later, which is the full 90 the visa allows
+counting both ends. A shorter window only limits you and costs the same.
+
+State no entry date and it defaults to **a week out**, since processing takes
+about three working days and a nearer date risks the visa arriving late.
+
 ## Wording the form expects
 
 The site's dropdowns do not match the wording on its own instruction page. The

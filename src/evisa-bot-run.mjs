@@ -43,7 +43,11 @@ import {
   readPassportDocumentInWorker,
   fillAndCapture,
 } from './evisa-session.mjs';
-import { lookupAddress, renderVerifiedAddress } from './evisa-geocode.mjs';
+import {
+  lookupAddress,
+  renderVerifiedAddress,
+  sameAddress,
+} from './evisa-geocode.mjs';
 
 loadEnv();
 
@@ -367,14 +371,24 @@ function armIdleFill(ctx, chatId) {
  * Checks an address that just arrived against the map, and keeps the map's
  * rendering when it confirms the house. An address the map cannot place is
  * kept as written and rendered from that at fill time.
+ *
+ * Two addresses the map places at the same flat of the same house are the
+ * same address, however each was written, and the log says so.
  */
 async function verifyAddress(chatId, session, field) {
   const written = session.data[field];
   const found = await lookupAddress(written);
+  session.resolved ??= {};
+  session.resolved[field] = found;
   const verified = renderVerifiedAddress(written, found);
   if (verified) {
     log(chatId, `${field} confirmed by the map: ${shown(verified)}`);
     session.data[field] = verified;
+    for (const [other, resolved] of Object.entries(session.resolved)) {
+      if (other !== field && sameAddress(found, resolved)) {
+        log(chatId, `${field} is the same address as ${other}`);
+      }
+    }
     return;
   }
   const nearest = found

@@ -11,7 +11,12 @@
 // known cities get their English names, and the rest is transliterated the way
 // the passport's own machine-readable zone would spell it.
 
-import { transliterate, hasCyrillic, editDistance } from './translit.mjs';
+import {
+  transliterate,
+  toCyrillic,
+  hasCyrillic,
+  editDistance,
+} from './translit.mjs';
 
 /** Country names as they appear at the head of an address. */
 const COUNTRIES = {
@@ -225,25 +230,52 @@ function renderUnit(unit) {
 }
 
 /**
- * Renders a home address in Latin letters.
+ * Renders a home address in Latin letters, in the one order the form gets:
+ * country, postal code, region, city, street, house, building, flat.
  *
- * The order is left as written, since the applicant's own ordering is the one
- * their post arrives by. Anything already in Latin letters passes through
- * untouched, so an English address is not altered.
+ * A Russian address is put into that order however the applicant wrote it,
+ * and an address typed in Latin letters for a Russian house is too, so the
+ * permanent and the emergency address of two people in one flat read alike.
+ * An address from elsewhere keeps its own order, since a British or an
+ * Indian address has one of its own, and gets only its case and country
+ * spelling settled.
  */
 export function latinAddress(value) {
-  const text = stripAddressNote(stripAddressLabel(value));
-  if (!hasCyrillic(text)) {
-    return normalizeLatinAddress(text);
+  const parts = addressParts(value);
+  if (parts.ordered && parts.street) {
+    return canonicalAddress(parts);
   }
   return normalizeLatinAddress(
-    separateUnits(text)
-      .split(',')
-      .map(renderUnit)
+    parts.units
+      .map((unit) => renderUnit(unit))
       .filter(Boolean)
       .join(', ')
       .replace(/\s+/g, ' ')
       .trim()
+  );
+}
+
+/**
+ * The address as the form gets it, from its parts, with any part the map
+ * confirmed put in place of the applicant's own.
+ */
+export function canonicalAddress(parts, confirmed = {}) {
+  const building = parts.building ? `bld. ${parts.building}` : '';
+  const flat = parts.flat ? `apt. ${parts.flat}` : '';
+  return normalizeLatinAddress(
+    [
+      confirmed.country ?? parts.country,
+      confirmed.postalCode ?? parts.postalCode,
+      ...parts.regions,
+      confirmed.city ?? parts.city,
+      confirmed.street ?? parts.street,
+      parts.house,
+      building,
+      flat,
+      ...parts.rest,
+    ]
+      .filter(Boolean)
+      .join(', ')
   );
 }
 
@@ -380,55 +412,237 @@ export function normalizeLatinAddress(text) {
     .join(', ');
 }
 
+/** The unit patterns an address is taken apart by, in either language. */
+const FLAT_UNIT = /^(?:кв|квартира|apt|apartment|flat|room)\.?\s*(\S+)$/i;
+const BUILDING_UNIT =
+  /^(?:корп|корпус|к|bld|bldg|building|korpus|block)\.?\s*(\S+)$/i;
+const HOUSE_UNIT = /^(?:(?:д|дом|house)\.?\s*)?(\d+\S*)$/i;
+const POSTAL_UNIT = /^\d{6}$/;
+const REGION_UNIT =
+  /(?:^|\s)(?:обл|область|р-н|район|край|oblast|district|region|krai)\.?$/i;
+const STREET_TYPED =
+  /(?:^|\s)(?:ул|улица|пр-т|просп|проспект|пр|пер|переулок|б-р|бул|бульвар|наб|набережная|ш|шоссе|пл|площадь|мкр|street|st|avenue|ave|road|rd|lane|ul|ulitsa|bulvar|prospekt|pereulok|shosse|naberezhnaya|ploshchad)\.?(?:\s|$)/i;
+const STREET_WITH_HOUSE = /^(.*\p{L}.*?)\s+(\d+\S*)$/u;
+
+/** The one spelling of a country the applicant may have written either way. */
+function canonicalCountry(unit) {
+  const key = unit.toLowerCase().replace(/\s+/g, ' ').trim();
+  return COUNTRIES[key] ?? COUNTRY_SPELLINGS[key] ?? null;
+}
+
 /**
- * The parts of a home address, each in Latin letters, keyed by what they
- * are: the country, the postal code, the city, and the street with the
- * house, building and flat after it. What is left over is kept as `rest`.
+ * Takes a home address apart into what each unit is: the country, the
+ * postal code, the regions, the city, the street, the house, the building,
+ * the flat, and whatever is left over. Each is rendered in Latin letters;
+ * the words as written are kept beside them for the map lookup.
  *
- * A lookup service takes an address as parts, and a rendering built from
- * verified parts wants the applicant's own flat and building put back.
+ * `ordered` says whether the address belongs to a country whose addresses
+ * the form gets in the canonical order: one written in Cyrillic, or one
+ * naming a country of the region.
  */
 export function addressParts(value) {
   const text = separateUnits(stripAddressNote(stripAddressLabel(value)));
+  const units = text
+    .split(',')
+    .map((unit) => unit.trim())
+    .filter(Boolean);
   const parts = {
     country: '',
     postalCode: '',
+    regions: [],
     city: '',
-    street: [],
+    street: '',
+    house: '',
+    building: '',
+    flat: '',
     rest: [],
-    // The units as written, without the flat, which is what a map lookup
-    // takes: the map knows streets and houses, never flats.
-    written: text
-      .split(',')
-      .map((unit) => unit.trim())
-      .filter(
-        (unit) =>
-          unit &&
-          !/^(?:кв|квартира|apt|apartment|flat)\.?(?=\s|\d|$)/i.test(unit)
-      )
-      .map((unit) => unit.replace(/^(?:д|дом)\.?\s*(?=\d)/i, '')),
+    written: { city: '', street: '', regions: [] },
+    units,
+    ordered: hasCyrillic(text),
   };
-  for (const unit of text.split(',')) {
-    const trimmed = unit.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const marked = /^(?:г|гор|город)\.?\s+/i.test(trimmed);
-    const key = trimmed.toLowerCase().replace(/^(?:г|гор|город)\.?\s+/, '');
-    if (COUNTRIES[key] || /^(?:russia|russian federation)$/i.test(key)) {
-      parts.country = COUNTRIES[key] ?? 'Russian Federation';
-    } else if (/^\d{6}$/.test(trimmed)) {
-      parts.postalCode = trimmed;
-    } else if (
-      marked ||
-      (!parts.city && !/\d/.test(trimmed) && !parts.street.length)
-    ) {
-      parts.city = renderUnit(trimmed);
-    } else {
-      parts.street.push(renderUnit(trimmed));
-    }
+  for (const unit of units) {
+    placeUnit(parts, unit);
   }
+  parts.ordered ||= Object.values(COUNTRIES).includes(parts.country);
   return parts;
+}
+
+/** Puts one unit of an address where it belongs among the parts. */
+function placeUnit(parts, unit) {
+  const country = canonicalCountry(unit);
+  if (country) {
+    parts.country = country;
+  } else if (POSTAL_UNIT.test(unit)) {
+    parts.postalCode = unit;
+  } else if (!placeNumberedUnit(parts, unit)) {
+    placeNamedUnit(parts, unit);
+  }
+}
+
+/** Places a flat, a building or a house number; false when the unit is none. */
+function placeNumberedUnit(parts, unit) {
+  let match;
+  if ((match = unit.match(FLAT_UNIT))) {
+    parts.flat = match[1];
+  } else if ((match = unit.match(BUILDING_UNIT))) {
+    parts.building = match[1];
+  } else if (!parts.house && (match = unit.match(HOUSE_UNIT))) {
+    parts.house = transliterate(match[1]).toUpperCase();
+  } else {
+    return false;
+  }
+  return true;
+}
+
+/** Places a region, a city, a street, or what is left over. */
+function placeNamedUnit(parts, unit) {
+  const marked = /^(?:г|гор|город)\.?\s+/i.test(unit);
+  let match;
+  if (REGION_UNIT.test(unit) && !STREET_TYPED.test(unit)) {
+    parts.regions.push(renderUnit(unit));
+    parts.written.regions.push(unit);
+  } else if (marked || (!parts.city && !parts.street && !/\d/.test(unit))) {
+    parts.city = renderUnit(unit);
+    parts.written.city = unit.replace(/^(?:г|гор|город)\.?\s+/i, '');
+  } else if (!parts.street && (match = unit.match(STREET_WITH_HOUSE))) {
+    parts.street = renderUnit(match[1]);
+    parts.written.street = match[1];
+    parts.house = transliterate(match[2]).toUpperCase();
+  } else if (!parts.street) {
+    parts.street = renderUnit(unit);
+    parts.written.street = unit;
+  } else {
+    parts.rest.push(renderUnit(unit));
+  }
+}
+
+/** Street types written short, and the way the map writes them out. */
+const MAP_STREET_WORDS = [
+  [/^(?:ул|улица|ul|ulitsa|street|st)\.?\s+/i, 'улица '],
+  [/(?:^|\s)(?:ул|улица|ul|ulitsa|street|st)\.?$/i, ' улица'],
+  [/(?:^|\s)(?:б-р|бул|бульвар|bulvar|boulevard)\.?(?=\s|$)/i, ' бульвар'],
+  [
+    /(?:^|\s)(?:пр-т|просп|пр|проспект|prospekt|avenue|ave)\.?(?=\s|$)/i,
+    ' проспект',
+  ],
+  [/(?:^|\s)(?:пер|переулок|pereulok)\.?(?=\s|$)/i, ' переулок'],
+  [/(?:^|\s)(?:наб|набережная|naberezhnaya)\.?(?=\s|$)/i, ' набережная'],
+  [/(?:^|\s)(?:ш|шоссе|shosse)\.?(?=\s|$)/i, ' шоссе'],
+  [/(?:^|\s)(?:пл|площадь|ploshchad)\.?(?=\s|$)/i, ' площадь'],
+];
+
+/** The Russian name of a city the dictionary gives an English name. */
+function nativeCity(city) {
+  const key = String(city ?? '').toLowerCase();
+  const native = Object.entries(CITIES).find(
+    ([, english]) => english.toLowerCase() === key
+  )?.[0];
+  return native ? native.charAt(0).toUpperCase() + native.slice(1) : null;
+}
+
+/**
+ * The address as a map of the region is asked for it: in Cyrillic, with the
+ * street type written out and the building joined to its house, "94 к3".
+ *
+ * A street typed in Latin letters is spelled back into Cyrillic, near enough
+ * for the map's fuzzy matching to find it; that is how the Latin form of an
+ * address is shown to name the same house as the Russian one. "улица" before
+ * a name that already ends in a type ("Гоголевский бульвар") is dropped,
+ * since the map has no such street. An address from elsewhere is asked for
+ * as written.
+ */
+export function mapQuery(parts) {
+  if (!parts.ordered) {
+    return parts.units.filter((unit) => !FLAT_UNIT.test(unit)).join(', ');
+  }
+  const countryKey = Object.entries(COUNTRIES).find(
+    ([, name]) => name === parts.country
+  )?.[0];
+  const country = countryKey
+    ? countryKey.charAt(0).toUpperCase() + countryKey.slice(1)
+    : '';
+  const written = parts.written.city || parts.city;
+  const city = nativeCity(written) ?? toCyrillic(written);
+  const house = parts.house
+    ? toCyrillic(parts.house) + (parts.building ? ` к${parts.building}` : '')
+    : '';
+  return [
+    country,
+    parts.postalCode,
+    ...parts.written.regions.map(toCyrillic),
+    city,
+    mapStreet(parts),
+    house,
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
+/** The street as the map is asked for it: in Cyrillic, its type written out. */
+export function mapStreet(parts) {
+  if (!parts.ordered) {
+    return parts.written.street;
+  }
+  let street = parts.written.street;
+  for (const [pattern, word] of MAP_STREET_WORDS) {
+    street = street.replace(pattern, word);
+  }
+  return toCyrillic(
+    street
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(
+        /^улица\s+(.*(?:бульвар|проспект|шоссе|площадь|набережная|переулок))$/i,
+        '$1'
+      )
+  );
+}
+
+/** Words that name a street's type, not the street itself. */
+const TYPE_WORDS = new Set([
+  'улица',
+  'бульвар',
+  'проспект',
+  'переулок',
+  'набережная',
+  'шоссе',
+  'площадь',
+  'street',
+  'avenue',
+  'road',
+  'lane',
+  'boulevard',
+  'ul',
+  'bulvar',
+  'prospekt',
+  'pereulok',
+  'shosse',
+]);
+
+/**
+ * True when two street names are the same street, allowing for the letters
+ * a spelling back from Latin loses: every name word of the shorter has a
+ * word within two edits in the other, type words aside.
+ */
+export function sameStreet(a, b) {
+  const words = (text) =>
+    String(text ?? '')
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word && !TYPE_WORDS.has(word));
+  const [shorter, longer] = [words(a), words(b)].sort(
+    (x, y) => x.length - y.length
+  );
+  if (!shorter.length) {
+    return false;
+  }
+  return shorter.every((word) =>
+    longer.some(
+      (other) =>
+        editDistance(word, other) <=
+        (Math.min(word.length, other.length) >= 5 ? 2 : 0)
+    )
+  );
 }
 
 /** Countries a passport names as a birthplace, in the applicant's language. */

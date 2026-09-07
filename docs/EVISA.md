@@ -195,21 +195,29 @@ becomes
 Russian Federation, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5
 ```
 
-The order is left as the applicant wrote it. Every address, typed in Latin
-letters or rendered from Russian, is then written one way: names with a
-capital first letter, markers and street types in lower case, house letters in
-capitals, and the country by one spelling (`Russian Federation`, never
-`Russia` or `RUSSIA`), so the permanent, contact and emergency addresses read
-alike on the form. Units written without commas (`г. Москва ул. Пушкина
+A Russian address is put into one order however it was written: country,
+postal code, region, city, street, house, building, flat. One typed in Latin
+letters for a Russian house (`RUSSIAN FEDERATION, PUSHKINA STREET 10,
+APARTMENT 5`) is taken apart the same way and comes out in the same order.
+Every address is then written one way: names with a capital first letter,
+markers and street types in lower case, house letters in capitals, and the
+country by one spelling (`Russian Federation`, never `Russia` or `RUSSIA`),
+so the permanent, contact and emergency addresses read alike on the form. An
+address from elsewhere keeps its own order and gets only its case settled. Units written without commas (`г. Москва ул. Пушкина
 д. 10 кв. 5`) are split apart, and a remark after a dash or in brackets
 (`- адрес для всех`) is dropped.
 
 The bot also checks each address against OpenStreetMap, through the Photon
-service (`EVISA_GEOCODER_URL` to point elsewhere). When the map has the house,
-the rendering is built from the map's own country, postal code, city and
-street, with the applicant's building and flat kept; a different house, a
-postal code the map contradicts, or no answer at all leaves the address as
-written, rendered as above. The log says which happened.
+service (`EVISA_GEOCODER_URL` to point elsewhere). The map is asked in
+Cyrillic, a Latin-typed street spelled back near enough for its fuzzy search,
+and the answer counts only when it is a house of the number asked for on a
+street of the same name. Then the rendering is built from the map's own
+country, postal code, city and street, with the applicant's building and flat
+kept, so a Latin-typed address gains the postal code and city it lacked. A
+different house, a postal code the map contradicts, or no answer at all leaves
+the address as written, rendered as above. The log says which happened, and
+says when two addresses in the chat are the same flat of the same house on the
+map, which is how two spellings are known to be one address.
 
 ## The printed side of the passport
 

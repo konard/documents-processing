@@ -115,29 +115,42 @@ it whole and it is split:
 406/14 Cong Hoa, Tan Binh District, Tan Binh, Хошимин, Вьетнам
 ```
 
-| Field                          | Value              |
-| ------------------------------ | ------------------ |
-| Residential address in Vietnam | `406/14 Cong Hoa`  |
-| Province/city                  | `HO CHI MINH City` |
-| Ward / commune                 | `PHUONG TAN BINH`  |
+| Field                          | Value                                    |
+| ------------------------------ | ---------------------------------------- |
+| Residential address in Vietnam | `406/14 Cong Hoa, Tan Binh, Ho Chi Minh` |
+| Province/city                  | `HO CHI MINH City`                       |
+| Ward / commune                 | `PHUONG TAN BINH`                        |
+
+The address box holds the **whole** address, in the order the field's own
+tooltip gives — premises, ward, city, as in its example
+`Daewoo Hotel, 360 Kim Ma, Ba Dinh, Ha Noi`. The ward and city therefore appear
+both in that line and in the dropdowns beside it, which is what the site's
+example does too. Parts arriving in any other order are put into this one.
+
+Typing the whole address does not populate the dropdowns: the box is a plain
+text field with no lookup behind it, so all three are set separately.
 
 The city is matched in English, Vietnamese or Russian, with or without
 diacritics, so `Хошимин`, `TP Hồ Chí Minh` and `Saigon` all reach the same
-option. The country is dropped: the form has no field for it.
+option. The country is dropped: the form has no field for it. A venue name
+before the street is kept.
 
 **There is no district field, and no numbered wards.** Vietnam merged its wards
 and abolished district-level administration in 2025, so the page now lists 167
 named wards for Ho Chi Minh City and nothing like `Ward 13`. Guidance written
 before that reform will not match the form. A district in a pasted address is
-used to identify the ward and then dropped; a part that identifies nothing is
-reported as unmatched instead of being guessed at.
+used to identify the ward and then dropped from the dropdown; a part naming no
+ward the page offers is left out of the dropdown but kept in the address line,
+since an officer reading it is better served by the applicant's own wording.
 
 The ward list is read from the page, since it depends on the province selected
 and changes when boundaries are redrawn.
 
-An applicant who gives no address gets `406/14 Cong Hoa` in Ho Chi Minh City,
+An applicant who states no address gets `406/14 Cong Hoa, Tan Binh, Ho Chi Minh`,
 because all three fields are required and someone who has not booked yet still
-has to enter one. Every value stays editable in the browser.
+has to enter one. Naming another city leaves the ward empty for validation to
+ask about, since a ward belongs to one city and the default's would place them
+somewhere they never said. Every value stays editable in the browser.
 
 ## The Telegram bot
 

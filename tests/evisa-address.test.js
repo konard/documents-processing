@@ -19,9 +19,53 @@ describe('parseVietnamAddress', () => {
       '406/14 Cong Hoa, Tan Binh District, Tan Binh, Хошимин, Вьетнам',
       { wardOptions: WARDS }
     );
-    expect(parsed.addressInVietnam).toBe('406/14 Cong Hoa');
+    // The address box asks for the whole address, so it holds the ward and the
+    // city too; the dropdowns beside it repeat those two.
+    expect(parsed.addressInVietnam).toBe(
+      '406/14 Cong Hoa, Tan Binh, Ho Chi Minh'
+    );
     expect(parsed.provinceInVietnam).toBe('HO CHI MINH City');
     expect(parsed.wardInVietnam).toBe('PHUONG TAN BINH');
+  });
+
+  it("writes the address the way the site's own example does", () => {
+    // The tooltip on the field reads: Daewoo Hotel, 360 Kim Ma, Ba Dinh, Ha Noi
+    const parsed = parseVietnamAddress(
+      'Daewoo Hotel, 360 Kim Ma, Ba Dinh, Ha Noi',
+      { wardOptions: ['PHUONG BA DINH'] }
+    );
+    expect(parsed.addressInVietnam).toBe(
+      'Daewoo Hotel, 360 Kim Ma, Ba Dinh, Ha Noi'
+    );
+  });
+
+  it('keeps the premises named before the street', () => {
+    // A hotel name is the part that actually locates someone, and the site's
+    // example leads with one.
+    const parsed = parseVietnamAddress('Daewoo Hotel, 360 Kim Ma, Ha Noi');
+    expect(parsed.premises).toEqual(['Daewoo Hotel', '360 Kim Ma']);
+  });
+
+  it('puts the parts in the order the site asks for, whatever order they came in', () => {
+    // A city named in the middle of an address still ends up last.
+    const parsed = parseVietnamAddress('Хошимин, Tan Binh, 406/14 Cong Hoa', {
+      wardOptions: WARDS,
+    });
+    expect(parsed.addressInVietnam).toBe(
+      '406/14 Cong Hoa, Tan Binh, Ho Chi Minh'
+    );
+  });
+
+  it('reads back what it wrote, unchanged', () => {
+    // A record passes through normalization repeatedly, so a composed address
+    // has to survive being parsed again.
+    const once = parseVietnamAddress(DEFAULT_ADDRESS, { wardOptions: WARDS });
+    const twice = parseVietnamAddress(once.addressInVietnam, {
+      wardOptions: WARDS,
+    });
+    expect(twice.addressInVietnam).toBe(once.addressInVietnam);
+    expect(twice.wardInVietnam).toBe(once.wardInVietnam);
+    expect(twice.provinceInVietnam).toBe(once.provinceInVietnam);
   });
 
   it('reads a city written in Russian', () => {
@@ -60,7 +104,7 @@ describe('parseVietnamAddress', () => {
     const parsed = parseVietnamAddress('1 Le Loi, Saigon, Vietnam', {
       wardOptions: WARDS,
     });
-    expect(parsed.unmatched).toEqual([]);
+    expect(parsed.addressInVietnam).toBe('1 Le Loi, Ho Chi Minh');
   });
 
   it('resolves a former district to the ward that replaced it', () => {
@@ -72,9 +116,9 @@ describe('parseVietnamAddress', () => {
     expect(parsed.wardInVietnam).toBe('PHUONG TAN BINH');
   });
 
-  it('reports a part it could not place, never guessing at one', () => {
-    // "Ward 13" no longer exists; saying so beats selecting a neighbouring ward
-    // and putting an applicant at an address they never gave.
+  it('never guesses at a ward it cannot place', () => {
+    // "Ward 13" no longer exists. Selecting a neighbouring ward would put an
+    // applicant at an address they never gave.
     const parsed = parseVietnamAddress(
       '12 Le Loi, Ward 13, District 5, Saigon',
       {
@@ -82,7 +126,20 @@ describe('parseVietnamAddress', () => {
       }
     );
     expect(parsed.wardInVietnam).toBe('');
-    expect(parsed.unmatched).toEqual(['Ward 13', 'District 5']);
+  });
+
+  it('keeps a part it could not place in the address line', () => {
+    // The dropdown has nowhere for "Ward 13", but the address box does, and an
+    // officer reading it is better served by the applicant's own wording.
+    const parsed = parseVietnamAddress(
+      '12 Le Loi, Ward 13, District 5, Saigon',
+      {
+        wardOptions: WARDS,
+      }
+    );
+    expect(parsed.addressInVietnam).toBe(
+      '12 Le Loi, Ward 13, District 5, Ho Chi Minh'
+    );
   });
 
   it('leaves the ward alone when the name matches more than one', () => {
@@ -94,7 +151,8 @@ describe('parseVietnamAddress', () => {
 
   it('keeps the house number whole', () => {
     const parsed = parseVietnamAddress('406/14 Cong Hoa, Saigon');
-    expect(parsed.addressInVietnam).toBe('406/14 Cong Hoa');
+    expect(parsed.premises).toEqual(['406/14 Cong Hoa']);
+    expect(parsed.addressInVietnam).toBe('406/14 Cong Hoa, Ho Chi Minh');
   });
 
   it('returns empty fields for an empty address', () => {
@@ -130,7 +188,7 @@ describe('an address on the applicant record', () => {
       addressInVietnam:
         '406/14 Cong Hoa, Tan Binh District, Tan Binh, Хошимин, Вьетнам',
     });
-    expect(out.addressInVietnam).toBe('406/14 Cong Hoa');
+    expect(out.addressInVietnam).toBe('406/14 Cong Hoa, Tan Binh, Ho Chi Minh');
     expect(out.provinceInVietnam).toBe('HO CHI MINH City');
     expect(out.wardInVietnam).toBe('PHUONG TAN BINH');
   });
@@ -142,7 +200,17 @@ describe('an address on the applicant record', () => {
     const out = normalizeApplicant({
       addressInVietnam: '406/14 Cong Hoa, Хошимин',
     });
-    expect(out.addressInVietnam).toBe('406/14 Cong Hoa');
+    expect(out.addressInVietnam).toBe('406/14 Cong Hoa, Ho Chi Minh');
+  });
+
+  it('leaves the ward empty when the applicant named another city', () => {
+    // A ward belongs to one city, so the default's would place them in Saigon
+    // when they said Ha Noi.
+    const out = normalizeApplicant({
+      addressInVietnam: 'Daewoo Hotel, 360 Kim Ma, Ba Dinh, Ha Noi',
+    });
+    expect(out.provinceInVietnam).toBe('HA NOI City');
+    expect(out.wardInVietnam).toBe('');
   });
 
   it('keeps a province the applicant gave themselves', () => {
@@ -157,7 +225,7 @@ describe('an address on the applicant record', () => {
     // All three are required, so an applicant who has not booked anywhere still
     // has to put something down.
     const out = normalizeApplicant({});
-    expect(out.addressInVietnam).toBe('406/14 Cong Hoa');
+    expect(out.addressInVietnam).toBe('406/14 Cong Hoa, Tan Binh, Ho Chi Minh');
     expect(out.provinceInVietnam).toBe('HO CHI MINH City');
     expect(out.wardInVietnam).toBe('PHUONG TAN BINH');
   });
@@ -166,7 +234,9 @@ describe('an address on the applicant record', () => {
     const parsed = parseVietnamAddress(DEFAULT_ADDRESS, {
       wardOptions: WARDS,
     });
-    expect(parsed.addressInVietnam).toBe('406/14 Cong Hoa');
+    expect(parsed.addressInVietnam).toBe(
+      '406/14 Cong Hoa, Tan Binh, Ho Chi Minh'
+    );
     expect(parsed.provinceInVietnam).toBe('HO CHI MINH City');
     expect(parsed.wardInVietnam).toBe('PHUONG TAN BINH');
   });

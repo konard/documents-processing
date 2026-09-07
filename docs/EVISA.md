@@ -177,12 +177,45 @@ has to enter one. Naming another city leaves the ward empty for validation to
 ask about, since a ward belongs to one city and the default's would place them
 somewhere they never said. Every value stays editable in the browser.
 
+## Home addresses
+
+The permanent, contact and emergency addresses are copied onto the form as
+written, in Latin letters. An address written the Russian way carries markers
+that mean nothing once transliterated, so those are translated or dropped, the
+country and the best-known cities get their English names, and the rest is
+spelled the way the passport's machine-readable zone would spell it:
+
+```
+Россия, г. Москва, 115551, [REDACTED] шоссе, д. 94, корп. 3, кв. 389
+```
+
+becomes
+
+```
+Russia, Moscow, 115551, [REDACTED] shosse, 94, bld. 3, apt. 389
+```
+
+The order is left as the applicant wrote it. An address already in Latin
+letters is not touched.
+
 ## The Telegram bot
 
 The same filling runs behind a bot that collects documents in conversation, in
 English or Russian. It asks the live form what is required rather than carrying
 its own list, fills after 45 seconds of quiet, and replies with a full-height
 screenshot. It never submits.
+
+A line of a message that reads as a postal address, by its markers or postal
+code, is taken as the permanent address; a label such as `Contact address:`
+in front of it sends it to that field instead. A phone or email on the same
+line goes to its own field.
+
+While the bot reads a document or fills the form it shows the "typing" status
+in the chat and sends no message about it. The screenshot is sent as a file,
+not a photo, because Telegram shrinks a photo to fit a screen and a page
+several screens tall comes out unreadable. It is taken once the page has
+stopped changing and every value set is on it; a field the page emptied while
+re-rendering is set again first.
 
 ```sh
 cp .env.example .env        # then put the @BotFather token in it
@@ -191,8 +224,9 @@ node src/evisa-bot-run.mjs
 
 ### In a container
 
-Running it under Docker gives it a browser matched to the Playwright client and
-keeps everything it writes in one volume.
+Running it under Docker gives it a browser matched to the Playwright client, the
+`tesseract` command that reads the passport, and one volume for everything it
+writes.
 
 ```sh
 docker compose up -d --build   # start, rebuilding if the source changed

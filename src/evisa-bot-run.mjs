@@ -112,39 +112,85 @@ function keepForUpload(source, name) {
   return kept;
 }
 
+/**
+ * Shows a status in the chat until the returned function is called.
+ *
+ * Telegram clears a chat action after five seconds, and again whenever the
+ * bot sends a message, so it is renewed on a timer for as long as the work
+ * runs. A status says the bot is busy without adding a message the applicant
+ * then has to scroll past.
+ */
+function showStatus(ctx, action) {
+  const send = () => ctx.replyWithChatAction(action).catch(() => {});
+  send();
+  const timer = setInterval(send, 4000);
+  return () => clearInterval(timer);
+}
+
+/**
+ * Fills the form on a chat's page and sends the applicant the captured result.
+ *
+ * The chat shows "typing" while the form is filled and "sending a file" while
+ * the capture goes out, so the applicant knows the bot is at work without a
+ * message saying so.
+ */
+async function fillAndSend(ctx, chatId, page) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
+  try {
+    const busy = showStatus(ctx, 'typing');
+    let result;
+    try {
+      const applicant = normalizeApplicant(session.data);
+      log(chatId, `filling with: ${describeFields(applicant)}`);
+      // Show what will go on the form, before showing the form itself.
+      const summary = describeSummary(
+        applicant,
+        session.data,
+        session.language
+      );
+      if (summary) {
+        await ctx.reply(summary);
+      }
+      result = await fillAndCapture(page, applicant, {
+        uploads: session.uploads,
+        screenshot: path.join(dir, 'form.png'),
+      });
+    } finally {
+      busy();
+    }
+
+    // Sent as a file: Telegram shrinks a photo to fit a screen, and a page
+    // several screens tall comes out too small to read.
+    const sending = showStatus(ctx, 'upload_document');
+    try {
+      await ctx.replyWithDocument(
+        new InputFile(result.screenshot, 'form.png'),
+        { caption: strings.filled(result.filled.length) }
+      );
+    } finally {
+      sending();
+    }
+    return result;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Fills the form with what the chat has provided and sends back the page. */
 async function fillAndShow(ctx, chatId) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
   const page = await pageFor(chatId);
-
-  await ctx.reply(strings.filling);
-  const applicant = normalizeApplicant(session.data);
-  log(chatId, `filling with: ${describeFields(applicant)}`);
-  // Show what will go on the form, before showing the form itself.
-  const summary = describeSummary(applicant, session.data, session.language);
-  if (summary) {
-    await ctx.reply(summary);
-  }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
-  const result = await fillAndCapture(page, applicant, {
-    uploads: session.uploads,
-    screenshot: path.join(dir, 'form.png'),
-  });
-
-  try {
-    await ctx.replyWithPhoto(new InputFile(result.screenshot), {
-      caption: strings.filled(result.filled.length),
-    });
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const result = await fillAndSend(ctx, chatId, page);
 
   log(
     chatId,
     `filled ${result.filled.length}, failed ${result.failures.length}` +
       `, site agreed on ${result.agreed?.length ?? 0}` +
-      `, corrected ${result.corrected?.length ?? 0}`
+      `, corrected ${result.corrected?.length ?? 0}` +
+      `, set again ${result.refilled?.length ?? 0}`
   );
   for (const failure of result.failures) {
     log(
@@ -230,8 +276,7 @@ bot.command('reset', async (ctx) => {
 bot.on(['message:photo', 'message:document'], async (ctx) => {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
-  await ctx.reply(strings.reading);
+  const busy = showStatus(ctx, 'typing');
 
   const file = await ctx.getFile();
   const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
@@ -291,7 +336,7 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
     // removes them is the sweep below, which runs daily: a container's volume
     // survives restarts, so nothing else would.
     { keep: valuesAllowed() }
-  );
+  ).finally(busy);
 
   armIdleFill(ctx, chatId);
 });
@@ -301,9 +346,14 @@ bot.on('message:text', (ctx) => {
   const session = sessions.get(chatId);
   session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
   const parsed = parseFreeText(ctx.message.text);
+  // The text itself is logged too: what was not read out of it is only
+  // diagnosable against the words that were sent.
+  const text = valuesAllowed()
+    ? `: ${JSON.stringify(ctx.message.text)}`
+    : ` of ${ctx.message.text.length} characters`;
   log(
     chatId,
-    `text message (${session.language}); read: ${describeFields(parsed)}`
+    `text message (${session.language})${text}; read: ${describeFields(parsed)}`
   );
   Object.assign(session.data, parsed);
   armIdleFill(ctx, chatId);

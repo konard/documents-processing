@@ -6,6 +6,7 @@
 
 import { toLatin } from './translit.mjs';
 import { parseVietnamAddress } from './evisa-address.mjs';
+import { latinAddress } from './evisa-home-address.mjs';
 import {
   FIELDS,
   RADIO_GROUPS,
@@ -139,6 +140,13 @@ const TRANSLITERATED_FIELDS = [
   'occupationInfo',
   'addressInVietnam',
   'religion',
+];
+
+/** Addresses outside Vietnam, which arrive written the applicant's own way. */
+const ADDRESS_FIELDS = [
+  'permanentAddress',
+  'contactAddress',
+  'emergencyAddress',
 ];
 
 /**
@@ -337,6 +345,35 @@ function normalizeFields(out) {
   }
 }
 
+/** Brings every free-text field that may arrive in Cyrillic into Latin. */
+function latinizeFields(out) {
+  // A Russian passport prints these fields as <Russian>/<English>, so the half
+  // after the slash is the one the form wants. Taking the Cyrillic half and
+  // transliterating it would turn МОСКВА/USSR into MOSKVA, which is not what
+  // the document says in English.
+  for (const key of TRANSLITERATED_FIELDS) {
+    if (out[key]) {
+      out[key] = preferEnglishHalf(out[key]);
+    }
+  }
+
+  // A home address carries markers (г., ул., д., кв.) that mean nothing once
+  // transliterated, so it is rendered as an address before the general pass.
+  for (const key of ADDRESS_FIELDS) {
+    if (out[key]) {
+      out[key] = latinAddress(out[key]);
+    }
+  }
+
+  // Whatever remains in Cyrillic is transliterated the way the passport's own
+  // machine-readable zone does it, so the spelling matches the document.
+  for (const key of TRANSLITERATED_FIELDS) {
+    if (out[key]) {
+      out[key] = toLatin(out[key]).value;
+    }
+  }
+}
+
 /** Applies the defaults and Yes/No wording for the radio questions. */
 function normalizeRadios(out) {
   for (const [key, group] of Object.entries(RADIO_GROUPS)) {
@@ -359,23 +396,7 @@ export function normalizeApplicant(input) {
   // reads as a <Latin>/<Cyrillic> pair and would be cut down to "406".
   splitAddress(out);
 
-  // A Russian passport prints these fields as <Russian>/<English>, so the half
-  // after the slash is the one the form wants. Taking the Cyrillic half and
-  // transliterating it would turn МОСКВА/USSR into MOSKVA, which is not what
-  // the document says in English.
-  for (const key of TRANSLITERATED_FIELDS) {
-    if (out[key]) {
-      out[key] = preferEnglishHalf(out[key]);
-    }
-  }
-
-  // Whatever remains in Cyrillic is transliterated the way the passport's own
-  // machine-readable zone does it, so the spelling matches the document.
-  for (const key of TRANSLITERATED_FIELDS) {
-    if (out[key]) {
-      out[key] = toLatin(out[key]).value;
-    }
-  }
+  latinizeFields(out);
 
   for (const key of ['surname', 'givenName', 'emergencyName']) {
     if (out[key]) {

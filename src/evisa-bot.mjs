@@ -4,9 +4,9 @@
 // A Telegram bot that collects what a Vietnam e-visa application needs, in
 // Russian or English, and shows the applicant the filled form.
 //
-// Nothing is stored. The conversation in Telegram is the only record: on each
-// message the bot re-reads the chat history it has been given, works out what is
-// still missing, and asks for that. Documents are read in memory and discarded.
+// Documents and the values read from them are held while the application is
+// being prepared, and kept afterwards for diagnosis; evisa-log describes what
+// is written where, and clears it on a schedule.
 //
 // Which fields are required is read from the live form, so a change on the
 // government side surfaces as a question to the applicant.
@@ -28,8 +28,7 @@ export const MESSAGES = {
     checklistDocuments: 'Send these',
     checklistDetails: 'Tell me these',
     checklistFooter:
-      'Photos, PDFs and forwarded messages all work, in any order. ' +
-      'I keep nothing: this chat is the only record.',
+      'Photos, PDFs and forwarded messages all work, in any order.',
     readFromPassport: 'read from your passport photo',
     detected: 'From your documents I read:',
     siteAgreed: (n) =>
@@ -56,8 +55,7 @@ export const MESSAGES = {
     checklistDocuments: 'Пришлите',
     checklistDetails: 'Напишите',
     checklistFooter:
-      'Подойдут фото, PDF и пересланные сообщения, в любом порядке. ' +
-      'Я ничего не сохраняю: единственная запись — эта переписка.',
+      'Подойдут фото, PDF и пересланные сообщения, в любом порядке.',
     readFromPassport: 'прочитаю с фото паспорта',
     detected: 'Из ваших документов я прочитал:',
     siteAgreed: (n) =>
@@ -396,16 +394,28 @@ export function createSessionStore() {
 /**
  * Writes a downloaded document to a temporary file.
  *
- * The caller deletes it once read. Telegram serves files over HTTPS and the OCR
- * helpers need a path, so it touches disk briefly and only there.
+ * With debugging on, the file is left in place: a bad crop or a bad read can
+ * only be diagnosed against the image that produced it. That means received
+ * documents accumulate under the system temp directory until they are cleared,
+ * so `keep` is what the operator turns off to have them removed after reading.
+ *
+ * Telegram serves files over HTTPS and the OCR helpers need a path, so the
+ * document touches disk either way.
  */
-export async function withTempFile(buffer, extension, use) {
+export async function withTempFile(
+  buffer,
+  extension,
+  use,
+  { keep = false } = {}
+) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-bot-'));
   const file = path.join(dir, `document${extension}`);
   fs.writeFileSync(file, buffer);
   try {
-    return await use(file);
+    return await use(file, dir);
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    if (!keep) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 }

@@ -14,6 +14,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadEnv } from './env.mjs';
 import {
+  log,
+  describeFields,
+  announce,
+  valuesAllowed,
+  sweepKeptFiles,
+  RETENTION_DAYS,
+} from './evisa-log.mjs';
+import {
   MESSAGES,
   IDLE_FILL_MS,
   detectLanguage,
@@ -52,6 +60,7 @@ async function pageFor(chatId) {
   if (browsers.has(chatId)) {
     return browsers.get(chatId).page;
   }
+  log(chatId, 'opening a browser on the form');
   const { browser, page } = await openForm({ headless: true });
   browsers.set(chatId, { browser, page });
   return page;
@@ -93,6 +102,7 @@ async function fillAndShow(ctx, chatId) {
 
   await ctx.reply(strings.filling);
   const applicant = normalizeApplicant(session.data);
+  log(chatId, `filling with: ${describeFields(applicant)}`);
   // Show what will go on the form, before showing the form itself.
   const summary = describeSummary(applicant, session.data, session.language);
   if (summary) {
@@ -112,6 +122,22 @@ async function fillAndShow(ctx, chatId) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  log(
+    chatId,
+    `filled ${result.filled.length}, failed ${result.failures.length}` +
+      `, site agreed on ${result.agreed?.length ?? 0}` +
+      `, corrected ${result.corrected?.length ?? 0}`
+  );
+  for (const failure of result.failures) {
+    log(
+      chatId,
+      `could not fill ${failure.field}: ${failure.error.split('\n')[0]}`
+    );
+  }
+  for (const change of result.corrected ?? []) {
+    log(chatId, `corrected ${change.field}: site had "${change.was}"`);
+  }
+
   const corrections = describeCorrections(result, session.language);
   if (corrections) {
     await ctx.reply(corrections);
@@ -127,6 +153,17 @@ async function fillAndShow(ctx, chatId) {
   // surfaces as a question to the applicant.
   const report = await readRequiredFields(page);
   const outstanding = outstandingFields(report, session.data, NOT_ASKED);
+  log(
+    chatId,
+    `still outstanding: ${outstanding.map((f) => f.name).join(', ') || 'nothing'}`
+  );
+  if (report.unmapped.length) {
+    // The form has grown a required field this tool does not know about.
+    log(
+      chatId,
+      `required but unmapped: ${report.unmapped.map((u) => u.label).join(' | ')}`
+    );
+  }
   if (outstanding.length) {
     await ctx.reply(describeMissing(outstanding, session.language));
   } else {
@@ -151,6 +188,7 @@ const bot = new Bot(token);
 
 bot.command('start', async (ctx) => {
   const chatId = ctx.chat.id;
+  log(chatId, `/start from language_code=${ctx.from?.language_code ?? '?'}`);
   await endChat(chatId);
   const session = sessions.get(chatId);
   session.language = detectLanguage(null, ctx.from?.language_code);
@@ -181,37 +219,65 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
   const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
   const buffer = Buffer.from(await (await fetch(url)).arrayBuffer());
   const extension = path.extname(file.file_path || '.jpg') || '.jpg';
+  log(
+    chatId,
+    `document received: ${extension}, ${Math.round(buffer.length / 1024)} KB`
+  );
 
-  await withTempFile(buffer, extension, async (local) => {
-    // A photo of a whole passport carries background the form has no use for,
-    // so the data page is cut out first.
-    const prepared = `${local}.upload.jpg`;
-    const ready = await prepareDocument(local, prepared, { crop: true }).catch(
-      () => null
-    );
-    const source = ready ? prepared : local;
+  // Kept for inspection while debugging: a bad crop or read is only
+  // diagnosable against the image that caused it.
+  await withTempFile(
+    buffer,
+    extension,
+    async (local) => {
+      log(chatId, `document written to ${local}`);
+      // A photo of a whole passport carries background the form has no use for,
+      // so the data page is cut out first.
+      const prepared = `${local}.upload.jpg`;
+      const ready = await prepareDocument(local, prepared, {
+        crop: true,
+      }).catch((error) => {
+        log(chatId, `preparing the document failed: ${error.message}`);
+        return null;
+      });
+      const source = ready ? prepared : local;
+      if (ready) {
+        log(
+          chatId,
+          `prepared: ${ready.cropped ? 'data page cut out' : 'kept whole'}, ${Math.round(ready.bytes / 1024)} KB`
+        );
+      }
 
-    const read = await readPassport(source).catch(() => null);
-    if (read && Object.keys(read).length) {
-      Object.assign(session.data, read);
-      // Keep the page for upload; it is copied because the temp file goes away.
-      const kept = path.join(
-        fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),
-        `passport${extension}`
-      );
-      fs.copyFileSync(source, kept);
-      session.uploads.passportPage = kept;
-    } else {
-      // Not a passport: treat it as the portrait, which is the other image the
-      // form wants and needs no reading.
-      const kept = path.join(
-        fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),
-        `portrait${extension}`
-      );
-      fs.copyFileSync(local, kept);
-      session.uploads.portraitPhoto = kept;
-    }
-  });
+      const read = await readPassport(source).catch((error) => {
+        log(chatId, `reading the passport failed: ${error.message}`);
+        return null;
+      });
+      log(chatId, `read from the document: ${describeFields(read ?? {})}`);
+      if (read && Object.keys(read).length) {
+        Object.assign(session.data, read);
+        // Keep the page for upload; it is copied because the temp file goes away.
+        const kept = path.join(
+          fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),
+          `passport${extension}`
+        );
+        fs.copyFileSync(source, kept);
+        session.uploads.passportPage = kept;
+      } else {
+        log(chatId, 'no passport zone found; treating it as the portrait');
+        // Not a passport: treat it as the portrait, which is the other image the
+        // form wants and needs no reading.
+        const kept = path.join(
+          fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),
+          `portrait${extension}`
+        );
+        fs.copyFileSync(local, kept);
+        session.uploads.portraitPhoto = kept;
+      }
+    },
+    // Kept while debugging. These live under the system temp directory, which
+    // the machine clears on restart, so they do not accumulate indefinitely.
+    { keep: valuesAllowed() }
+  );
 
   armIdleFill(ctx, chatId);
 });
@@ -220,7 +286,12 @@ bot.on('message:text', (ctx) => {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
   session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
-  Object.assign(session.data, parseFreeText(ctx.message.text));
+  const parsed = parseFreeText(ctx.message.text);
+  log(
+    chatId,
+    `text message (${session.language}); read: ${describeFields(parsed)}`
+  );
+  Object.assign(session.data, parsed);
   armIdleFill(ctx, chatId);
 });
 
@@ -232,4 +303,13 @@ process.on('SIGINT', async () => {
 });
 
 console.log('e-visa bot running. Press Ctrl+C to stop.');
+announce();
+
+// Kept documents are swept on startup and daily after that, so a machine that
+// stays up for weeks does not accumulate everything it was ever sent.
+const swept = sweepKeptFiles();
+console.log(
+  `Kept documents older than ${RETENTION_DAYS} days removed: ${swept}`
+);
+setInterval(() => sweepKeptFiles(), 24 * 60 * 60 * 1000).unref();
 bot.start();

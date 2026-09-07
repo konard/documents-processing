@@ -54,6 +54,7 @@ describe('documents-processing commands', () => {
     'evisa-session.mjs',
     'env.mjs',
     'translit.mjs',
+    'evisa-log.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

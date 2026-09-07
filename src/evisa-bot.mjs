@@ -27,6 +27,13 @@ import {
 export const IDLE_FILL_MS = 45_000;
 
 /**
+ * How long the bot waits between telling the applicant what will go on the
+ * form and filling it: time to read the list and say "стой" if anything is
+ * wrong, or "отправляй" to skip the wait.
+ */
+export const REVIEW_MS = 30_000;
+
+/**
  * How long a chat's browser is kept after its last message.
  *
  * A browser holds the filled form, so an applicant who comes back an hour
@@ -69,6 +76,12 @@ export const MESSAGES = {
     fillFailed: (why) =>
       `Filling stopped: ${why}. The browser is left open with the form as ` +
       'far as it got.',
+    reviewNote: (seconds) =>
+      `Filling in ${seconds} seconds. Say "stop" if anything is wrong, or ` +
+      '"go" to fill now.',
+    stopped: 'Stopped. Send corrections, or say "go" when everything is right.',
+    alreadyFilling:
+      'Already filling. The form is not submitted; check it in the browser.',
     needed: 'Still needed:',
     ready:
       'The form is NOT submitted. Check every field, then submit it ' +
@@ -109,6 +122,14 @@ export const MESSAGES = {
     fillFailed: (why) =>
       `Заполнение прервалось: ${why}. Браузер оставлен открытым с формой в ` +
       'том виде, до которого дошло.',
+    reviewNote: (seconds) =>
+      `Заполню через ${seconds} секунд. Напишите «стой», если что-то не ` +
+      'так, или «отправляй», чтобы не ждать.',
+    stopped:
+      'Остановил. Пришлите исправления или напишите «отправляй», когда всё ' +
+      'верно.',
+    alreadyFilling:
+      'Уже заполняю. Форма не отправляется, проверьте её в браузере.',
     needed: 'Ещё нужно:',
     ready:
       'Форма НЕ отправлена. Проверьте каждое поле и отправьте сами в ' +
@@ -277,6 +298,15 @@ const CONFIRMATIONS =
 /** True for a message that says "go ahead", in either language. */
 export function isConfirmation(text) {
   return CONFIRMATIONS.test(String(text ?? '').trim());
+}
+
+/** Words that tell the bot not to fill: the applicant wants another look. */
+const CANCELLATIONS =
+  /^[^\p{L}\p{N}]*(?:стой|стоп|отмена|отменить|отмени|подожди|погоди|не\s+(?:отправляй|заполняй)|stop|cancel|wait|hold\s+on|don'?t)[^\p{L}\p{N}]*$/iu;
+
+/** True for a message that says "stop", in either language. */
+export function isCancellation(text) {
+  return CANCELLATIONS.test(String(text ?? '').trim());
 }
 
 /**

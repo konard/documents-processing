@@ -22,6 +22,8 @@ import {
   describeSummary,
   describeOutcome,
   isConfirmation,
+  isCancellation,
+  REVIEW_MS,
   NOT_ASKED,
 } from '../src/evisa-bot.mjs';
 import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
@@ -519,5 +521,17 @@ describe('what the bot says about a form', () => {
     expect(isConfirmation('go')).toBe(true);
     expect(isConfirmation('да, адрес: Тула')).toBe(false);
     expect(isConfirmation(MOSCOW)).toBe(false);
+  });
+
+  it('takes a word of refusal as the signal not to fill', () => {
+    expect(isCancellation('Стой')).toBe(true);
+    expect(isCancellation('стоп!')).toBe(true);
+    expect(isCancellation('отмена')).toBe(true);
+    expect(isCancellation('не отправляй')).toBe(true);
+    expect(isCancellation('stop')).toBe(true);
+    expect(isCancellation('стой, адрес другой: Тула')).toBe(false);
+    expect(isCancellation('отправляй')).toBe(false);
+    // Half a minute: enough to read a list of forty values.
+    expect(REVIEW_MS).toBe(30_000);
   });
 });

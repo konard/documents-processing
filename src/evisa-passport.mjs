@@ -1122,9 +1122,12 @@ export async function prepareUploadImage(inputPath, outputPath) {
   }
 
   // Otherwise shrink it just enough to clear the ceiling, preserving the
-  // aspect ratio and never enlarging.
+  // aspect ratio and never enlarging. The camera's metadata stays with it:
+  // the site judges whether a portrait is an original or a copy, and a
+  // photo stripped of everything a camera writes looks like a copy.
   const pipeline = sharp(source, { failOn: 'none' })
     .rotate()
+    .withMetadata()
     .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true });
 
   let quality = 92;

@@ -113,6 +113,13 @@ describe('rendering a home address in Latin letters', () => {
     );
     expect(mapQuery(latin)).toBe('Россия, Москва, Пушкина улица, 10');
     expect(sameStreet(mapStreet(latin), 'улица Пушкина')).toBe(true);
+    // A street on its own unit, its type word telling it from a city.
+    const rendered = addressParts(
+      'Russian Federation, [REDACTED] bulvar, 18A, apt. 16'
+    );
+    expect(rendered.city).toBe('');
+    expect(rendered.street).toBe('[REDACTED] bulvar');
+    expect(mapQuery(rendered)).toBe('Россия, [REDACTED] бульвар, 18А');
     expect(sameStreet('[REDACTED] бульвар', '[REDACTED] бульвар')).toBe(true);
     expect(sameStreet('[REDACTED] бульвар', 'Верх-Исетский бульвар')).toBe(
       false

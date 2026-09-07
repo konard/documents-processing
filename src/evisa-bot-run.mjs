@@ -19,6 +19,8 @@ import {
   detectLanguage,
   describeMissing,
   describeChecklist,
+  describeDetected,
+  NOT_ASKED,
   parseFreeText,
   createSessionStore,
   withTempFile,
@@ -113,7 +115,7 @@ async function fillAndShow(ctx, chatId) {
   // Ask the page itself what is still required, so a change on their side
   // surfaces as a question to the applicant.
   const report = await readRequiredFields(page);
-  const outstanding = outstandingFields(report, session.data);
+  const outstanding = outstandingFields(report, session.data, NOT_ASKED);
   if (outstanding.length) {
     await ctx.reply(describeMissing(outstanding, session.language));
   } else {
@@ -141,14 +143,12 @@ bot.command('start', async (ctx) => {
   await endChat(chatId);
   const session = sessions.get(chatId);
   session.language = detectLanguage(null, ctx.from?.language_code);
-  const strings = MESSAGES[session.language];
 
-  await ctx.reply(strings.welcome);
-  // List everything up front, read from the live form.
+  // The checklist is read from the live form and sent as one message.
   const page = await pageFor(chatId);
   const report = await readRequiredFields(page);
   await ctx.reply(describeChecklist(report.required, session.language));
-  armIdleFill(ctx, chatId);
+  // No timer yet: filling an empty form would tell the applicant nothing.
 });
 
 bot.command('fill', async (ctx) => {
@@ -183,6 +183,10 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
     const read = await readPassport(source).catch(() => null);
     if (read && Object.keys(read).length) {
       Object.assign(session.data, read);
+      const summary = describeDetected(read, session.language);
+      if (summary) {
+        await ctx.reply(summary);
+      }
       // Keep the page for upload; it is copied because the temp file goes away.
       const kept = path.join(
         fs.mkdtempSync(path.join('/tmp', 'evisa-doc-')),

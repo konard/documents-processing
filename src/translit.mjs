@@ -53,6 +53,76 @@ const ICAO_9303 = {
   Ў: 'U',
 };
 
+/**
+ * Latin back to Cyrillic, the longer pairs first so "SH" is Ш and not С+Н.
+ *
+ * The reverse of ICAO 9303 loses what the forward mapping lost (soft signs,
+ * Й against И), so the result is a near spelling, not the word: "[REDACTED]"
+ * for [REDACTED]. That is enough for a map search that allows a letter or
+ * two of difference, which is what it is for.
+ */
+const LATIN_TO_CYRILLIC = [
+  ['SHCH', 'Щ'],
+  ['KH', 'Х'],
+  ['TS', 'Ц'],
+  ['CH', 'Ч'],
+  ['SH', 'Ш'],
+  ['ZH', 'Ж'],
+  ['IU', 'Ю'],
+  ['YU', 'Ю'],
+  ['IA', 'Я'],
+  ['YA', 'Я'],
+  ['YO', 'Ё'],
+  ['YE', 'Е'],
+  ['A', 'А'],
+  ['B', 'Б'],
+  ['C', 'К'],
+  ['D', 'Д'],
+  ['E', 'Е'],
+  ['F', 'Ф'],
+  ['G', 'Г'],
+  ['H', 'Х'],
+  ['I', 'И'],
+  ['J', 'Ж'],
+  ['K', 'К'],
+  ['L', 'Л'],
+  ['M', 'М'],
+  ['N', 'Н'],
+  ['O', 'О'],
+  ['P', 'П'],
+  ['Q', 'К'],
+  ['R', 'Р'],
+  ['S', 'С'],
+  ['T', 'Т'],
+  ['U', 'У'],
+  ['V', 'В'],
+  ['W', 'В'],
+  ['X', 'КС'],
+  ['Y', 'Ы'],
+  ['Z', 'З'],
+];
+
+/** Spells Latin text in Cyrillic, near enough for a fuzzy search. */
+export function toCyrillic(value) {
+  let rest = String(value ?? '');
+  let out = '';
+  while (rest) {
+    const pair = LATIN_TO_CYRILLIC.find(([latin]) =>
+      rest.toUpperCase().startsWith(latin)
+    );
+    if (!pair) {
+      out += rest[0];
+      rest = rest.slice(1);
+      continue;
+    }
+    const [latin, cyrillic] = pair;
+    const source = rest.slice(0, latin.length);
+    out += source === source.toUpperCase() ? cyrillic : cyrillic.toLowerCase();
+    rest = rest.slice(latin.length);
+  }
+  return out;
+}
+
 /** True when the text holds any Cyrillic. */
 export function hasCyrillic(value) {
   return /[Ѐ-ӿ]/.test(String(value ?? ''));

@@ -6,9 +6,16 @@ import {
   stripAddressLabel,
   stripAddressNote,
   addressParts,
+  mapQuery,
+  mapStreet,
+  sameStreet,
 } from '../src/evisa-home-address.mjs';
-import { lookupAddress, renderVerifiedAddress } from '../src/evisa-geocode.mjs';
-import { transliterate, editDistance } from '../src/translit.mjs';
+import {
+  lookupAddress,
+  renderVerifiedAddress,
+  sameAddress,
+} from '../src/evisa-geocode.mjs';
+import { transliterate, toCyrillic, editDistance } from '../src/translit.mjs';
 import { parseFreeText, NOT_ASKED } from '../src/evisa-bot.mjs';
 import { normalizeApplicant } from '../src/evisa-data.mjs';
 
@@ -24,7 +31,7 @@ const TYPED =
 describe('rendering a home address in Latin letters', () => {
   it('translates the markers and names the country and city in English', () => {
     expect(latinAddress(MOSCOW)).toBe(
-      'Russian Federation, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
     );
   });
 
@@ -46,7 +53,7 @@ describe('rendering a home address in Latin letters', () => {
   it('does not take a word that merely starts like a marker for one', () => {
     // "Гагарина" is not "г. агарина", and "Облонская" is not a region.
     expect(latinAddress('Гагарина 5, Облонская ул., 3')).toBe(
-      'Gagarina 5, Oblonskaia ul., 3'
+      'Gagarina, 5, Oblonskaia ul., 3'
     );
   });
 
@@ -55,10 +62,10 @@ describe('rendering a home address in Latin letters', () => {
       '12 Baker Street, London, United Kingdom'
     );
     expect(
-      latinAddress('RUSSIAN FEDERATION, [REDACTED] BULVAR 18A, APARTMENT 16')
-    ).toBe('Russian Federation, [REDACTED] bulvar 18A, apartment 16');
+      latinAddress('RUSSIAN FEDERATION, GOGOLEVSKII BULVAR 3A, APARTMENT 16')
+    ).toBe('Russian Federation, Gogolevskii bulvar, 3A, apt. 16');
     expect(latinAddress('russia, rostov-on-don, ul. mira 5, apt. 7')).toBe(
-      'Russian Federation, Rostov-on-Don, ul. Mira 5, apt. 7'
+      'Russian Federation, Rostov-on-Don, ul. Mira, 5, apt. 7'
     );
   });
 
@@ -88,19 +95,29 @@ describe('rendering a home address in Latin letters', () => {
     );
   });
 
-  it('takes an address apart for a map lookup, without the flat', () => {
+  it('takes an address apart and asks the map for it in Cyrillic', () => {
     const parts = addressParts(TYPED);
     expect(parts.country).toBe('Russian Federation');
     expect(parts.postalCode).toBe('101000');
     expect(parts.city).toBe('Moscow');
-    expect(parts.written).toEqual([
-      'Россия',
-      '101000',
-      'г. Москва',
-      'ул. Пушкина',
-      '10',
-      'корп. 2',
-    ]);
+    expect(parts.house).toBe('10');
+    expect(parts.building).toBe('2');
+    expect(parts.flat).toBe('5');
+    expect(mapQuery(parts)).toBe(
+      'Россия, 101000, Москва, улица Пушкина, 10 к2'
+    );
+    // Typed in Latin letters, the same house is asked for in Cyrillic, near
+    // enough for the map to find it.
+    const latin = addressParts(
+      'Russian Federation, Moscow, Pushkina street 10, apt. 5'
+    );
+    expect(mapQuery(latin)).toBe('Россия, Москва, Пушкина улица, 10');
+    expect(sameStreet(mapStreet(latin), 'улица Пушкина')).toBe(true);
+    expect(sameStreet('[REDACTED] бульвар', '[REDACTED] бульвар')).toBe(true);
+    expect(sameStreet('[REDACTED] бульвар', 'Верх-Исетский бульвар')).toBe(
+      false
+    );
+    expect(toCyrillic('[REDACTED]')).toBe('[REDACTED]');
   });
 });
 
@@ -139,6 +156,8 @@ describe('checking an address against the map', () => {
   });
   const house = {
     properties: {
+      osm_type: 'W',
+      osm_id: 1,
       type: 'house',
       housenumber: '10 к2',
       street: 'улица Пушкина',
@@ -156,6 +175,31 @@ describe('checking an address against the map', () => {
     expect(renderVerifiedAddress(TYPED, found)).toBe(
       'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
     );
+  });
+
+  it('finds the same house from the Latin spelling, and knows it is the same', async () => {
+    const latin = 'RUSSIAN FEDERATION, PUSHKINA STREET 10, APARTMENT 5';
+    const one = await lookupAddress(TYPED, { fetchImpl: answer([house]) });
+    const two = await lookupAddress(latin, { fetchImpl: answer([house]) });
+    expect(renderVerifiedAddress(latin, two)).toBe(
+      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, apt. 5'
+    );
+    expect(sameAddress(one, two)).toBe(true);
+    const otherFlat = await lookupAddress(latin.replace('5', '6'), {
+      fetchImpl: answer([house]),
+    });
+    expect(sameAddress(one, otherFlat)).toBe(false);
+  });
+
+  it('does not take a house of the right number on another street', async () => {
+    const elsewhere = {
+      properties: { ...house.properties, osm_id: 2, street: 'улица Ленина' },
+    };
+    const found = await lookupAddress(TYPED, {
+      fetchImpl: answer([elsewhere]),
+    });
+    expect(found.houseMatches).toBe(false);
+    expect(renderVerifiedAddress(TYPED, found)).toBe(null);
   });
 
   it('does not build on a different house or a contradicted postal code', async () => {
@@ -228,7 +272,7 @@ describe('an address in a chat message', () => {
   it('reaches the form in Latin letters, and serves as the contact address', () => {
     const applicant = normalizeApplicant({ permanentAddress: MOSCOW });
     expect(applicant.permanentAddress).toBe(
-      'Russian Federation, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
     );
     expect(applicant.contactAddress).toBe(applicant.permanentAddress);
     expect(applicant.purpose).toBe('Tourist');

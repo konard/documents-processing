@@ -197,6 +197,27 @@ export const AIR_BORDER_GATES = [
   'Vinh Airport Border Gate',
 ];
 
+/**
+ * Values assumed when an applicant does not supply them.
+ *
+ * Both fields are required, and both have an answer that fits the overwhelming
+ * majority of applicants, so asking for them adds a step without adding
+ * information. They are ordinary form entries and remain editable in the
+ * browser before submission.
+ */
+export const FIELD_DEFAULTS = {
+  passportType: 'Ordinary passport',
+  religion: 'Christianity',
+};
+
+/** Passport-type options, as worded in the form's dropdown. */
+export const PASSPORT_TYPES = [
+  'Ordinary passport',
+  'Diplomatic passport',
+  'Official passport',
+  'Other',
+];
+
 /** Purpose-of-entry options, as worded in the form's dropdown. */
 export const PURPOSES = [
   'Tourist',

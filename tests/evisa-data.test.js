@@ -124,8 +124,27 @@ describe('normalizeApplicant', () => {
   });
 
   it('drops empty values, so no blanks are typed into the form', () => {
-    const out = normalizeApplicant({ ...baseApplicant, religion: '' });
-    expect('religion' in out).toBe(false);
+    // A field with no default: religion and passport type are filled in below.
+    const out = normalizeApplicant({ ...baseApplicant, placeOfBirth: '' });
+    expect('placeOfBirth' in out).toBe(false);
+  });
+
+  it('fills the required fields that have one usual answer', () => {
+    // Both are required, and asking for them adds a step without adding
+    // information. They stay editable in the browser.
+    const out = normalizeApplicant(baseApplicant);
+    expect(out.passportType).toBe('Ordinary passport');
+    expect(out.religion).toBe('Christianity');
+  });
+
+  it('keeps an answer the applicant gave over the default', () => {
+    const out = normalizeApplicant({
+      ...baseApplicant,
+      religion: 'Islam',
+      passportType: 'Diplomatic passport',
+    });
+    expect(out.religion).toBe('Islam');
+    expect(out.passportType).toBe('Diplomatic passport');
   });
 });
 

@@ -11,6 +11,7 @@ import {
   MAX_EVISA_DAYS,
   AIR_BORDER_GATES,
   PURPOSES,
+  FIELD_DEFAULTS,
 } from './evisa-schema.mjs';
 
 /** Everyday wordings for the purpose of entry, mapped to the site's options. */
@@ -245,7 +246,39 @@ export function normalizeApplicant(input) {
 
   normalizeRadios(out);
 
+  // Fill the required fields that have one answer nearly everyone gives, so the
+  // applicant is not asked for something the form can assume.
+  for (const [key, value] of Object.entries(FIELD_DEFAULTS)) {
+    out[key] ??= value;
+  }
+
+  applyDateDefaults(out);
+
   return out;
+}
+
+/**
+ * Fills the trip dates that follow from one another.
+ *
+ * An applicant who has not named a date is usually planning some weeks ahead,
+ * so entry defaults to seven weeks out. The validity window then runs from that
+ * date for the full 90 days the visa allows, since a shorter window only limits
+ * the applicant and costs the same.
+ */
+function applyDateDefaults(out) {
+  const entry = parseDate(out.entryDate) ?? addDays(today(), 7 * 7);
+  out.entryDate ??= toFormDate(entry);
+
+  const from = parseDate(out.validFrom) ?? entry;
+  out.validFrom ??= toFormDate(from);
+
+  // The window is inclusive of both ends, so the last day is 89 days on.
+  out.validTo ??= toFormDate(addDays(from, MAX_EVISA_DAYS - 1));
+}
+
+/** A date the given number of days after another, in UTC. */
+function addDays(date, days) {
+  return new Date(date.getTime() + days * 86400000);
 }
 
 /** Today at UTC midnight; the site works in UTC+07:00 and compares whole days. */

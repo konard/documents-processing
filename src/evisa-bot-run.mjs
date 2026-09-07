@@ -10,7 +10,9 @@
 // never submits.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { loadEnv } from './env.mjs';
 import {
   MESSAGES,
   IDLE_FILL_MS,
@@ -23,21 +25,20 @@ import {
 } from './evisa-bot.mjs';
 import { normalizeApplicant } from './evisa-data.mjs';
 import { readRequiredFields, outstandingFields } from './evisa-required.mjs';
-import {
-  FORM_URL,
-  acceptNoteModal,
-  waitForForm,
-  fillForm,
-} from './evisa-fill.mjs';
+import { openForm, prepareDocument, fillAndCapture } from './evisa-session.mjs';
+
+loadEnv();
 
 const token = process.env.EVISA_BOT_TOKEN;
 if (!token) {
-  console.error('Set EVISA_BOT_TOKEN to the token from @BotFather.');
+  console.error(
+    'Set EVISA_BOT_TOKEN, either in the environment or in a .env file.\n' +
+      'See .env.example. The token comes from @BotFather.'
+  );
   process.exit(1);
 }
 
 const { Bot, InputFile } = await import('grammy');
-const { chromium } = await import('playwright');
 
 const sessions = createSessionStore();
 const browsers = new Map();
@@ -48,13 +49,7 @@ async function pageFor(chatId) {
   if (browsers.has(chatId)) {
     return browsers.get(chatId).page;
   }
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({
-    viewport: { width: 1500, height: 1000 },
-  });
-  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
-  await acceptNoteModal(page);
-  await waitForForm(page);
+  const { browser, page } = await openForm({ headless: true });
   browsers.set(chatId, { browser, page });
   return page;
 }
@@ -87,20 +82,6 @@ async function readPassport(file) {
   return data;
 }
 
-/**
- * Captures the whole page, however tall.
- *
- * `fullPage` grows the screenshot past the window, which is what the applicant
- * needs: the form is several screens long and the interesting part is often the
- * validation message at the bottom.
- */
-async function screenshotPage(page, chatId) {
-  const dir = fs.mkdtempSync(path.join('/tmp', `evisa-shot-${chatId}-`));
-  const file = path.join(dir, 'form.png');
-  await page.screenshot({ path: file, fullPage: true });
-  return { file, dir };
-}
-
 /** Fills the form with what the chat has provided and sends back the page. */
 async function fillAndShow(ctx, chatId) {
   const session = sessions.get(chatId);
@@ -109,11 +90,14 @@ async function fillAndShow(ctx, chatId) {
 
   await ctx.reply(strings.filling);
   const applicant = normalizeApplicant(session.data);
-  const result = await fillForm(page, applicant, { uploads: session.uploads });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
+  const result = await fillAndCapture(page, applicant, {
+    uploads: session.uploads,
+    screenshot: path.join(dir, 'form.png'),
+  });
 
-  const { file, dir } = await screenshotPage(page, chatId);
   try {
-    await ctx.replyWithPhoto(new InputFile(file), {
+    await ctx.replyWithPhoto(new InputFile(result.screenshot), {
       caption: strings.filled(result.filled.length),
     });
   } finally {
@@ -188,13 +172,13 @@ bot.on(['message:photo', 'message:document'], async (ctx) => {
   const extension = path.extname(file.file_path || '.jpg') || '.jpg';
 
   await withTempFile(buffer, extension, async (local) => {
-    // A photo of a whole passport carries background the form does not want, so
-    // the data page is cut out first. An image that is already just the page is
-    // left alone.
-    const { cropPassportPage } = await import('./evisa-passport.mjs');
-    const cropped = `${local}.page.jpg`;
-    const crop = await cropPassportPage(local, cropped).catch(() => null);
-    const source = crop?.cropped ? cropped : local;
+    // A photo of a whole passport carries background the form has no use for,
+    // so the data page is cut out first.
+    const prepared = `${local}.upload.jpg`;
+    const ready = await prepareDocument(local, prepared, { crop: true }).catch(
+      () => null
+    );
+    const source = ready ? prepared : local;
 
     const read = await readPassport(source).catch(() => null);
     if (read && Object.keys(read).length) {

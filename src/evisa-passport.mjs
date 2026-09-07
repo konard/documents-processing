@@ -138,7 +138,11 @@ export async function cropPassportPage(inputPath, outputPath) {
     meta.height,
     band.top + band.height + Math.round(pageHeight * 0.06)
   );
-  const top = Math.max(0, bottom - pageHeight);
+  // Prefer the fold when the photo shows one: it is where the page actually
+  // ends, while the proportional height is only an estimate.
+  const fold = await findFoldAbove(inputPath, meta, band.top);
+  const estimated = Math.max(0, bottom - pageHeight);
+  const top = fold !== null && fold < bottom ? fold : estimated;
 
   await sharp(inputPath, { failOn: 'none' })
     .extract({
@@ -158,19 +162,69 @@ export async function cropPassportPage(inputPath, outputPath) {
 }
 
 /**
- * Finds the bright document within a photo taken against a darker background.
+ * Finds the fold between two pages of an open passport.
  *
- * A passport page is paper: brighter and flatter than a desk, a table or a
- * hand. Rows and columns whose average brightness stands well above the darkest
- * parts of the image bound the document, which is a steadier signal than trying
- * to recognise the print on it.
+ * A spread photographed flat shows the seam as an abrupt change in brightness
+ * across a row: one page ends, a shadowed crease follows, the next begins.
+ * Cutting on that line removes the facing page cleanly, where a cut measured
+ * only from the machine-readable zone leaves a sliver of it behind.
  *
- * Returns null when the page already fills the frame, which is the common case
- * and needs no crop at all.
+ * Only the region above the zone is searched, and only for a step large enough
+ * to be a page edge; a flat scan of a single page has none and gets no cut.
+ */
+async function findFoldAbove(inputPath, meta, mrzTop) {
+  const sharp = (await import('sharp')).default;
+  const width = 500;
+  const height = Math.max(1, Math.round((meta.height / meta.width) * width));
+  const limit = Math.round((mrzTop / meta.height) * height);
+
+  const { data } = await sharp(inputPath, { failOn: 'none' })
+    .resize(width, height, { fit: 'fill' })
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const means = [];
+  for (let y = 0; y < height; y++) {
+    let sum = 0;
+    for (let x = 0; x < width; x++) {
+      sum += data[y * width + x];
+    }
+    means.push(sum / width);
+  }
+
+  // Look between the top of the image and the zone, ignoring the very edges.
+  let best = null;
+  for (let y = Math.round(height * 0.1); y < limit - height * 0.15; y++) {
+    const step = Math.abs(means[y] - means[y - 1]);
+    if (step > 20 && (!best || step > best.step)) {
+      best = { y, step };
+    }
+  }
+  if (!best) {
+    return null;
+  }
+
+  // The seam has thickness: the step marks where it starts, and the facing page
+  // runs on for a few rows past it. Cutting below the crease leaves none of it.
+  const crease = Math.round(height * 0.02);
+  return Math.round(((best.y + crease) / height) * meta.height);
+}
+
+/**
+ * Locates the machine-readable zone by the rows that carry it.
+ *
+ * The zone is two lines of evenly spaced glyphs running most of the page width,
+ * so those rows cross between ink and paper far more often than any other. That
+ * holds whether the page fills the frame, sits on a desk, or is one half of an
+ * open spread, which page-edge detection does not.
+ *
+ * MRZ print is grey on white, so the ink threshold is deliberately generous; a
+ * darker one misses the band completely.
  */
 async function findMrzBand(inputPath, meta) {
   const sharp = (await import('sharp')).default;
-  const width = 320;
+  const width = 500;
   const height = Math.max(1, Math.round((meta.height / meta.width) * width));
 
   const { data } = await sharp(inputPath, { failOn: 'none' })
@@ -179,52 +233,66 @@ async function findMrzBand(inputPath, meta) {
     .raw()
     .toBuffer({ resolveWithObject: true });
 
-  const rowMean = new Array(height).fill(0);
-  const colMean = new Array(width).fill(0);
+  const rows = [];
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const value = data[y * width + x];
-      rowMean[y] += value / width;
-      colMean[x] += value / height;
-    }
-  }
-
-  const all = [...rowMean, ...colMean];
-  const darkest = Math.min(...all);
-  const brightest = Math.max(...all);
-  // Without a clear dark surround there is nothing to crop away.
-  if (brightest - darkest < 45) {
-    return null;
-  }
-  const bar = darkest + (brightest - darkest) * 0.55;
-
-  const span = (means) => {
+    let crossings = 0;
     let first = -1;
     let last = -1;
-    for (let i = 0; i < means.length; i++) {
-      if (means[i] >= bar) {
+    let wasInk = false;
+    for (let x = 0; x < width; x++) {
+      const ink = data[y * width + x] < 170;
+      if (ink !== wasInk) {
+        crossings += 1;
+        wasInk = ink;
+      }
+      if (ink) {
         if (first === -1) {
-          first = i;
+          first = x;
         }
-        last = i;
+        last = x;
       }
     }
-    return first === -1 ? null : { first, last };
-  };
+    rows.push({ crossings, first, last });
+  }
 
-  const rows = span(rowMean);
-  const columns = span(colMean);
-  if (!rows || !columns) {
+  const busiest = Math.max(...rows.map((row) => row.crossings));
+  if (busiest < 30) {
     return null;
   }
 
+  // Group the busy rows that sit close together; the lowest such group is the
+  // machine-readable zone, since nothing on a passport sits below it.
+  const marked = rows
+    .map((row, y) => ({ ...row, y }))
+    .filter((row) => row.crossings >= busiest * 0.75);
+  if (marked.length === 0) {
+    return null;
+  }
+
+  const gap = Math.max(4, Math.round(height * 0.04));
+  const groups = [[marked[0]]];
+  for (const row of marked.slice(1)) {
+    const current = groups[groups.length - 1];
+    if (row.y - current[current.length - 1].y <= gap) {
+      current.push(row);
+    } else {
+      groups.push([row]);
+    }
+  }
+
+  const band = groups[groups.length - 1];
   const scaleX = meta.width / width;
   const scaleY = meta.height / height;
   return {
-    left: Math.round(columns.first * scaleX),
-    width: Math.round((columns.last - columns.first + 1) * scaleX),
-    top: Math.round(rows.first * scaleY),
-    height: Math.round((rows.last - rows.first + 1) * scaleY),
+    left: Math.round(Math.min(...band.map((row) => row.first)) * scaleX),
+    width: Math.round(
+      (Math.max(...band.map((row) => row.last)) -
+        Math.min(...band.map((row) => row.first)) +
+        1) *
+        scaleX
+    ),
+    top: Math.round(band[0].y * scaleY),
+    height: Math.round((band[band.length - 1].y - band[0].y + 1) * scaleY),
   };
 }
 

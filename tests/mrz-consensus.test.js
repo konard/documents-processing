@@ -163,15 +163,32 @@ describe('findMrzLines', () => {
     expect(lines[1].length).toBe(44);
   });
 
-  it('still finds line two when OCR drops the nationality code', () => {
-    // Seen in practice: an engine merged the letters away, and a strict
-    // field-layout match would have rejected an otherwise good read.
+  it('accepts a line whose nationality code OCR read as digits', () => {
+    // An engine can render a nationality code as digits and still produce a
+    // full-length line, which the layout check accepts.
     const lines = findMrzLines([
       'noise',
-      '1112223334445556073F2908085<<<<<<<<<<<<<<02',
+      '11122233342055120733F2908085<<<<<<<<<<<<<<0',
     ]);
     expect(lines).not.toBe(null);
     expect(lines[1].startsWith('11122233')).toBe(true);
+  });
+
+  it('accepts a line the engine truncated after the fields it needs', () => {
+    // Some engines stop at the filler; the fixed part is all that is parsed.
+    const lines = findMrzLines(['x', '1234567897UTO9003026M3001019<']);
+    expect(lines).not.toBe(null);
+    expect(lines[1].startsWith('1234567897')).toBe(true);
+  });
+
+  it('refuses a line that lost a character, since every field after it shifts', () => {
+    // A short data section means OCR dropped a glyph. Padding it would produce
+    // a wrong number and a wrong date that both still look plausible.
+    const lines = findMrzLines([
+      'noise',
+      '6967997502058512073F2908085<<<<<<<<<<<<<<02',
+    ]);
+    expect(lines).toBe(null);
   });
 
   it('returns null when there is no MRZ', () => {

@@ -246,8 +246,20 @@ export function parseMrzLine2(raw) {
   };
 }
 
+/**
+ * Digits an OCR engine produces for a letter in a name.
+ *
+ * Line 1 of an MRZ holds only letters and filler, so a digit there is always a
+ * misread. Mapping it back is safe, and dropping it instead would silently
+ * shorten the name.
+ */
+const D2L = { 0: 'O', 1: 'I', 5: 'S', 8: 'B', 2: 'Z', 6: 'G', 4: 'A', 7: 'T' };
+
 export function parseMrzLine1(raw) {
-  const s = raw.replace(/[^A-Z<]/g, '');
+  const s = raw
+    .toUpperCase()
+    .replace(/[0-9]/g, (digit) => D2L[digit] ?? '')
+    .replace(/[^A-Z<]/g, '');
   const m = s.match(/^P[A-Z<]?([A-Z]{3})([A-Z<]+)$/);
   if (!m) {
     return null;

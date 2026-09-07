@@ -14,6 +14,14 @@ describe('parseMrzLine1', () => {
     expect(parsed.given).toBe('SAMPLE');
   });
 
+  it('reads a digit in a name back as the letter it must be', () => {
+    // Line 1 holds only letters and filler, so a digit is always a misread.
+    // Deleting it instead would silently shorten the name.
+    const parsed = parseMrzLine1('P<UTOD0E<<J0HN<<<<<<<<<<<<<<');
+    expect(parsed.surname).toBe('DOE');
+    expect(parsed.given).toBe('JOHN');
+  });
+
   it('returns null for a line that is not an MRZ first line', () => {
     expect(parseMrzLine1('NOT AN MRZ LINE')).toBe(null);
   });

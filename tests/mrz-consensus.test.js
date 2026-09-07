@@ -3,6 +3,7 @@ import {
   consensus,
   trimNameFiller,
   describeConsensus,
+  tieredConsensus,
 } from '../src/mrz-consensus.mjs';
 import { scoreReading, summarize } from '../src/mrz-benchmark.mjs';
 import { findMrzLines } from '../src/mrz-readers.mjs';
@@ -179,5 +180,74 @@ describe('benchmark scoring', () => {
     expect(row.accuracy).toBe(0.9);
     expect(row.perfectImages).toBe(1);
     expect(row.totalMs).toBe(400);
+  });
+});
+
+describe('tieredConsensus', () => {
+  const reading = { documentNumber: '123456789', surname: 'DOE' };
+  const reader = (name, value, log) => ({
+    name,
+    read: async () => {
+      log.push(name);
+      return value;
+    },
+  });
+
+  it('stops after the fast engines when they already agree', async () => {
+    const log = [];
+    const result = await tieredConsensus('x.jpg', {
+      fast: [reader('a', reading, log), reader('b', reading, log)],
+      slow: [reader('slow', reading, log)],
+      fields: ['documentNumber', 'surname'],
+    });
+    expect(result.complete).toBe(true);
+    expect(log.includes('slow')).toBe(false);
+    expect(result.escalated).toBe(false);
+  });
+
+  it('calls the expensive engine when the fast ones disagree', async () => {
+    const log = [];
+    const result = await tieredConsensus('x.jpg', {
+      fast: [
+        reader('a', { surname: 'DOE' }, log),
+        reader('b', { surname: 'ROE' }, log),
+      ],
+      slow: [reader('slow', { surname: 'DOE' }, log)],
+      fields: ['surname'],
+    });
+    expect(log.includes('slow')).toBe(true);
+    expect(result.escalated).toBe(true);
+    // The extra vote breaks the tie.
+    expect(result.data.surname).toBe('DOE');
+  });
+
+  it('records a reader that threw, and carries on', async () => {
+    const log = [];
+    const broken = {
+      name: 'broken',
+      read: async () => {
+        throw new Error('engine unavailable');
+      },
+    };
+    const result = await tieredConsensus('x.jpg', {
+      fast: [reader('a', reading, log), reader('b', reading, log), broken],
+      fields: ['documentNumber'],
+    });
+    expect(result.failures[0].reader).toBe('broken');
+    expect(result.data.documentNumber).toBe('123456789');
+  });
+
+  it('reports what is still unsettled after every tier', async () => {
+    const log = [];
+    const result = await tieredConsensus('x.jpg', {
+      fast: [
+        reader('a', { surname: 'DOE' }, log),
+        reader('b', { surname: 'ROE' }, log),
+      ],
+      slow: [reader('slow', { surname: 'MOE' }, log)],
+      fields: ['surname'],
+    });
+    expect(result.complete).toBe(false);
+    expect(result.disputed[0].field).toBe('surname');
   });
 });

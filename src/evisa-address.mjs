@@ -84,6 +84,28 @@ const core = (value) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+/**
+ * Writes a dropdown value the way an address is written.
+ *
+ * The dropdowns shout: `PHUONG TAN BINH`, `HO CHI MINH City`. The site's own
+ * example for the address box is `Ba Dinh, Ha Noi`, so the same names are put
+ * in title case and stripped of the `PHUONG`/`XA` prefix that marks what kind
+ * of unit it is. The dropdowns keep their own spelling; only this line changes.
+ */
+function readable(value) {
+  const text = String(value ?? '')
+    .replace(/^(PHUONG|XA)\s+/i, '')
+    .replace(/\bCity$/i, '')
+    .trim();
+  if (!text) {
+    return '';
+  }
+  return text
+    .split(/\s+/)
+    .map((word) => word[0]?.toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 /** True when a part names a country, which the form has no field for. */
 const isCountry = (part) => COUNTRIES.has(plain(transliterate(part)));
 
@@ -133,12 +155,17 @@ function wardFromDistrict(parts, wardOptions) {
 /**
  * Splits an address into the fields the form asks for.
  *
+ * `addressInVietnam` comes back as the whole address in the order the site's own
+ * example gives — premises, ward, city — because that box asks for the complete
+ * temporary address, not just the street. The ward and city are also returned on
+ * their own for the two dropdowns beside it, so they appear twice by design.
+ *
  * `wardOptions` are the ward names read from the page, because the list depends
  * on the province and changes when Vietnam redraws its boundaries. Without them
- * the street and city are still resolved and the ward is left to the caller.
+ * the address and city are still resolved and the ward is left to the caller.
  *
- * Returns the three field values along with what could not be placed, so a
- * caller can tell an applicant which part of their address went unused.
+ * `premises` holds the parts naming no administrative area: a venue, a house
+ * number, a street.
  */
 export function parseVietnamAddress(address, { wardOptions = [] } = {}) {
   const text = String(address ?? '').trim();
@@ -146,7 +173,7 @@ export function parseVietnamAddress(address, { wardOptions = [] } = {}) {
     addressInVietnam: '',
     provinceInVietnam: '',
     wardInVietnam: '',
-    unmatched: [],
+    premises: [],
     notes: [],
   };
   if (!text) {
@@ -172,15 +199,10 @@ export function parseVietnamAddress(address, { wardOptions = [] } = {}) {
     remaining.push(part);
   }
 
-  // The street is the first part: an address reads outward from the building.
-  if (remaining.length) {
-    result.addressInVietnam = remaining.shift();
-  }
-
-  // Everything after the street names an administrative area. The ward is
-  // whichever of them the page offers, which is what makes a stale district in
-  // the middle of an address harmless.
-  const leftover = [];
+  // Whatever names an administrative area is recognised wherever it sits, so a
+  // stale district in the middle of an address is harmless. What is left over
+  // is the premises: a venue name, a house number and a street.
+  const premises = [];
   for (const part of remaining) {
     if (!result.wardInVietnam) {
       const ward = matchWard(part, wardOptions);
@@ -189,25 +211,37 @@ export function parseVietnamAddress(address, { wardOptions = [] } = {}) {
         continue;
       }
     }
-    leftover.push(part);
+    premises.push(part);
   }
 
   if (!result.wardInVietnam) {
-    const fromDistrict = wardFromDistrict(leftover, wardOptions);
+    const fromDistrict = wardFromDistrict(premises, wardOptions);
     if (fromDistrict) {
       result.wardInVietnam = fromDistrict.ward;
       result.notes.push(fromDistrict.note);
-      leftover.splice(fromDistrict.index, 1);
+      premises.splice(fromDistrict.index, 1);
     }
   }
 
-  // A part naming the area already resolved is not unused, it is repeated: an
-  // address that says both "Tan Binh District" and "Tan Binh" gave one place
-  // twice, and reporting it as dropped would suggest something went missing.
+  // A part naming an area already resolved is a repetition, not a separate
+  // place: an address giving both "Tan Binh District" and "Tan Binh" named one
+  // ward twice, and repeating it in the address line would read oddly.
   const placed = [result.wardInVietnam, result.provinceInVietnam]
     .filter(Boolean)
     .map(core);
-  result.unmatched = leftover.filter((part) => !placed.includes(core(part)));
+  result.premises = premises.filter((part) => !placed.includes(core(part)));
+
+  // The site asks for the whole address in this box, in the order its own
+  // example gives: premises, then ward, then city. The dropdowns beside it
+  // repeat two of those, which is what the site's example does as well.
+  result.addressInVietnam = [
+    ...result.premises,
+    readable(result.wardInVietnam),
+    readable(result.provinceInVietnam),
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return result;
 }
 

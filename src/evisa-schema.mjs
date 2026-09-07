@@ -218,6 +218,8 @@ export const FIELD_DEFAULTS = {
   exitBorderGate: 'Tan Son Nhat Int Airport (Ho Chi Minh City)',
   // The three address fields are required, so an applicant who has not booked
   // anywhere yet still has to enter one. They stay editable in the browser.
+  // The whole address, in the order the site's own example gives, since that
+  // box asks for the complete temporary address and not just the street.
   addressInVietnam: '[REDACTED]',
   provinceInVietnam: 'HO CHI MINH City',
   wardInVietnam: 'PHUONG TAN BINH',

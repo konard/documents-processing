@@ -426,7 +426,7 @@ export function normalizeApplicant(input) {
  * is known. Here it is resolved only where the name alone settles it.
  */
 function splitAddress(out) {
-  if (!out.addressInVietnam || !out.addressInVietnam.includes(',')) {
+  if (!out.addressInVietnam) {
     return;
   }
   const parsed = parseVietnamAddress(out.addressInVietnam);
@@ -435,6 +435,15 @@ function splitAddress(out) {
     if (parsed[key]) {
       out[key] ??= parsed[key];
     }
+  }
+  // A ward belongs to one city, so the default's would put an applicant who
+  // named their own address somewhere they never said. It is left empty for
+  // validation to ask about, unless their city happens to be the default's.
+  if (
+    out.provinceInVietnam &&
+    out.provinceInVietnam !== FIELD_DEFAULTS.provinceInVietnam
+  ) {
+    out.wardInVietnam ??= '';
   }
 }
 

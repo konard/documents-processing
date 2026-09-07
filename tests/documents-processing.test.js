@@ -45,6 +45,7 @@ describe('documents-processing commands', () => {
     'evisa-passport.mjs',
     'evisa-fill.mjs',
     'mrz-lib.mjs',
+    'passport-crosscheck.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

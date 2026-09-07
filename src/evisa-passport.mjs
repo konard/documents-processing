@@ -42,7 +42,7 @@ export async function readPassportMrz(imagePath) {
   }
 
   if (!line2) {
-    return { data: {}, unverified: [], mrzFound: false };
+    return { data: {}, unverified: [], repaired: [], mrzFound: false };
   }
 
   const unverified = [];
@@ -74,7 +74,9 @@ export async function readPassportMrz(imagePath) {
     }
   }
 
-  return { data, unverified, mrzFound: true };
+  // Fields the check digit had to correct, so a caller can surface them for a
+  // second look even though they now validate.
+  return { data, unverified, repaired: line2.repaired ?? [], mrzFound: true };
 }
 
 /**

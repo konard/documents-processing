@@ -62,6 +62,134 @@ const toDigits = (s) =>
     .map((c) => (/\d/.test(c) ? c : (L2D[c] ?? c)))
     .join('');
 
+/**
+ * Digits a glyph is plausibly confused with, beyond the first choice in L2D.
+ *
+ * A tall narrow mark reads as `I` but is also how a `9` with a faint bowl comes
+ * out; `S` and `5`, `B` and `8` blur the same way. Each entry lists the other
+ * readings worth trying when a field fails its check digit.
+ */
+const AMBIGUOUS = {
+  I: ['1', '9', '7', '4'],
+  L: ['1', '4'],
+  O: ['0', '9', '8'],
+  Q: ['0', '9'],
+  D: ['0', '8'],
+  S: ['5', '8', '6'],
+  B: ['8', '6', '3'],
+  G: ['6', '8', '9'],
+  Z: ['2', '7'],
+  T: ['7', '1'],
+  A: ['4'],
+  1: ['1', '7', '4'],
+  7: ['7', '1'],
+  8: ['8', '6', '3', '5'],
+  9: ['9', '4', '8'],
+  0: ['0', '8', '6'],
+  5: ['5', '6', '8'],
+  6: ['6', '5', '8'],
+  4: ['4', '1', '9'],
+  3: ['3', '8'],
+  2: ['2', '7'],
+};
+
+/** Every reading of `raw` with the character at `index` swapped for `digit`. */
+function substitute(chars, index, digit) {
+  const candidate = [...chars];
+  candidate[index] = digit;
+  return candidate.join('');
+}
+
+/** Candidate readings that differ from the original in exactly `count` places. */
+function* candidates(chars, options, count) {
+  if (count === 1) {
+    for (let i = 0; i < chars.length; i++) {
+      for (const digit of options[i]) {
+        if (digit !== chars[i]) {
+          yield substitute(chars, i, digit);
+        }
+      }
+    }
+    return;
+  }
+  for (let i = 0; i < chars.length; i++) {
+    for (const digit of options[i]) {
+      const swapped = substitute(chars, i, digit).split('');
+      for (let j = i + 1; j < chars.length; j++) {
+        for (const other of options[j]) {
+          if (digit === chars[i] && other === chars[j]) {
+            continue;
+          }
+          yield substitute(swapped, j, other);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Repairs a numeric MRZ field whose check digit does not match.
+ *
+ * The check digit makes a misread detectable, and usually correctable: only one
+ * substitution among the plausible confusions normally satisfies it. Positions
+ * are tried one and then two at a time, and a repair is accepted only when
+ * exactly one candidate validates. An ambiguous case is left alone and stays
+ * reported as unverified.
+ */
+export function repairByCheckDigit(
+  raw,
+  expectedCheck,
+  isPlausible = () => true
+) {
+  if (mrzCheck(raw) === expectedCheck) {
+    return { value: raw, repaired: false };
+  }
+
+  const chars = raw.split('');
+  const options = chars.map((c) => AMBIGUOUS[c] ?? [c]);
+
+  for (const count of [1, 2]) {
+    const matches = new Set();
+    for (const text of candidates(chars, options, count)) {
+      if (mrzCheck(text) === expectedCheck && isPlausible(text)) {
+        matches.add(text);
+      }
+    }
+    if (matches.size === 1) {
+      return { value: [...matches][0], repaired: true };
+    }
+    if (matches.size > 1) {
+      break;
+    }
+  }
+
+  return { value: raw, repaired: false };
+}
+
+/** A YYMMDD field is only plausible if it names a real month and day. */
+function isPlausibleDate(digits) {
+  const month = +digits.slice(2, 4);
+  const day = +digits.slice(4, 6);
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
+
+/**
+ * Reads a date field, repairing it against its check digit where possible.
+ *
+ * A repair has to produce a real calendar date as well as satisfy the check
+ * digit: several wrong candidates can match the checksum, and one that yields
+ * month 63 is obviously not the reading we want. When no candidate is
+ * plausible the original stands and the field stays unverified.
+ */
+function readDateField(raw, check) {
+  const fixed = repairByCheckDigit(raw, +check, (candidate) =>
+    isPlausibleDate(toDigits(candidate))
+  );
+  const digits = toDigits(fixed.value);
+  const ok = mrzCheck(fixed.value) === +check && isPlausibleDate(digits);
+  return { digits, ok, repaired: fixed.repaired };
+}
+
 export function parseMrzLine2(raw) {
   const s = raw.replace(/[^A-Z0-9<]/g, '');
   // Match the TD3 line-2 shape allowing letters in numeric fields (OCR may have
@@ -82,25 +210,39 @@ export function parseMrzLine2(raw) {
     return null;
   }
 
-  // Coerce the numeric fields to digits (fixing O->0, I->1, B->8, ...).
-  const passport = toDigits(g[1]);
+  // Coerce the numeric fields to digits (fixing O->0, I->1, B->8, ...), then
+  // let each field's check digit correct any remaining glyph confusion.
   const cP = toDigits(g[2]);
   const nat = g[3];
-  const dob = toDigits(g[4]);
   const cD = toDigits(g[5]);
   const sex = g[6] === '<' ? '' : g[6];
-  const exp = toDigits(g[7]);
   const cE = toDigits(g[8]);
+
+  // Only dates are repaired. A date has a second, independent constraint - it
+  // must name a real month and day - which makes a correction verifiable. A
+  // passport number has nothing but its check digit, and many wrong candidates
+  // satisfy that, so a "repaired" number would just be a plausible-looking
+  // guess. Reporting it as unverified is the honest answer.
+  const passport = toDigits(g[1]);
+  // Repair works on the raw field, before letters are flattened to digits: an
+  // `I` can be a misread 9 as easily as a 1, and collapsing it first throws
+  // away the alternative that the check digit would have picked.
+  const dob = readDateField(g[4], cD);
+  const exp = readDateField(g[7], cE);
 
   return {
     passportNumber: passport.replace(/</g, ''),
     passportCheckOk: mrzCheck(passport) === +cP,
     nationality: nat.replace(/</g, ''),
-    dob: `${String(yy(dob.slice(0, 2))).padStart(4, '0')}-${dob.slice(2, 4)}-${dob.slice(4, 6)}`,
-    dobCheckOk: mrzCheck(dob) === +cD,
+    dob: `${String(yy(dob.digits.slice(0, 2))).padStart(4, '0')}-${dob.digits.slice(2, 4)}-${dob.digits.slice(4, 6)}`,
+    dobCheckOk: dob.ok,
     sex,
-    expiry: `${yy(exp.slice(0, 2), 'future')}-${exp.slice(2, 4)}-${exp.slice(4, 6)}`,
-    expiryCheckOk: mrzCheck(exp) === +cE,
+    expiry: `${yy(exp.digits.slice(0, 2), 'future')}-${exp.digits.slice(2, 4)}-${exp.digits.slice(4, 6)}`,
+    expiryCheckOk: exp.ok,
+    // Which fields the check digit had to correct, so a caller can show them.
+    repaired: [dob.repaired && 'dateOfBirth', exp.repaired && 'expiry'].filter(
+      Boolean
+    ),
   };
 }
 

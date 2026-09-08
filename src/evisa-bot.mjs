@@ -22,6 +22,7 @@ import {
   stripAddressLabel,
   stripAddressNote,
 } from './evisa-home-address.mjs';
+import { PREARRIVAL_FIELDS as PREARRIVAL_ORDER } from './evisa-prearrival.mjs';
 
 /**
  * How long a chat may go quiet before the bot fills the form on its own.
@@ -53,6 +54,16 @@ export const CHAT_TTL_MS = 5 * 60 * 60 * 1000;
 export const MESSAGES = {
   en: {
     welcome: 'I can prepare your Vietnam e-visa application.',
+    menu:
+      'I help with Vietnam entry documents.\n\n' +
+      '/visa — apply for an e-visa\n' +
+      '/arrival — the pre-arrival declaration, for after the visa\n' +
+      '/documents — fetch a filed application, its receipt and the visa\n\n' +
+      'The buttons below change the language.',
+    arrivalIntro:
+      'The pre-arrival declaration is filed just before you fly, and needs ' +
+      'the granted visa and the flight. Here is what I already have for it.',
+    arrivalMissing: 'Still needed for it:',
     checklistDocuments: 'Send these',
     checklistDetails: 'Tell me these',
     checklistFooter:
@@ -155,6 +166,29 @@ export const MESSAGES = {
       'payment.',
     captchaAgain:
       'The site did not take the code. Here is a new picture; type its code.',
+    documentsNeedNumber:
+      'Send the application number with the command, like ' +
+      '/documents E260908XXX0000000000. It is in the email the site sent ' +
+      'when the application was filed.',
+    documentsNoCaptcha:
+      'The lookup page did not show a code picture. Try /documents again in ' +
+      'a moment.',
+    documentsNone: 'The site found no application under that number.',
+    documentsNotReady:
+      'The site offers nothing to download yet. The form and the receipt ' +
+      'appear after payment, and the visa after a grant.',
+    applicationStatus: (status, meaning) =>
+      ({
+        waiting:
+          `The site says: ${status}. It is still being looked at; ` +
+          'nothing to do but wait.',
+        unpaid:
+          `The site says: ${status}. It is waiting for payment, which ` +
+          'is done in the browser.',
+        granted: `The site says: ${status}. The visa has been granted.`,
+        refused: `The site says: ${status}. The application was refused.`,
+        unknown: `The site says: ${status}.`,
+      })[meaning],
     captchaEntered: (seconds) =>
       `Typed the code. Pressing Next in ${seconds} seconds, which sends the ` +
       'application in. Say "stop" to cancel, or "send" to skip the wait.',
@@ -170,6 +204,16 @@ export const MESSAGES = {
   },
   ru: {
     welcome: 'Помогу подготовить заявление на электронную визу во Вьетнам.',
+    menu:
+      'Помогаю с документами для въезда во Вьетнам.\n\n' +
+      '/visa — подать на электронную визу\n' +
+      '/arrival — декларация перед прилётом, уже после визы\n' +
+      '/documents — скачать поданное заявление, квитанцию и визу\n\n' +
+      'Кнопки ниже меняют язык.',
+    arrivalIntro:
+      'Декларацию перед прилётом подают незадолго до вылета, для неё нужны ' +
+      'выданная виза и рейс. Вот что у меня для неё уже есть.',
+    arrivalMissing: 'Для неё ещё нужно:',
     checklistDocuments: 'Пришлите',
     checklistDetails: 'Напишите',
     checklistFooter:
@@ -266,6 +310,27 @@ export const MESSAGES = {
       'Внизу сайт просит код с этой картинки. Напишите его сюда как есть, и ' +
       'я нажму «Next»: это отправит анкету дальше, к оплате.',
     captchaAgain: 'Сайт не принял код. Вот новая картинка, напишите код с неё.',
+    documentsNeedNumber:
+      'Пришлите номер заявления вместе с командой, например ' +
+      '/documents E260908XXX0000000000. Он есть в письме, которое сайт ' +
+      'прислал при подаче.',
+    documentsNoCaptcha:
+      'Страница поиска не показала картинку с кодом. Попробуйте /documents ' +
+      'ещё раз через минуту.',
+    documentsNone: 'Сайт не нашёл заявления с таким номером.',
+    documentsNotReady:
+      'Сайт пока ничего не предлагает скачать. Анкета и квитанция ' +
+      'появляются после оплаты, а виза — когда её выдадут.',
+    applicationStatus: (status, meaning) =>
+      ({
+        waiting:
+          `Сайт пишет: ${status}. Заявление ещё рассматривают, ` +
+          'остаётся ждать.',
+        unpaid: `Сайт пишет: ${status}. Ждёт оплаты — её делают в браузере.`,
+        granted: `Сайт пишет: ${status}. Визу выдали.`,
+        refused: `Сайт пишет: ${status}. В заявлении отказано.`,
+        unknown: `Сайт пишет: ${status}.`,
+      })[meaning],
     captchaEntered: (seconds) =>
       `Вписал код. Нажму «Next» через ${seconds} секунд, это отправит ` +
       'заявление. Напишите «стой», чтобы отменить, или «отправляй», чтобы ' +
@@ -592,6 +657,94 @@ export function describeChecklist(fields, language) {
 
   parts.push('', strings.checklistFooter);
   return parts.join('\n');
+}
+
+/** What each of the declaration's fields is called, to the applicant. */
+const ARRIVAL_LABELS = {
+  en: {
+    fullName: 'full name',
+    gender: 'sex',
+    dateOfBirth: 'date of birth',
+    nationality: 'nationality',
+    passportNumber: 'passport',
+    passportExpiryDate: 'passport expires',
+    email: 'email',
+    phone: 'phone',
+    visaType: 'visa type',
+    visaNumber: 'visa number',
+    visaIssueDate: 'visa issued',
+    visaExpiryDate: 'visa expires',
+    visaIssuedPlace: 'issued by',
+    arrivalDate: 'arriving on',
+    departedFrom: 'flying from',
+    purpose: 'purpose',
+    departureDate: 'leaving Viet Nam on',
+    modeOfTravel: 'travelling by',
+    borderGate: 'arriving at',
+    vehicleNumber: 'flight number',
+    accommodationType: 'staying in',
+    accommodationAddress: 'address in Viet Nam',
+  },
+  ru: {
+    fullName: 'имя и фамилия',
+    gender: 'пол',
+    dateOfBirth: 'дата рождения',
+    nationality: 'гражданство',
+    passportNumber: 'паспорт',
+    passportExpiryDate: 'паспорт действует до',
+    email: 'почта',
+    phone: 'телефон',
+    visaType: 'тип визы',
+    visaNumber: 'номер визы',
+    visaIssueDate: 'виза выдана',
+    visaExpiryDate: 'виза действует до',
+    visaIssuedPlace: 'кем выдана',
+    arrivalDate: 'дата прилёта',
+    departedFrom: 'откуда летите',
+    purpose: 'цель поездки',
+    departureDate: 'дата вылета из Вьетнама',
+    modeOfTravel: 'вид транспорта',
+    borderGate: 'пункт прибытия',
+    vehicleNumber: 'номер рейса',
+    accommodationType: 'где остановитесь',
+    accommodationAddress: 'адрес во Вьетнаме',
+  },
+};
+
+/** The three parts a pre-arrival declaration is printed in. */
+const ARRIVAL_GROUPS = {
+  en: { passenger: 'Passenger', visa: 'Visa', trip: 'Trip' },
+  ru: { passenger: 'Пассажир', visa: 'Виза', trip: 'Поездка' },
+};
+
+/**
+ * The pre-arrival declaration as it stands: what is known, and what is not.
+ *
+ * The visa's own details are the usual blank, since they exist only after a
+ * grant, so a declaration read before then is mostly a list of what to come
+ * back for.
+ */
+export function describeDeclaration(values, missing, language) {
+  const strings = MESSAGES[language] ?? MESSAGES.en;
+  const groups = ARRIVAL_GROUPS[language] ?? ARRIVAL_GROUPS.en;
+  const labels = ARRIVAL_LABELS[language] ?? ARRIVAL_LABELS.en;
+  const parts = [];
+  for (const [key, heading] of Object.entries(groups)) {
+    const lines = PREARRIVAL_ORDER.filter(
+      (field) => field.group === key && values[field.key]
+    ).map(
+      (field) =>
+        `• ${labels[field.key] ?? field.label}: ${escapeHtml(values[field.key])}`
+    );
+    if (lines.length) {
+      parts.push(`<b>${heading}</b>`, ...lines, '');
+    }
+  }
+  if (missing.length) {
+    parts.push(`<b>${strings.arrivalMissing}</b>`);
+    parts.push(...missing.map((key) => `• ${labels[key] ?? key}`));
+  }
+  return parts.join('\n').trim();
 }
 
 /** Telegram's limit on the caption under a file. */

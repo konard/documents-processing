@@ -290,7 +290,7 @@ summary names the readings in bold and asks which is right, and the log
 says who read what. The older `passport-crosscheck.mjs` and
 `mrz-consensus.mjs` hold the same idea for the zone alone. A passport issued at a consulate names its authority without
 a code, `Г/К РОССИИ, <city>`, and is read as such; a given name the passport
-hyphenates, `[REDACTED]`, is read off the print, since the zone
+hyphenates, `JOHN-ALEX`, is read off the print, since the zone
 writes the hyphen as a filler, and goes on the form with a space, which the
 site takes, with a note in the summary saying so. So one message can carry the email, the flight date, the address
 and phone, and the contact's name, address and phone under `Сестра:`, sent

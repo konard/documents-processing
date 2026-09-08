@@ -851,8 +851,8 @@ function readAuthorityUnder(page, issue, expiry, lang) {
 /**
  * The given name as the passport prints it in Latin letters, under the
  * native one, when it matches the zone's reading: the zone writes a hyphen
- * as a filler, so "[REDACTED]" comes out of it as two names, and
- * only the print has the hyphen.
+ * as a filler, so "JOHN-ALEX" comes out of it as two names, and only the
+ * print has the hyphen.
  *
  * Read as a block of lines, since the print sits between the native name
  * and the nationality; a line that is the zone's name with hyphens for some

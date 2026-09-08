@@ -421,11 +421,48 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
     await ctx.replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
       caption,
     });
+    await sendSections(ctx, chatId, result.screenshot);
   } finally {
     sending();
   }
   if (summary) {
     await ctx.reply(summary, { parse_mode: 'HTML' });
+  }
+}
+
+/** How many pictures Telegram accepts in one album. */
+const ALBUM_LIMIT = 10;
+
+/**
+ * Sends the page again as pictures, cut into sections.
+ *
+ * The file above holds the whole form, which is what to keep, but reading it
+ * means downloading it and zooming in. The sections are sized for a phone
+ * screen, so the applicant can check the values by scrolling the chat.
+ */
+async function sendSections(ctx, chatId, screenshot) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-slice-'));
+  try {
+    const { sliceImage } = await import('./evisa-slice.mjs');
+    const sections = await sliceImage(screenshot, dir);
+    if (sections.length < 2) {
+      return;
+    }
+    for (let at = 0; at < sections.length; at += ALBUM_LIMIT) {
+      const album = sections.slice(at, at + ALBUM_LIMIT).map((section) => ({
+        type: 'photo',
+        media: new InputFile(section.path, `section-${section.index}.jpg`),
+        caption: `${section.index}/${section.of}`,
+      }));
+      await ctx.replyWithMediaGroup(album);
+    }
+    log(chatId, `sent the form in ${sections.length} sections`);
+  } catch (error) {
+    // The file above is the record; sections are for reading comfort, so
+    // failing to cut them is worth a log line and nothing more.
+    log(chatId, `could not cut the page into sections: ${error.message}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 

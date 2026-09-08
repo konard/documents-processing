@@ -60,6 +60,7 @@ describe('documents-processing commands', () => {
     'evisa-home-address.mjs',
     'evisa-geocode.mjs',
     'evisa-passport-worker.mjs',
+    'evisa-slice.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

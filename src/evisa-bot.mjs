@@ -97,21 +97,39 @@ export const MESSAGES = {
     needed: 'Still needed:',
     thenAgain: 'Once you send it, I fill the form again and show it.',
     ready:
-      'Check the form. If everything is right, say "send" and I press Next. ' +
-      'If not, send the correction.',
+      'Check the form. If everything is right, say "send" and I press Next: ' +
+      'the site then shows the application for review. If not, send the ' +
+      'correction.',
+    stages: {
+      form: 'the application form',
+      review: 'review of the application',
+      payment: 'payment',
+      unknown: 'a page I do not know',
+    },
+    stepMoved: (stage) =>
+      `Pressed Next, and the site accepted the page. Now at: ${stage}. ` +
+      'This is the whole page.',
+    stepKept: 'Pressed Next, but the site kept the page.',
+    stepMessages: (n) =>
+      `${n} ${n === 1 ? 'message' : 'messages'} on it. Send the corrections.`,
+    siteSaid: (text) => `The site said: "${text}".`,
+    stepFailed: (why) =>
+      `Could not press Next: ${why}. The browser is left open as it is.`,
+    captchaAsk:
+      'At the bottom the site asks for the code in this picture. Type it ' +
+      'here as it is, and I press Next: that sends the application on to ' +
+      'payment.',
+    captchaAgain:
+      'The site did not take the code. Here is a new picture; type its code.',
+    captchaEntered: (seconds) =>
+      `Typed the code. Pressing Next in ${seconds} seconds, which sends the ` +
+      'application on to payment. Say "stop" to cancel, or "send" to skip ' +
+      'the wait.',
     sendCountdown: (seconds) =>
       `Pressing Next in ${seconds} seconds. Say "stop" to cancel, or "send" ` +
       'to skip the wait.',
-    stepMoved:
-      'Pressed Next, and the site accepted the form. This is the next page. ' +
-      'If everything is right, say "send" and I press Next here too.',
-    stepBlocked: (n) =>
-      `Pressed Next, but the site kept the form: ${n} ` +
-      `${n === 1 ? 'message' : 'messages'} on it. Send the corrections.`,
-    stepFailed: (why) =>
-      `Could not press Next: ${why}. The browser is left open as it is.`,
     pastForm:
-      'The form has gone past its first page, and I cannot change it from ' +
+      'The application has gone past the form, and I cannot change it from ' +
       'the chat. Correct it in the browser, or start over with /start.',
     unreadable:
       'I could not read that. Please send a sharper photo of the whole page.',
@@ -164,21 +182,35 @@ export const MESSAGES = {
     thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',
     ready:
       'Проверьте анкету. Если всё верно, напишите «отправляй», и я нажму ' +
-      '«Next». Если нет, пришлите исправление.',
+      '«Next»: сайт покажет анкету на проверку. Если нет, пришлите ' +
+      'исправление.',
+    stages: {
+      form: 'анкета',
+      review: 'проверка анкеты',
+      payment: 'оплата',
+      unknown: 'незнакомая мне страница',
+    },
+    stepMoved: (stage) =>
+      `Нажал «Next», сайт принял страницу. Шаг: ${stage}. Вот вся страница.`,
+    stepKept: 'Нажал «Next», но сайт оставил страницу.',
+    stepMessages: (n) => `Замечаний на ней: ${n}. Пришлите исправления.`,
+    siteSaid: (text) => `Сайт ответил: «${text}».`,
+    stepFailed: (why) =>
+      `Нажать «Next» не вышло: ${why}. Браузер оставлен как есть.`,
+    captchaAsk:
+      'Внизу сайт просит код с этой картинки. Напишите его сюда как есть, и ' +
+      'я нажму «Next»: это отправит анкету дальше, к оплате.',
+    captchaAgain: 'Сайт не принял код. Вот новая картинка, напишите код с неё.',
+    captchaEntered: (seconds) =>
+      `Вписал код. Нажму «Next» через ${seconds} секунд, это отправит ` +
+      'анкету к оплате. Напишите «стой», чтобы отменить, или «отправляй», ' +
+      'чтобы не ждать.',
     sendCountdown: (seconds) =>
       `Нажму «Next» через ${seconds} секунд. Напишите «стой», чтобы ` +
       'отменить, или «отправляй», чтобы не ждать.',
-    stepMoved:
-      'Нажал «Next», сайт принял анкету. Вот следующая страница. Если всё ' +
-      'верно, напишите «отправляй», и я нажму «Next» и здесь.',
-    stepBlocked: (n) =>
-      `Нажал «Next», но сайт не пропустил анкету: замечаний на ней — ${n}. ` +
-      'Пришлите исправления.',
-    stepFailed: (why) =>
-      `Нажать «Next» не вышло: ${why}. Браузер оставлен как есть.`,
     pastForm:
-      'Анкета уже ушла дальше первой страницы, и из чата я её не изменю. ' +
-      'Исправьте в браузере или начните заново: /start.',
+      'Анкета уже ушла дальше, и из чата я её не изменю. Исправьте в ' +
+      'браузере или начните заново: /start.',
     unreadable:
       'Не удалось прочитать. Пришлите более чёткое фото всей страницы.',
     languageSet: 'Говорю по-русски.',
@@ -348,6 +380,14 @@ export function isConfirmation(text) {
 /** Words that tell the bot not to fill: the applicant wants another look. */
 const CANCELLATIONS =
   /^[^\p{L}\p{N}]*(?:стой|стоп|отмена|отменить|отмени|подожди|погоди|не\s+(?:отправляй|заполняй)|stop|cancel|wait|hold\s+on|don'?t)[^\p{L}\p{N}]*$/iu;
+
+/**
+ * True for a message that is only a captcha code: the site's are six
+ * letters and digits, and a code is never mistaken for a detail.
+ */
+export function looksLikeCaptcha(text) {
+  return /^[A-Za-z0-9]{4,8}$/.test(String(text ?? '').trim());
+}
 
 /** True for a message that says "stop", in either language. */
 export function isCancellation(text) {
@@ -535,17 +575,28 @@ export function describeOutcome(result, outstanding, language) {
 
 /**
  * What to say under the page captured after Next: that the site took the
- * form and what to do on the page now shown, or that it kept the form, with
- * its first few messages.
+ * page and which stage it shows now, or that it kept the page, with the
+ * form's first few messages and whatever the site said in a dialog.
  */
 export function describeStep(step, language) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   if (step.moved) {
-    return strings.stepMoved;
+    return strings.stepMoved(
+      strings.stages[step.stage] ?? strings.stages.unknown
+    );
   }
-  const parts = [strings.stepBlocked(step.errors.length)];
-  if (step.errors.length) {
-    parts.push('', ...step.errors.slice(0, 8).map((error) => `• ${error}`));
+  const parts = [strings.stepKept];
+  const errors = step.errors ?? [];
+  const notices = step.notices ?? [];
+  if (errors.length) {
+    parts.push(
+      strings.stepMessages(errors.length),
+      '',
+      ...errors.slice(0, 8).map((error) => `• ${error}`)
+    );
+  }
+  for (const notice of notices) {
+    parts.push(strings.siteSaid(notice));
   }
   const text = parts.join('\n');
   return text.length > CAPTION_LIMIT

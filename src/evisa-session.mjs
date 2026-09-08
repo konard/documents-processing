@@ -299,12 +299,15 @@ export async function fillAndCapture(page, applicant, { uploads, screenshot }) {
 }
 
 /**
- * Presses Next and captures whatever page that leads to: the next step when
- * the site accepted the form, or the form with its validation messages when
- * it did not.
+ * Presses Next and captures whatever page that leads to: the next stage
+ * when the site accepted the page, or the same page with the site's
+ * messages when it did not.
  */
 export async function advanceAndCapture(page, screenshot) {
   const step = await pressNext(page);
+  // The stage the step bar names is drawn a moment later; what is captured
+  // and asked of the page afterwards must be the drawn stage.
+  await settleForm(page);
   const image = screenshot ? await captureForm(page, screenshot) : null;
   return { ...step, screenshot: image };
 }

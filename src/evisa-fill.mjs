@@ -516,14 +516,81 @@ export function readValidationErrors(page) {
 }
 
 /**
- * Presses the form's Next button and reports where that led.
+ * The application's stages, as the step bar at the top of the page names
+ * them. The address does not change between them: the site is one page
+ * that swaps its content, so the step bar is what says where it is.
+ */
+export const STAGES = {
+  form: 'fill out the application form',
+  review: 'review application form',
+  payment: 'payment',
+};
+
+/** The stage the page is at: a key of STAGES, or 'unknown'. */
+export async function readStage(page) {
+  const active = await page.evaluate(
+    () =>
+      document
+        .querySelector('.ant-steps-item-active')
+        ?.innerText.replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase() ?? ''
+  );
+  return (
+    Object.keys(STAGES).find((key) => active.includes(STAGES[key])) ?? 'unknown'
+  );
+}
+
+/** Where the site puts what it has to say: a dialog, a message, a toast. */
+const NOTICE_SELECTOR =
+  '.ant-modal-wrap:not([style*="display: none"]) .ant-modal-body, ' +
+  '.ant-message-notice, .ant-notification-notice';
+
+/**
+ * What the site says in a dialog or a toast, such as "Captcha invalid",
+ * and closes the dialog so the page can be used again. A toast closes
+ * itself. The toast's own title, "Notification", is dropped.
+ */
+export async function takeNotices(page) {
+  const notices = await page.evaluate(
+    (selector) =>
+      [...document.querySelectorAll(selector)]
+        .map((element) =>
+          element.innerText
+            .replace(/\s+/g, ' ')
+            .replace(/^Notification\s*/i, '')
+            .trim()
+        )
+        .filter(Boolean),
+    NOTICE_SELECTOR
+  );
+  if (notices.length) {
+    const button = page.locator(
+      '.ant-modal-wrap:not([style*="display: none"]) button:visible'
+    );
+    if (await button.count()) {
+      await button
+        .first()
+        .click()
+        .catch(() => {});
+    } else {
+      await page.keyboard.press('Escape').catch(() => {});
+    }
+    await page.waitForTimeout(500);
+  }
+  return notices;
+}
+
+/**
+ * Presses the page's Next button and reports where that led.
  *
- * A form the site accepts moves to another page; one it does not stays put
- * and shows its validation messages. The button that is looked for is the
- * visible one: the NOTE dialog's own Next stays in the document, hidden.
+ * A page the site accepts moves to the next stage; one it does not stays
+ * put, with validation messages on the form or a notice from the site.
+ * The button that is looked for is the visible one: the NOTE dialog's own
+ * Next stays in the document, hidden.
  */
 export async function pressNext(page) {
-  const from = page.url();
+  const from = await readStage(page);
   const next = page.locator('button:has-text("Next"):visible');
   if (!(await next.count())) {
     throw new Error('there is no Next button on this page');
@@ -531,25 +598,67 @@ export async function pressNext(page) {
   if (await next.first().isDisabled()) {
     throw new Error('the Next button is disabled: a declaration is not ticked');
   }
+  const activeBefore = await page.evaluate(
+    () => document.querySelector('.ant-steps-item-active')?.innerText ?? ''
+  );
   await next.first().click();
   await page
     .waitForFunction(
-      (before) =>
-        document.location.href !== before ||
-        document.querySelector('.ant-form-item-explain-error'),
-      from,
+      ({ before, selector }) =>
+        (document.querySelector('.ant-steps-item-active')?.innerText ?? '') !==
+          before ||
+        document.querySelector(`.ant-form-item-explain-error, ${selector}`),
+      { before: activeBefore, selector: NOTICE_SELECTOR },
       { timeout: 30000 }
     )
     .catch(() => {});
-  const url = page.url();
-  const errors = url === from ? await readValidationErrors(page) : [];
-  const headings = await page.evaluate(() =>
-    [...document.querySelectorAll('h1, h2')]
-      .map((element) => element.innerText.trim())
-      .filter(Boolean)
-      .slice(0, 3)
+  const stage = await readStage(page);
+  const moved = stage !== from;
+  const errors = moved ? [] : await readValidationErrors(page);
+  const notices = moved ? [] : await takeNotices(page);
+  return { from, stage, moved, errors, notices, url: page.url() };
+}
+
+/** The captcha input's id on the review page. */
+const CAPTCHA_ID = 'basic_captcha';
+
+/**
+ * The captcha the review page shows, as PNG bytes, or null when the page
+ * shows none. The image is embedded in the page as data, so it is read
+ * from there without another request.
+ */
+export async function readCaptcha(page) {
+  // The review page draws its captcha a moment after the step bar moves.
+  await page
+    .waitForSelector('img[alt="captcha img"]', { timeout: 15000 })
+    .catch(() => {});
+  const src = await page.evaluate(
+    () => document.querySelector('img[alt="captcha img"]')?.src ?? null
   );
-  return { from, url, moved: url !== from, errors, headings };
+  const match = src && /^data:image\/\w+;base64,\s*(.+)$/s.exec(src);
+  return match ? Buffer.from(match[1], 'base64') : null;
+}
+
+/** Asks the site for another captcha, and waits for it to arrive. */
+export async function refreshCaptcha(page) {
+  const before = await page.evaluate(
+    () => document.querySelector('img[alt="captcha img"]')?.src ?? ''
+  );
+  await page.locator('img[alt="reload"]').first().click();
+  await page
+    .waitForFunction(
+      (old) =>
+        (document.querySelector('img[alt="captcha img"]')?.src ?? '') !== old,
+      before,
+      { timeout: 15000 }
+    )
+    .catch(() => {});
+}
+
+/** Types the captcha's code into the review page. */
+export async function fillCaptcha(page, code) {
+  await page.waitForSelector(`#${CAPTCHA_ID}`, { timeout: 15000 });
+  await fillText(page, CAPTCHA_ID, String(code).trim());
 }
 
 /** Captures the whole filled form, including the parts below the fold. */

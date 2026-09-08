@@ -34,6 +34,7 @@ import {
   describeOutcome,
   describeStep,
   isConfirmation,
+  looksLikeCaptcha,
   isCancellation,
   NOT_ASKED,
   parseFreeText,
@@ -49,6 +50,7 @@ import {
   fillAndCapture,
   advanceAndCapture,
 } from './evisa-session.mjs';
+import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import {
   lookupAddress,
   renderVerifiedAddress,
@@ -97,6 +99,28 @@ const ADDRESS_FIELDS = [
   'emergencyAddress',
 ];
 
+/**
+ * Writes the page's markup to a file beside the kept documents, named for
+ * the moment: the empty form, the filled one, the page after Next. When a
+ * fill goes wrong, the markup at each point shows whether the site or this
+ * code is at fault. Kept on the same terms as the documents, since a filled
+ * page holds the applicant's details, and removed by the same sweep.
+ */
+async function keepMarkup(chatId, page, moment) {
+  if (!valuesAllowed()) {
+    return;
+  }
+  try {
+    const html = await page.content();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-markup-'));
+    const file = path.join(dir, `${moment}.html`);
+    fs.writeFileSync(file, html);
+    log(chatId, `markup (${moment}) written to ${file}`);
+  } catch (error) {
+    log(chatId, `could not keep the markup (${moment}): ${error.message}`);
+  }
+}
+
 /** A value for the log, or a note that values are being withheld. */
 function shown(value) {
   return valuesAllowed() ? value : '(value withheld)';
@@ -131,6 +155,7 @@ async function pageFor(chatId) {
   );
   const { browser, page } = await openForm({ headless: !HEADED });
   browsers.set(chatId, { browser, page });
+  await keepMarkup(chatId, page, 'empty-form');
   return page;
 }
 
@@ -282,6 +307,7 @@ async function fillPage(ctx, chatId, page, dir) {
         session.uploaded[key] = uploads[key];
       }
     }
+    await keepMarkup(chatId, page, 'filled-form');
     // Explained once the page shows it: a fill that failed before the
     // screenshot leaves these to be explained with the next one.
     for (const [key, value] of Object.entries(applicant)) {
@@ -479,14 +505,14 @@ function settleCountdown(chatId, verdict) {
 
 /**
  * Presses Next and sends back the page it led to, with what happened under
- * it: the next step of the application, or the form with the site's own
- * messages on it. On a chat's page, in turn with its fills.
+ * it: the stage the site reached, or the same page with the site's own
+ * messages on it. On a chat's page, in turn with its fills. Resolves to
+ * the step, or null when Next could not be pressed.
  *
- * A page that moved on is past the form, and the chat is told so if it
- * sends more details afterwards. Whatever goes wrong, the browser is left
- * as it is.
+ * The stage the page is at is remembered, since what a message means
+ * depends on it. Whatever goes wrong, the browser is left as it is.
  */
-async function pressNextAndShow(ctx, chatId) {
+function pressNextAndShow(ctx, chatId) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
   const turn = (session.fillChain ?? Promise.resolve()).then(async () => {
@@ -495,20 +521,19 @@ async function pressNextAndShow(ctx, chatId) {
     try {
       session.filling = true;
       const page = await pageFor(chatId);
-      log(chatId, 'pressing Next');
+      log(chatId, `pressing Next at the ${session.stage ?? 'form'} stage`);
       const step = await advanceAndCapture(page, path.join(dir, 'page.png'));
-      const headings = step.headings.length
-        ? ` (${step.headings.join(' | ')})`
+      const said = step.notices.length
+        ? `; it said: ${step.notices.join(' | ')}`
         : '';
       log(
         chatId,
         step.moved
-          ? `the site accepted the form; now at ${step.url}${headings}`
-          : `the site kept the form with ${step.errors.length} messages: ${step.errors.slice(0, 5).join(' | ')}`
+          ? `the site accepted the page; at the ${step.stage} stage`
+          : `the site kept the page; ${step.errors.length} messages on the form${said}`
       );
-      if (step.moved) {
-        session.pastForm = true;
-      }
+      session.stage = step.stage;
+      await keepMarkup(chatId, page, `after-next-${step.stage}`);
       busy();
       const sending = showStatus(ctx, 'upload_document');
       try {
@@ -519,11 +544,13 @@ async function pressNextAndShow(ctx, chatId) {
       } finally {
         sending();
       }
+      return step;
     } catch (error) {
       log(chatId, `pressing Next failed: ${error.stack ?? error.message}`);
       await ctx
         .reply(strings.stepFailed(error.message.split('\n')[0]))
         .catch(() => {});
+      return null;
     } finally {
       session.filling = false;
       busy();
@@ -531,26 +558,110 @@ async function pressNextAndShow(ctx, chatId) {
     }
   });
   session.fillChain = turn.catch(() => {});
-  await turn;
+  return turn;
 }
 
 /**
- * The applicant's word to send: a countdown, said in the chat, then Next.
- *
- * The countdown is the one wait in the conversation, and it is here because
- * this is the one step that is hard to take back. "Стой" during it drops
- * the step; a second word to send skips the rest of the wait.
+ * Sends the review page's captcha to the chat as a picture and asks for
+ * its code. The picture is small, so it is enlarged to be read on a phone.
  */
-async function sendAfterCountdown(ctx, chatId) {
+async function askCaptcha(ctx, chatId, caption) {
+  const session = sessions.get(chatId);
+  const page = await pageFor(chatId);
+  const image = await readCaptcha(page);
+  if (!image) {
+    log(chatId, 'no captcha on the page');
+    return false;
+  }
+  const { default: sharp } = await import('sharp');
+  const enlarged = await sharp(image)
+    .resize({ width: 720, kernel: 'nearest' })
+    .png()
+    .toBuffer();
+  session.captchaEntered = false;
+  session.awaitingCaptcha = true;
+  log(chatId, 'captcha sent to the chat');
+  await ctx.replyWithPhoto(new InputFile(enlarged, 'captcha.png'), {
+    caption,
+  });
+  return true;
+}
+
+/**
+ * Takes the page the applicant's word to send led to, and asks for what it
+ * needs: the review page wants its captcha, and one that refused the code
+ * shows another.
+ */
+async function followStep(ctx, chatId, step) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
-  await ctx.reply(strings.sendCountdown(SEND_COUNTDOWN_MS / 1000));
+  if (!step) {
+    return;
+  }
+  if (step.moved && step.stage === 'review') {
+    await askCaptcha(ctx, chatId, strings.captchaAsk);
+    return;
+  }
+  const refused = step.notices.some((notice) => /captcha/i.test(notice));
+  if (!step.moved && session.stage === 'review' && refused) {
+    const page = await pageFor(chatId);
+    await refreshCaptcha(page).catch((error) =>
+      log(chatId, `could not refresh the captcha: ${error.message}`)
+    );
+    await askCaptcha(ctx, chatId, strings.captchaAgain);
+  }
+}
+
+/**
+ * A word to send on the form: Next at once, since the site answers with
+ * the application laid out for review and a Back button, and nothing is
+ * sent yet.
+ */
+async function sendForm(ctx, chatId) {
+  const step = await pressNextAndShow(ctx, chatId);
+  await followStep(ctx, chatId, step);
+}
+
+/**
+ * The step that sends the application on: a countdown, said in the chat,
+ * then Next.
+ *
+ * The countdown is the one wait in the conversation, and it is here because
+ * this is the step that is hard to take back. "Стой" during it drops the
+ * step; a second word to send skips the rest of the wait.
+ */
+async function sendAfterCountdown(ctx, chatId, announcement) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  await ctx.reply(
+    announcement ?? strings.sendCountdown(SEND_COUNTDOWN_MS / 1000)
+  );
   const verdict = await countdown(chatId);
   log(chatId, `countdown to Next ended: ${verdict}`);
   if (verdict === 'stop') {
     return;
   }
-  await pressNextAndShow(ctx, chatId);
+  const step = await pressNextAndShow(ctx, chatId);
+  await followStep(ctx, chatId, step);
+}
+
+/**
+ * The captcha's code, typed into the review page; then the countdown to
+ * the Next that sends the application on.
+ */
+async function enterCaptcha(ctx, chatId, code) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  const page = await pageFor(chatId);
+  await fillCaptcha(page, code);
+  session.captchaEntered = true;
+  session.awaitingCaptcha = false;
+  log(chatId, 'captcha code typed in');
+  await sendAfterCountdown(
+    ctx,
+    chatId,
+    strings.captchaEntered(SEND_COUNTDOWN_MS / 1000)
+  );
 }
 
 /**
@@ -625,29 +736,41 @@ async function stopFilling(ctx, chatId) {
 /**
  * A word to send: what it does depends on where the chat is.
  *
- * During the countdown it skips the rest of the wait. With details on the
- * form not yet filled, or no fill at all, it fills now: the applicant
+ * During the countdown it skips the rest of the wait. On the form, with
+ * details not yet filled or no fill at all, it fills now: the applicant
  * confirms what they see, and they have not seen this yet. With the form
- * filled and nothing new since, it starts the countdown to Next. Never a
- * fill and Next in one word.
+ * filled and nothing new since, it presses Next, and the site lays the
+ * application out for review. On the review page it asks for the captcha
+ * again when none was typed, and counts down to Next when one was. Past
+ * that it counts down to Next. Never a fill and Next in one word.
  */
 function confirm(ctx, chatId) {
   const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  const failing = (what) => (error) =>
+    log(chatId, `${what} failed: ${error.message}`);
   if (settleCountdown(chatId, 'go')) {
     log(chatId, 'confirmation received; skipping the rest of the countdown');
     return;
   }
-  if (formIsStale(session)) {
-    log(chatId, 'confirmation received; filling now');
-    fillNow(ctx, chatId).catch((error) =>
-      log(chatId, `filling failed: ${error.message}`)
-    );
+  const stage = session.stage ?? 'form';
+  if (stage === 'form') {
+    if (formIsStale(session)) {
+      log(chatId, 'confirmation received; filling now');
+      fillNow(ctx, chatId).catch(failing('filling'));
+      return;
+    }
+    log(chatId, 'confirmation received; sending the form for review');
+    sendForm(ctx, chatId).catch(failing('the step to review'));
     return;
   }
-  log(chatId, 'confirmation received; counting down to Next');
-  sendAfterCountdown(ctx, chatId).catch((error) =>
-    log(chatId, `the step to Next failed: ${error.message}`)
-  );
+  if (stage === 'review' && !session.captchaEntered) {
+    log(chatId, 'confirmation received; the captcha is still needed');
+    askCaptcha(ctx, chatId, strings.captchaAsk).catch(failing('the captcha'));
+    return;
+  }
+  log(chatId, `confirmation received at the ${stage} stage; counting down`);
+  sendAfterCountdown(ctx, chatId).catch(failing('the step to Next'));
 }
 
 bot.command('fill', async (ctx) => {
@@ -817,7 +940,7 @@ async function receiveDocument(ctx) {
  * since a message with details in it is not a word to send.
  */
 async function refuseIfPastForm(ctx, session) {
-  if (!session.pastForm) {
+  if ((session.stage ?? 'form') === 'form') {
     return false;
   }
   settleCountdown(ctx.chat.id, 'stop');
@@ -841,6 +964,13 @@ async function receiveText(ctx) {
     // "Подтверждаю", "отправляй", "go": runs on its own, so a "стой" sent
     // after it is still heard.
     confirm(ctx, chatId);
+    return;
+  }
+  if (session.awaitingCaptcha && looksLikeCaptcha(ctx.message.text)) {
+    log(chatId, 'captcha code received');
+    enterCaptcha(ctx, chatId, ctx.message.text).catch((error) =>
+      log(chatId, `the captcha step failed: ${error.message}`)
+    );
     return;
   }
   if (await refuseIfPastForm(ctx, session)) {

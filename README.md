@@ -58,6 +58,7 @@ You can also run any script directly, e.g. `node src/compress-pdf.mjs in.pdf`.
 | `cforms-to-json`             | Read each Form C into a structured JSON transcript (text layer, else OCR).    |
 | `ocr-passports`              | OCR each passport data page (MRZ + check digits + issue date).                |
 | `extract-text-transcripts`   | Pull fields from text-bearing docs (e-visas / ETAs and tickets).              |
+| `pdf-to-lino`                | Read a text-bearing PDF into links notation (Vietnam e-visa form or any).     |
 | `write-visual-transcripts`   | Emit visual-read transcripts from your `match-checks-data.json`.              |
 | `build-markdown-transcripts` | Render a human-readable Markdown transcript for every document.               |
 | `match-checks`               | Cross-check every field across a person's documents and report mismatches.    |

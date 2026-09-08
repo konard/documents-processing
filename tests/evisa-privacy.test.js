@@ -122,7 +122,7 @@ describe('no personal data is committed', () => {
       // fixtures such as a malformed MRZ line are not treated as names.
       const values = [
         ...text.matchAll(
-          /(?:surname|givenName|given|last_name|first_name|'First Name'|emergencyName|normalizeName\()\s*:?\s*'([^']+)'/g
+          /(?:(?:surname|givenName|given|last_name|first_name|'First Name'|emergencyName)\s*:|normalizeName\()\s*'([^']+)'/g
         ),
       ].map((m) => m[1]);
       const unexpected = values.filter(

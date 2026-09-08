@@ -99,22 +99,24 @@ export async function resolveApplicant(options) {
       documents.find((doc) => doc.role === 'unknown');
     if (passportDoc) {
       // Imported here so a --dry-run never loads the native image libraries.
-      const { readPassportMrz, readPassportPage } =
-        await import('./evisa-passport.mjs');
-      const result = await readPassportMrz(passportDoc.path);
-      if (result.mrzFound) {
-        // The printed side gives what the zone leaves out: the issue date,
-        // the place of birth, the authority. The zone's fields win where
-        // both have a value.
-        const page = await readPassportPage(
-          passportDoc.path,
-          result.data
-        ).catch(() => ({ data: {} }));
+      const { readPassportConsensus, describeAgreement } =
+        await import('./evisa-passport-consensus.mjs');
+      // Every engine at hand reads the page, and each field is what they
+      // agree on; a field they split on is left for the applicant to settle.
+      const result = await readPassportConsensus(passportDoc.path, {
+        log: (line) => ocrNotes.push(line),
+      });
+      if (result.data.passportNumber) {
+        const data = { ...result.data };
+        for (const field of result.unverified) {
+          delete data[field];
+        }
         // OCR goes first so any explicit record overrides it.
         records.unshift({
           name: `ocr:${path.basename(passportDoc.path)}`,
-          data: { ...page.data, ...result.data },
+          data,
         });
+        ocrNotes.push(...describeAgreement(result));
         ocrNotes.push(
           ...result.unverified.map(
             (field) => `${field} failed its MRZ check digit and needs review`

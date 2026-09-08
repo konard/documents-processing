@@ -153,31 +153,31 @@ export async function readPassportDocument(inputPath, outputPath) {
   const prepared = await prepareDocument(inputPath, outputPath, {
     crop: true,
   });
-  const mrz = prepared.mrz;
-  if (!mrz?.mrzFound) {
-    return { prepared, data: {}, unverified: [] };
+  // Every engine at hand reads the page, cut out when it could be, and each
+  // field is what they agree on; the notes say who read what.
+  const { readPassportConsensus } =
+    await import('./evisa-passport-consensus.mjs');
+  const notes = [];
+  const read = await readPassportConsensus(prepared.path, {
+    log: (line) => notes.push(line),
+  });
+  if (!read.data.passportNumber && !prepared.mrz?.mrzFound) {
+    return { prepared, data: {}, unverified: [], disputed: [], notes };
   }
-  const data = { ...mrz.data };
-  // A field whose check digit failed is dropped: better to ask than to submit
-  // a misread passport number.
-  for (const field of mrz.unverified) {
+  const data = { ...read.data };
+  // A number or a date no check digit stood behind is dropped: better to
+  // ask than to put a misread passport number on the form.
+  for (const field of read.unverified) {
     delete data[field];
   }
-  const { readPassportPage } = await import('./evisa-passport.mjs');
-  const page = await readPassportPage(prepared.path, data).catch(() => ({
-    data: {},
-  }));
-  // The zone's reading wins over the print, except for a given name the
-  // print spells with a hyphen the zone cannot carry.
-  const { givenNameAsPrinted, ...printed } = page.data;
   return {
     prepared,
-    data: {
-      ...printed,
-      ...data,
-      ...(givenNameAsPrinted ? { givenName: givenNameAsPrinted } : {}),
-    },
-    unverified: mrz.unverified,
+    data,
+    unverified: read.unverified,
+    disputed: read.disputed,
+    agreement: read.agreement,
+    weak: read.weak,
+    notes,
   };
 }
 

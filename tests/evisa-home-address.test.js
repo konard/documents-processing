@@ -23,7 +23,7 @@ import {
   describeOutcome,
   isConfirmation,
   isCancellation,
-  REVIEW_MS,
+  IDLE_FILL_MS,
   NOT_ASKED,
 } from '../src/evisa-bot.mjs';
 import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
@@ -439,7 +439,7 @@ describe('what the bot says about a form', () => {
     const summary = describeSummary(applicant, supplied, 'ru');
     expect(summary).toBe(
       [
-        'В анкету пойдёт:',
+        'Что я вписал в анкету:',
         '',
         '<b>Заявитель</b>',
         '• фамилия: DOE',
@@ -459,7 +459,7 @@ describe('what the bot says about a form', () => {
     expect(describeSummary(applicant, supplied, 'ru', applicant)).toBe(null);
     const english = describeSummary({ surname: 'DOE' }, supplied, 'en');
     expect(english).toBe(
-      'Going on the form:\n\n<b>Applicant</b>\n• surname: DOE'
+      'What I put on the form:\n\n<b>Applicant</b>\n• surname: DOE'
     );
   });
 
@@ -531,7 +531,8 @@ describe('what the bot says about a form', () => {
     expect(isCancellation('stop')).toBe(true);
     expect(isCancellation('стой, адрес другой: Тула')).toBe(false);
     expect(isCancellation('отправляй')).toBe(false);
-    // Half a minute: enough to read a list of forty values.
-    expect(REVIEW_MS).toBe(30_000);
+    // The quiet window is the only wait: a fill follows it, with no pause
+    // to read a list over first, since the bot never submits the form.
+    expect(IDLE_FILL_MS).toBe(20_000);
   });
 });

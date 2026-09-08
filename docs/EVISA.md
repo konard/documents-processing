@@ -239,8 +239,8 @@ carries; without it the Latin halves alone are read.
 
 The same filling runs behind a bot that collects documents in conversation, in
 English or Russian. It asks the live form what is required rather than carrying
-its own list, fills after 45 seconds of quiet, and replies with a full-height
-screenshot. It never submits.
+its own list, fills after 20 seconds of quiet, and replies with a full-height
+screenshot and an explanation of what went where. It never submits.
 
 A line of a message that reads as a postal address, by its markers or postal
 code, is taken as the permanent address; a label such as `Contact address:`
@@ -262,31 +262,35 @@ with their labels: `дата выдачи 17.02.2020`, `место рожден�
 and phone, and the contact's name, address and phone under `Сестра:`, sent
 alongside the passport and the portrait.
 
-Before filling, the bot lists what goes on the form, grouped as the form is:
-applicant, passport, contacts, emergency contact, trip. A value the applicant
-did not give is marked `(assumed)` or `(по умолчанию)`, and a note under the
-list says those can be changed in the browser. A value that follows from one
-they gave is marked with its source instead: the contact address `(same as
-the permanent address)`, the visa's first day `(the entry date)`, its last
-day `(90 days, the most an e-visa allows)`. No address, phone or name is ever
-a default; the only defaults are the trip's purpose, gates, province and a
-hotel address in Ho Chi Minh City, the passport type and the religion.
+Once the chat has been quiet for 20 seconds the form is filled, with no
+pause to read anything over first: the bot never submits, so the filled form
+in the browser is what gets checked, and a value that is wrong is corrected
+there or by a message that fills again. `/start` has already opened the
+browser, so nothing waits on that either.
 
-After the fill, one message: the captured page as a file, with everything
-about the fill in its caption: how many fields went in, how many the site
-read from the passport itself and whether they matched, what the site had
-read differently, what could not be filled, what is still needed, and that
-the form is not submitted.
+After the fill come two messages. First the captured page as a file, with
+the fill's outcome in its caption: how many fields went in, how many the
+site read from the passport itself and whether they matched, what the site
+had read differently, what could not be filled, what is still needed, and
+that the form is not submitted. Then the explanation: what went on the form,
+grouped as the form is, applicant, passport, contacts, emergency contact,
+trip. A value the applicant did not give is marked `(assumed)` or `(по
+умолчанию)`, and a note under the list says those can be changed in the
+browser. A value that follows from one they gave is marked with its source
+instead: the contact address `(same as the permanent address)`, the visa's
+first day `(the entry date)`, its last day `(90 days, the most an e-visa
+allows)`. No address, phone or name is ever a default; the only defaults are
+the trip's purpose, gates, province and a hotel address in Ho Chi Minh City,
+the passport type and the religion. The explanation is its own message
+because Telegram's caption limit would cut a list of forty values short.
 
-After the summary comes a pause of 30 seconds, said in the message, to read
-it over. `Стой`, `стоп`, `отмена`, `stop` or `cancel` in that time drops the
-fill; the applicant then sends corrections, and the quiet timer starts over
-with a summary of what changed. New details during the pause do the same on
-their own. A message that is only a word of confirmation, `Подтверждаю`,
-`Отправляй`, `Заполняй`, `go`, `fill`, ends the pause at once, or fills at
-once when nothing is pending. Nothing submits the form, whatever the word
-says; a stop word during a fill already under way is answered with that, and
-the fill runs on. `/fill` fills without the pause.
+`Стой`, `стоп`, `отмена`, `stop` or `cancel` during the quiet window drops
+the fill; the applicant then sends corrections, and the window starts over.
+A message that is only a word of confirmation, `Подтверждаю`, `Отправляй`,
+`Заполняй`, `go`, `fill`, fills at once instead of waiting out the window,
+as does `/fill`. Nothing submits the form, whatever the word says; a stop
+word during a fill already under way is answered with that, and the fill
+runs on. A countdown to cancel belongs to a submit step, and there is none.
 
 With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, for an
 operator at the machine who wants to watch the fill or take over. A fill that

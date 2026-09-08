@@ -310,7 +310,10 @@ send skips the rest of the wait, and new details drop it too. When the
 countdown runs out the bot presses Next, waits for the page to settle, and
 sends what it shows as a file: the payment stage when the site accepted
 the code, or the review page again with what the site said, "Captcha
-invalid", under it, followed by a fresh picture to read. A word to send on
+invalid", under it, followed by a fresh picture to read, as many times as
+it takes. A code sent during the countdown replaces the one typed, and the
+countdown starts over. The form is never filled again for a refused code,
+and nothing sent on the review page fills it. A word to send on
 a later stage counts down and presses that stage's Next in the same way. A
 word to send while something has arrived since the last fill fills first,
 since the applicant confirms what they have seen, and `/fill` fills at

@@ -579,7 +579,6 @@ async function askCaptcha(ctx, chatId, caption) {
     .png()
     .toBuffer();
   session.captchaEntered = false;
-  session.awaitingCaptcha = true;
   log(chatId, 'captcha sent to the chat');
   await ctx.replyWithPhoto(new InputFile(enlarged, 'captcha.png'), {
     caption,
@@ -589,27 +588,30 @@ async function askCaptcha(ctx, chatId, caption) {
 
 /**
  * Takes the page the applicant's word to send led to, and asks for what it
- * needs: the review page wants its captcha, and one that refused the code
- * shows another.
+ * needs: the review page wants its captcha, and one that stayed put after
+ * Next shows another.
+ *
+ * The review page has nothing on it to refuse but the code, so a Next that
+ * left it where it was means the code was wrong, whether or not the site's
+ * toast saying so was caught before it faded. The form is not filled again
+ * for that: only the code is asked for, as often as it takes.
  */
 async function followStep(ctx, chatId, step) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
-  if (!step) {
+  if (!step || step.stage !== 'review') {
     return;
   }
-  if (step.moved && step.stage === 'review') {
+  if (step.moved) {
     await askCaptcha(ctx, chatId, strings.captchaAsk);
     return;
   }
-  const refused = step.notices.some((notice) => /captcha/i.test(notice));
-  if (!step.moved && session.stage === 'review' && refused) {
-    const page = await pageFor(chatId);
-    await refreshCaptcha(page).catch((error) =>
-      log(chatId, `could not refresh the captcha: ${error.message}`)
-    );
-    await askCaptcha(ctx, chatId, strings.captchaAgain);
-  }
+  log(chatId, 'the code was not taken; asking for the next one');
+  const page = await pageFor(chatId);
+  await refreshCaptcha(page).catch((error) =>
+    log(chatId, `could not refresh the captcha: ${error.message}`)
+  );
+  await askCaptcha(ctx, chatId, strings.captchaAgain);
 }
 
 /**
@@ -655,7 +657,6 @@ async function enterCaptcha(ctx, chatId, code) {
   const page = await pageFor(chatId);
   await fillCaptcha(page, code);
   session.captchaEntered = true;
-  session.awaitingCaptcha = false;
   log(chatId, 'captcha code typed in');
   await sendAfterCountdown(
     ctx,
@@ -776,6 +777,10 @@ function confirm(ctx, chatId) {
 bot.command('fill', async (ctx) => {
   touch(ctx.chat.id);
   log(ctx.chat.id, '/fill');
+  // Past the form there is nothing to fill: the page has moved on.
+  if (await refuseIfPastForm(ctx, sessions.get(ctx.chat.id))) {
+    return;
+  }
   await fillNow(ctx, ctx.chat.id);
 });
 
@@ -966,8 +971,15 @@ async function receiveText(ctx) {
     confirm(ctx, chatId);
     return;
   }
-  if (session.awaitingCaptcha && looksLikeCaptcha(ctx.message.text)) {
-    log(chatId, 'captcha code received');
+  if (session.stage === 'review' && looksLikeCaptcha(ctx.message.text)) {
+    // A code on the review page is the captcha's, asked for or not: one
+    // sent during the countdown replaces the one typed, and the countdown
+    // starts over on it.
+    if (settleCountdown(chatId, 'stop')) {
+      log(chatId, 'another captcha code received during the countdown');
+    } else {
+      log(chatId, 'captcha code received');
+    }
     enterCaptcha(ctx, chatId, ctx.message.text).catch((error) =>
       log(chatId, `the captcha step failed: ${error.message}`)
     );

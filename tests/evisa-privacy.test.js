@@ -116,6 +116,9 @@ describe('the people this was built from are never named', () => {
         'karel' + 'skii',
         'ros' + 'hal',
         'urit' + 'sk',
+        // Their streets and postcodes identify them as surely as their names.
+        '1274' + '11',
+        '1407' + '31',
       ].join('|'),
       'gi'
     );

@@ -78,6 +78,54 @@ describe('e-visa output stays out of the repository', () => {
   });
 });
 
+/** Everything published: code, tests and the prose beside them. */
+function publishedFiles() {
+  const inDir = (dir, ext) =>
+    readdirSync(dir)
+      .filter((f) => f.endsWith(ext))
+      .map((f) => ({
+        file: `${dir}/${f}`,
+        text: readFileSync(`${dir}/${f}`, 'utf8'),
+      }));
+  return [
+    ...inDir('src', '.mjs'),
+    ...inDir('tests', '.js'),
+    // Prose is as public as code, and an example in it is just as real.
+    ...inDir('docs', '.md'),
+    ...inDir('.changeset', '.md'),
+    { file: 'README.md', text: readFileSync('README.md', 'utf8') },
+  ];
+}
+
+describe('the people this was built from are never named', () => {
+  it('names none of them, in code, in a comment or in prose', () => {
+    // The tool was developed against real travellers' documents. Fixtures use
+    // invented people; these names must never reach the public tree.
+    // Built from parts so they never appear whole in this file either, which
+    // would trip the very check it defines.
+    const realPeople = new RegExp(
+      [
+        'bet' + 'sa',
+        'lari' + 'onov',
+        'dzhe' + 'ims',
+        'ekat' + 'erina',
+        'kris' + 'tian',
+        'boga' + 'tova',
+        'diach' + 'enko',
+        'drak' + 'onard',
+        'karel' + 'skii',
+        'ros' + 'hal',
+        'urit' + 'sk',
+      ].join('|'),
+      'gi'
+    );
+    for (const { file, text } of publishedFiles()) {
+      const hits = [...new Set(text.match(realPeople) ?? [])];
+      expect(`${file}:${hits.join(',')}`).toBe(`${file}:`);
+    }
+  });
+});
+
 describe('no personal data is committed', () => {
   const sources = readdirSync('src')
     .filter((f) => f.startsWith('evisa-'))

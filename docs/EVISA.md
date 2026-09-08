@@ -252,9 +252,10 @@ line goes to its own field. The contact address is taken to be the permanent
 one unless given, and the purpose of the trip to be tourism.
 
 The contact person is read from a block opened by `Контакт:`, `Emergency
-contact:` or a relation on its own, `Сестра:` or `Brother:`, running to the
-next blank line: a line of two to four words is their name, an address line
-their address, a phone theirs, and the relation in the heading is the
+contact:` or a relation on its own, `Сестра:`, `Тётя:` or `Brother:`,
+running to the next blank line: a line of two to four words is their name,
+an address line their address, a phone theirs, and the relation in the
+heading is the
 relationship. A second phone anywhere, or one preceded by a word such as
 `сестра` or `brother`, is the contact's too, and that word becomes the
 relationship. `Номер контакта +7...` on its own is their phone. A line about

@@ -799,7 +799,7 @@ export function parseFreeText(text) {
 
 /** Words that say a phone, a name or an address belongs to the contact person. */
 const CONTACT_WORDS =
-  /контакт|contact|родствен|relative|экстрен|emergency|сестр|брат|мам|мать|отец|пап|муж|жен|друг|подруг|сын|доч|sister|brother|mother|father|husband|wife|son|daughter|friend/i;
+  /контакт|contact|родствен|relative|экстрен|emergency|сестр|брат|мам|мать|отец|пап|муж|жен|друг|подруг|сын|доч|т[её]т[яеи]|дяд|бабушк|бабул|дедушк|дед[аеу]?\b|внук|внучк|племянни|кузен|кузин|двоюродн|партн[её]р|sister|brother|mother|father|husband|wife|son|daughter|friend|aunt|uncle|grand(?:mother|father|ma|pa|son|daughter)|niece|nephew|cousin|partner/i;
 
 /** A line that opens the block about the contact person. */
 const CONTACT_HEADING =
@@ -807,6 +807,16 @@ const CONTACT_HEADING =
 
 /** How a relative is described, and the word the form gets for it. */
 const RELATIONSHIPS = [
+  // The longer words first: "grandmother" holds "mother", "внучка" "внук".
+  [/бабушк|бабул|grandmother|grandma/i, 'Grandmother'],
+  [/дедушк|дед[аеу]?\b|grandfather|grandpa/i, 'Grandfather'],
+  [/внучк|granddaughter/i, 'Granddaughter'],
+  [/внук|grandson/i, 'Grandson'],
+  [/т[её]т[яеи]|aunt/i, 'Aunt'],
+  [/дяд|uncle/i, 'Uncle'],
+  [/племянниц|niece/i, 'Niece'],
+  [/племянник|nephew/i, 'Nephew'],
+  [/кузен|кузин|двоюродн|cousin/i, 'Cousin'],
   [/сестр|sister/i, 'Sister'],
   [/брат|brother/i, 'Brother'],
   [/мам|мать|mother/i, 'Mother'],
@@ -815,6 +825,7 @@ const RELATIONSHIPS = [
   [/жен|wife/i, 'Wife'],
   [/сын|son\b/i, 'Son'],
   [/доч|daughter/i, 'Daughter'],
+  [/партн[её]р|partner/i, 'Partner'],
   [/друг|подруг|friend/i, 'Friend'],
   [/коллег|colleague/i, 'Colleague'],
   [/родствен|relative/i, 'Relative'],

@@ -616,6 +616,40 @@ describe('what the bot says after Next, and what it hears', () => {
     expect(looksLikeCaptcha(MOSCOW)).toBe(false);
   });
 
+  it('knows an aunt, and the other relatives people name', () => {
+    const found = parseFreeText(
+      `${MOSCOW}, +7 999 111-22-33\n\nТётя:\nJANE DOE\nRUSSIAN FEDERATION, PUSHKINA STREET 10, APARTMENT 7\n+79994445566`
+    );
+    expect(found.emergencyRelationship).toBe('Aunt');
+    expect(found.emergencyName).toBe('JANE DOE');
+    expect(found.emergencyPhone).toBe('+79994445566');
+    expect(found.phone).toBe('+79991112233');
+    expect(found.emergencyAddress).toBe(
+      'RUSSIAN FEDERATION, PUSHKINA STREET 10, APARTMENT 7'
+    );
+    expect(parseFreeText('Aunt:\nJANE DOE\n+79994445566')).toEqual({
+      emergencyRelationship: 'Aunt',
+      emergencyName: 'JANE DOE',
+      emergencyPhone: '+79994445566',
+    });
+    expect(parseFreeText('тетя +79994445566').emergencyRelationship).toBe(
+      'Aunt'
+    );
+    for (const [word, relation] of [
+      ['Дядя', 'Uncle'],
+      ['Бабушка', 'Grandmother'],
+      ['Grandfather', 'Grandfather'],
+      ['Племянница', 'Niece'],
+      ['Cousin', 'Cousin'],
+      ['Partner', 'Partner'],
+      ['Grandmother', 'Grandmother'],
+    ]) {
+      expect(
+        parseFreeText(`${word}:\nJANE DOE\n+79994445566`).emergencyRelationship
+      ).toBe(relation);
+    }
+  });
+
   it('takes a word of confirmation as the signal to fill now', () => {
     expect(isConfirmation('Подтверждаю')).toBe(true);
     expect(isConfirmation('отправляй!')).toBe(true);

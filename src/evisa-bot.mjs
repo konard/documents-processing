@@ -72,6 +72,9 @@ export const MESSAGES = {
       'it is wrong, send the value you want.',
     hyphenNote: (printed) =>
       `(the passport has ${printed}; the site takes no hyphen, so a space)`,
+    disputedNote: (candidates) =>
+      `the readers of the passport disagree: ${candidates.join(' or ')}. ` +
+      'Tell me which is right.',
     derived: {
       contactAddress: '(same as the permanent address)',
       validFrom: '(the entry date)',
@@ -186,6 +189,9 @@ export const MESSAGES = {
       'что-то не так, пришлите нужное значение.',
     hyphenNote: (printed) =>
       `(в паспорте ${printed}; дефис сайт не принимает, заменён пробелом)`,
+    disputedNote: (candidates) =>
+      `паспорт прочитан по-разному: ${candidates.join(' или ')}. ` +
+      'Напишите, как правильно.',
     derived: {
       contactAddress: '(как адрес регистрации)',
       validFrom: '(день въезда)',
@@ -778,7 +784,13 @@ function escapeHtml(value) {
  * conversation carries the same defaults as the first, and reading them
  * twice tells the applicant nothing.
  */
-export function describeSummary(applicant, supplied, language, reported = {}) {
+export function describeSummary(
+  applicant,
+  supplied,
+  language,
+  reported = {},
+  disputed = {}
+) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
   const fresh = (key) =>
@@ -804,12 +816,19 @@ export function describeSummary(applicant, supplied, language, reported = {}) {
       ? ` ${strings.hyphenNote(escapeHtml(given))}`
       : '';
   };
+  // A field the passport's readers split on has no value yet: the line
+  // names the readings and asks.
+  const disputedLine = (key) =>
+    `• ${labelFor(key, language)}: ${strings.disputedNote(
+      disputed[key].map((value) => `<b>${escapeHtml(value)}</b>`)
+    )}`;
   const blocks = SECTIONS.map(([section, keys]) => {
     const lines = keys
-      .filter(fresh)
-      .map(
-        (key) =>
-          `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}`
+      .filter((key) => fresh(key) || (disputed[key] && !applicant[key]))
+      .map((key) =>
+        disputed[key] && !applicant[key]
+          ? disputedLine(key)
+          : `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}`
       );
     if (!lines.length) {
       return null;

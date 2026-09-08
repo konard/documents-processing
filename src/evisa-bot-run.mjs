@@ -367,7 +367,8 @@ async function fillPage(ctx, chatId, page, dir) {
       applicant,
       session.data,
       session.language,
-      session.reported
+      session.reported,
+      session.disputed ?? {}
     );
     session.filling = true;
 
@@ -960,6 +961,13 @@ function keepPassport(session, read, extension) {
       session.data[key] = value;
     }
   }
+  // A field the engines split on is not put on the form: the candidates
+  // are kept, and the summary asks the applicant which is right.
+  session.disputed = {};
+  for (const { field, candidates } of read.disputed ?? []) {
+    session.disputed[field] = candidates.map((c) => c.value);
+    delete session.data[field];
+  }
   session.uploads.passportPage = keepForUpload(
     read.prepared.path,
     `passport${extension}`
@@ -1043,6 +1051,21 @@ async function receiveDocument(ctx) {
           chatId,
           `prepared: ${read.prepared.cropped ? 'data page cut out' : 'kept whole'}, ${Math.round(read.prepared.bytes / 1024)} KB`
         );
+        for (const note of read.notes ?? []) {
+          log(chatId, `ocr: ${note}`);
+        }
+        for (const [field, info] of Object.entries(read.agreement ?? {})) {
+          log(
+            chatId,
+            `${field}: ${info.votes} votes from ${info.sources.join(', ')}`
+          );
+        }
+        for (const { field, candidates } of read.disputed ?? []) {
+          log(
+            chatId,
+            `${field} disputed: ${candidates.map((c) => `"${shown(c.value)}" (${c.votes})`).join(' vs ')}`
+          );
+        }
         if (read.unverified.length) {
           log(chatId, `check digit failed for: ${read.unverified.join(', ')}`);
         }
@@ -1135,6 +1158,11 @@ async function receiveText(ctx) {
     `text message (${session.language})${text}; read: ${describeFields(parsed)}`
   );
   Object.assign(session.data, parsed);
+  // A value the applicant types settles a field the passport's readers
+  // split on.
+  for (const key of Object.keys(parsed)) {
+    delete session.disputed?.[key];
+  }
   session.received = (session.received ?? 0) + 1;
 
   for (const field of ADDRESS_FIELDS) {

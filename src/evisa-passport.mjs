@@ -494,7 +494,7 @@ const LOOKALIKES = {
  * the word is Cyrillic already in part or made of lookalikes throughout.
  * "MOCKBA" is МОСКВА misread; "USSR" has letters no Cyrillic word could give.
  */
-function asCyrillic(word) {
+export function asCyrillic(word) {
   const letters = word.match(/\p{L}/gu) ?? [];
   const cyrillic = letters.some((letter) => /[Ѐ-ӿ]/.test(letter));
   const allLookalikes = letters.every(
@@ -507,7 +507,7 @@ function asCyrillic(word) {
 }
 
 /** Countries as passports print them in Latin after the place of birth. */
-const LATIN_PLACES = [
+export const LATIN_PLACES = [
   'RUSSIA',
   'USSR',
   'INDIA',
@@ -529,6 +529,7 @@ const LATIN_PLACES = [
 
 /** The words of the labels printed over the values, which name no place. */
 const LABEL_WORDS = new Set([
+  'ГОРОД',
   'МЕСТО',
   'РОЖДЕНИЯ',
   'ДАТА',
@@ -543,7 +544,7 @@ const LABEL_WORDS = new Set([
 ]);
 
 /** Snaps a Latin word to the country it is one misread away from. */
-function knownPlace(word) {
+export function knownPlace(word) {
   if (word.length < 4) {
     return word;
   }
@@ -555,7 +556,7 @@ function knownPlace(word) {
  * native name in Cyrillic, three letters or more, and a Latin country the
  * list knows. Everything else is the pattern read as letters.
  */
-function placeWords(reading) {
+export function placeWords(reading) {
   const words = reading
     .toUpperCase()
     .split(/[^\p{L}]+/u)
@@ -649,7 +650,7 @@ const AUTHORITIES = [
  * abbreviations Russian passports print, allowing one misread letter in the
  * longer ones. Anything else is noise and yields nothing.
  */
-function cleanAuthorityBody(reading) {
+export function cleanAuthorityBody(reading) {
   const tokens = reading
     .toUpperCase()
     .split(/[^\p{L}\p{N}]+/u)
@@ -701,7 +702,7 @@ export function cleanConsularAuthority(reading) {
  * allowed so the letters beside it cannot bleed into it. A zero often reads
  * as the letter O over the pattern, and is taken as one.
  */
-function cleanAuthorityCode(reading) {
+export function cleanAuthorityCode(reading) {
   const code = reading.replace(/[OО]/g, '0').replace(/\D/g, '');
   return code.length >= 4 && code.length <= 6 ? code : null;
 }

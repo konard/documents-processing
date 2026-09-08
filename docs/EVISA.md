@@ -269,7 +269,26 @@ relationship. `Номер контакта +7...` on its own is their phone. A l
 the flight or the entry gives the entry date, in digits or in words: `Дата
 билетов на самолёт: 16 сентября 2026 года`. Typed passport details are read
 with their labels: `дата выдачи 17.02.2020`, `место рождения: Тула`, `орган:
-МВД 0001`. A passport issued at a consulate names its authority without
+МВД 0001`.
+
+A passport photo is read by every OCR engine at hand, in parallel, over
+three renderings of the image: the photo as it is, a grey enlarged copy with
+its contrast stretched, and the dark ink alone with the security pattern
+dropped. The engines are Apple's Vision framework on macOS, RapidOCR,
+PaddleOCR and Tesseract; each Python one is retried once on a failure and
+held to a time budget. Every value on the page is printed twice, in the
+machine-readable zone and in the print above it, and both are read from
+every engine's lines: the number, the dates, the sex, the names, and what
+the zone lacks, the issue date, the place of birth, the authority and a
+hyphen in a name. Each reading is a vote, a zone value whose check digit
+holds counts double, and a field is settled by two votes with a clear
+lead; a place one misread letter apart is one reading, a code one digit
+apart is not. The fast engines and Tesseract run first, on the photo and
+the grey copy; PaddleOCR and the ink rendering follow only when a field is
+still open. A field the readings split on is not put on the form: the
+summary names the readings in bold and asks which is right, and the log
+says who read what. The older `passport-crosscheck.mjs` and
+`mrz-consensus.mjs` hold the same idea for the zone alone. A passport issued at a consulate names its authority without
 a code, `Г/К РОССИИ, <city>`, and is read as such; a given name the passport
 hyphenates, `[REDACTED]`, is read off the print, since the zone
 writes the hyphen as a filler, and goes on the form with a space, which the

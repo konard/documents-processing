@@ -5,9 +5,10 @@
 Add a Vietnam e-visa form filler, as a command-line tool and as a Telegram bot.
 
 `src/evisa-apply.mjs` collects applicant data from JSON, lino, images, PDFs,
-folders and zip archives, reads a passport's machine-readable zone with
-check-digit verification and its printed side for the issue date, place of
-birth and issuing authority, prepares the portrait and passport-page uploads
+folders and zip archives, reads a passport with every OCR engine at hand in
+parallel (Apple Vision, RapidOCR, PaddleOCR, Tesseract) over several
+renderings of the image, settling each field by consensus between the
+machine-readable zone, with its check digits, and the print above it, prepares the portrait and passport-page uploads
 to the site's 4x6 cm and 2 MB rules, and fills the form at evisa.gov.vn in a
 headed browser without submitting it. Values are validated first: required
 fields, real calendar dates, the 90-day validity limit, and dates that have

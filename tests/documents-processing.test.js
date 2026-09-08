@@ -48,6 +48,7 @@ describe('documents-processing commands', () => {
     'passport-crosscheck.mjs',
     'mrz-readers.mjs',
     'mrz-consensus.mjs',
+    'evisa-passport-consensus.mjs',
     'mrz-variants.mjs',
     'evisa-required.mjs',
     'evisa-bot.mjs',

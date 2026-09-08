@@ -112,8 +112,11 @@ export const MESSAGES = {
       'says:',
     applicationInNext:
       'Note the electronic document code: it is what checks the status ' +
-      'later. Say "confirm" and I press Confirm in the dialog, then show ' +
-      'what follows.',
+      'later. From here, go to the browser window: press Confirm there and ' +
+      'go on to payment yourself. I press nothing in that dialog.',
+    inBrowserNow:
+      'The application is registered; the rest is in the browser window: ' +
+      'Confirm in the dialog, then payment. I press nothing there.',
     stepMoved: (stage) =>
       `Pressed Next, and the site accepted the page. Now at: ${stage}. ` +
       'This is the whole page.',
@@ -202,8 +205,11 @@ export const MESSAGES = {
       'Сайт принял код и зарегистрировал заявление. В его окне написано:',
     applicationInNext:
       'Запишите код электронного документа: по нему потом проверяют ' +
-      'статус. Напишите «подтверждаю», и я нажму «Confirm» в этом окне и ' +
-      'покажу, что будет дальше.',
+      'статус. Дальше в окне браузера: нажмите там «Confirm» и пройдите ' +
+      'оплату сами. В этом окне я ничего не нажимаю.',
+    inBrowserNow:
+      'Заявление зарегистрировано, дальше в окне браузера: «Confirm» в ' +
+      'окне сайта, потом оплата. Там я ничего не нажимаю.',
     stepMoved: (stage) =>
       `Нажал «Next», сайт принял страницу. Шаг: ${stage}. Вот вся страница.`,
     stepKept: 'Нажал «Next», но сайт оставил страницу.',

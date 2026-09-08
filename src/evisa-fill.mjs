@@ -493,7 +493,13 @@ export function tickDeclarations(page) {
         already.push(key);
         continue;
       }
+      // Clicking focuses the box, and focusing scrolls it into view, which
+      // yanks the page from under a reader who is scrolling it. Restoring
+      // the offset afterwards keeps their position.
+      const x = window.scrollX;
+      const y = window.scrollY;
       label.click();
+      window.scrollTo(x, y);
       ticked.push(key);
     }
     return { ticked, already, missing };

@@ -353,7 +353,8 @@ on by hand in the same window.
 Photos should be sent to the bot as files, not as photos: Telegram shrinks a
 photo to a few kilobytes and strips what the camera wrote, and the site then
 warns that the portrait "was captured from another source". A file arrives
-byte for byte. One under the site's 2 MB limit is uploaded as it is; a
+byte for byte. A picture that arrives as a photo is used, and the bot says
+so each time, with its size and how to send it as a file instead. One under the site's 2 MB limit is uploaded as it is; a
 camera original over it is shrunk with its metadata kept.
 
 While the bot reads a document, waits out the quiet window or fills the form
@@ -364,6 +365,12 @@ as a file, not a photo, because Telegram shrinks a photo to fit a screen and a
 page several screens tall comes out unreadable. It is taken once the page has
 stopped changing and every value set is on it; a field the page emptied while
 re-rendering is set again first.
+
+A window the applicant closes, or a browser that crashes, is noticed the
+moment it happens: the chat is told, what was on the page is forgotten,
+and a word to fill opens a new window and fills it again from what the
+chat has sent. On a restart of the bot every chat with a browser is told
+that the window closes with it.
 
 Each chat keeps one browser for the whole conversation. A second fill uploads
 nothing the page already has and types nothing already on it, and the summary

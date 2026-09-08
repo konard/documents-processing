@@ -9,10 +9,15 @@ describe('an email rendered to PDF', () => {
       '<iframe src="https://evil.example"></iframe>' +
       '<meta http-equiv="refresh" content="0;url=https://evil.example">' +
       '<a href="javascript:alert(2)">details</a>' +
-      '<img src="data:image/png;base64,AAAA" onerror="steal()">';
+      '<img src="data:image/png;base64,AAAA" onerror="steal()">' +
+      '<img src="data:image/png;base64,BBBB" onerror=steal() alt="x">';
     const stripped = stripActiveContent(html);
     expect(stripped).toContain('Your flight <b>XX1234</b> is cancelled.');
     expect(stripped).toContain('<img src="data:image/png;base64,AAAA">');
+    // An unquoted handler ends at the tag's closing bracket, which stays.
+    expect(stripped).toContain(
+      '<img src="data:image/png;base64,BBBB" alt="x">'
+    );
     expect(stripped).toContain('<a href="#">details</a>');
     expect(stripped).not.toContain('<script');
     expect(stripped).not.toContain('<iframe');

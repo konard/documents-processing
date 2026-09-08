@@ -1010,12 +1010,19 @@ function parsePhones(line, found, inContact) {
       match.index
     );
     // A relation may also follow the number in brackets: "+7... (brother)".
+    // Only the brackets count: the rest of the line after a number is about
+    // whatever comes next on it.
     const after = line.slice(match.index + match[0].length, next?.index);
+    const bracketed = /^\s*\(([^)]*)\)/.exec(after)?.[1] ?? '';
     const number = match[0].replace(/[\s()-]/g, '');
-    const theirs = inContact || CONTACT_WORDS.test(before) || found.phone;
+    const theirs =
+      inContact ||
+      CONTACT_WORDS.test(before) ||
+      CONTACT_WORDS.test(bracketed) ||
+      found.phone;
     if (theirs) {
       found.emergencyPhone ??= number;
-      const relation = relationshipIn(before) ?? relationshipIn(after);
+      const relation = relationshipIn(before) ?? relationshipIn(bracketed);
       if (relation) {
         found.emergencyRelationship ??= relation;
       }

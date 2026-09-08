@@ -639,6 +639,33 @@ describe('what the bot says after Next, and what it hears', () => {
     expect(looksLikeCaptcha('+79991112233')).toBe(false);
     expect(looksLikeCaptcha(MOSCOW)).toBe(false);
   });
+});
+
+describe('the contact person, as people name them', () => {
+  it('takes a friend, named before the number or in brackets after it', () => {
+    expect(parseFreeText('Друг:\nJOHN DOE\n+79994445566')).toEqual({
+      emergencyRelationship: 'Friend',
+      emergencyName: 'JOHN DOE',
+      emergencyPhone: '+79994445566',
+    });
+    expect(parseFreeText('friend +79994445566')).toEqual({
+      emergencyRelationship: 'Friend',
+      emergencyPhone: '+79994445566',
+    });
+    expect(parseFreeText('+79994445566 (friend)')).toEqual({
+      emergencyRelationship: 'Friend',
+      emergencyPhone: '+79994445566',
+    });
+    expect(parseFreeText('+79994445566 (подруга)')).toEqual({
+      emergencyRelationship: 'Friend',
+      emergencyPhone: '+79994445566',
+    });
+    // Words after a number that are not in brackets belong to what follows.
+    const two = parseFreeText('+7 999 111-22-33, сестра +7 999 444-55-66');
+    expect(two.phone).toBe('+79991112233');
+    expect(two.emergencyPhone).toBe('+79994445566');
+    expect(two.emergencyRelationship).toBe('Sister');
+  });
 
   it('knows an aunt, and the other relatives people name', () => {
     const found = parseFreeText(

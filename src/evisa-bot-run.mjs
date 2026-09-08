@@ -30,6 +30,7 @@ import {
   CHAT_TTL_MS,
   detectLanguage,
   describeChecklist,
+  describeDeclaration,
   describeSummary,
   describeOutcome,
   describeStep,
@@ -857,14 +858,68 @@ bot.command('start', async (ctx) => {
   log(chatId, `/start from language_code=${ctx.from?.language_code ?? '?'}`);
   await restartChat(chatId);
   const session = sessions.get(chatId);
+  // Telegram's own language is the default, so most applicants are never
+  // asked; the buttons are there for anyone it gets wrong.
   session.language = detectLanguage(null, ctx.from?.language_code);
   touch(chatId);
+  await ctx.reply(MESSAGES[session.language].menu, {
+    reply_markup: LANGUAGE_BUTTONS,
+  });
+});
 
+/** The language buttons under the welcome, one per language spoken. */
+const LANGUAGE_BUTTONS = {
+  inline_keyboard: [
+    [
+      { text: 'Русский', callback_data: 'language:ru' },
+      { text: 'English', callback_data: 'language:en' },
+    ],
+  ],
+};
+
+bot.callbackQuery(/^language:(ru|en)$/, async (ctx) => {
+  const chatId = ctx.chat.id;
+  const chosen = ctx.match[1];
+  const session = sessions.get(chatId);
+  session.language = chosen;
+  // From here the applicant's choice holds, whatever any later message
+  // happens to be written in.
+  session.languageChosen = true;
+  touch(chatId);
+  log(chatId, `language chosen: ${chosen}`);
+  await ctx.answerCallbackQuery();
+  await ctx.reply(MESSAGES[chosen].menu);
+});
+
+bot.command('visa', async (ctx) => {
+  const chatId = ctx.chat.id;
+  log(chatId, '/visa');
+  touch(chatId);
+  const session = sessions.get(chatId);
   // The checklist is read from the live form and sent as one message.
   const page = await pageFor(chatId);
   const report = await readRequiredFields(page);
   await ctx.reply(describeChecklist(report.required, session.language));
   // No timer yet: filling an empty form would tell the applicant nothing.
+});
+
+bot.command('arrival', async (ctx) => {
+  const chatId = ctx.chat.id;
+  log(chatId, '/arrival');
+  touch(chatId);
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  const { buildDeclaration, fullNameOf } =
+    await import('./evisa-prearrival.mjs');
+  const applicant = {
+    ...(session.data ?? {}),
+    fullName: fullNameOf(session.data ?? {}),
+  };
+  const { values, missing } = buildDeclaration(applicant);
+  await ctx.reply(strings.arrivalIntro);
+  await ctx.reply(describeDeclaration(values, missing, session.language), {
+    parse_mode: 'HTML',
+  });
 });
 
 /**
@@ -951,6 +1006,123 @@ bot.command('reset', async (ctx) => {
   await endChat(ctx.chat.id);
   await ctx.reply('Cleared. Send /start to begin again.');
 });
+
+bot.command('documents', async (ctx) => {
+  const chatId = ctx.chat.id;
+  touch(chatId);
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  // The application number is what the site looks an application up by, and
+  // only the applicant has it: it arrives by email when the application is
+  // filed.
+  const asked = ctx.message.text.replace(/^\/documents\s*/, '').trim();
+  const number = asked || session.data?.applicationNumber;
+  if (!number) {
+    await ctx.reply(strings.documentsNeedNumber);
+    return;
+  }
+  log(chatId, `/documents for ${shown(number)}`);
+  await lookUpApplication(ctx, chatId, number);
+});
+
+/**
+ * Opens the site's search page on an application and asks for its captcha.
+ *
+ * The search needs the number, the email the application was filed with and
+ * the applicant's date of birth; all three are already known, so the captcha
+ * is the only thing to ask for.
+ */
+async function lookUpApplication(ctx, chatId, number) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  const page = await pageFor(chatId);
+  const { openSearch } = await import('./evisa-download.mjs');
+  await openSearch(page, {
+    applicationNumber: number,
+    email: session.data?.email,
+    dateOfBirth: session.data?.dateOfBirth,
+  });
+  session.lookingUp = number;
+  if (!(await askCaptcha(ctx, chatId, strings.captchaAsk))) {
+    await ctx.reply(strings.documentsNoCaptcha);
+  }
+}
+
+/**
+ * Types the captcha into the search page, then saves whatever the result
+ * offers: the filled form, the receipt, and the visa after a grant.
+ *
+ * A wrong code leaves the page where it was, and the site says so; another
+ * captcha is then asked for, as on the application form.
+ */
+async function fetchDocuments(ctx, chatId, code) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  const page = await pageFor(chatId);
+  const { fillSearchCaptcha, pressSearch, downloadAll, meaningOf } =
+    await import('./evisa-download.mjs');
+  await fillSearchCaptcha(page, code);
+  const { result, notice } = await pressSearch(page);
+  if (!result) {
+    log(chatId, `search returned nothing${notice ? `: ${notice}` : ''}`);
+    await ctx.reply(notice ? strings.siteSaid(notice) : strings.documentsNone);
+    await askCaptcha(ctx, chatId, strings.captchaAgain);
+    return;
+  }
+  session.lookingUp = null;
+  log(chatId, `application status: ${result.status}`);
+  await ctx.reply(
+    strings.applicationStatus(result.status, meaningOf(result.status))
+  );
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-docs-'));
+  try {
+    const { saved, failed } = await downloadAll(page, dir);
+    for (const file of saved) {
+      await ctx.replyWithDocument(
+        new InputFile(file.path, path.basename(file.path))
+      );
+    }
+    log(chatId, `saved ${saved.length}, failed ${failed.length}`);
+    if (!saved.length) {
+      await ctx.reply(strings.documentsNotReady);
+    }
+  } finally {
+    // The files hold the applicant's own documents; the chat now has them.
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Keeps the chat in the language its applicant reads.
+ *
+ * A language the applicant chose stays chosen. Reading it afresh from every
+ * message turns a Russian chat to English on a captcha code, which is digits
+ * and says nothing about the language its writer speaks.
+ */
+function followLanguage(ctx, session) {
+  if (session.languageChosen) {
+    return;
+  }
+  session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
+}
+
+/**
+ * Takes a code as the lookup's captcha when a lookup is waiting on one.
+ *
+ * Reports whether it did, so the caller can stop: the application form is
+ * untouched by any of this.
+ */
+function tookLookupCaptcha(ctx, chatId, session) {
+  if (!session.lookingUp || !looksLikeCaptcha(ctx.message.text)) {
+    return false;
+  }
+  log(chatId, 'captcha code received for the document lookup');
+  fetchDocuments(ctx, chatId, ctx.message.text).catch((error) =>
+    log(chatId, `the document lookup failed: ${error.message}`)
+  );
+  return true;
+}
 
 /**
  * Runs a chat's messages one at a time, in the order they arrived.
@@ -1150,7 +1322,7 @@ async function receiveText(ctx) {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
   touch(chatId);
-  session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
+  followLanguage(ctx, session);
   if (isCancellation(ctx.message.text)) {
     await stopFilling(ctx, chatId);
     return;
@@ -1159,6 +1331,9 @@ async function receiveText(ctx) {
     // "Подтверждаю", "отправляй", "go": runs on its own, so a "стой" sent
     // after it is still heard.
     confirm(ctx, chatId);
+    return;
+  }
+  if (tookLookupCaptcha(ctx, chatId, session)) {
     return;
   }
   if (session.stage === 'review' && looksLikeCaptcha(ctx.message.text)) {
@@ -1268,6 +1443,14 @@ setInterval(() => sweepIdleChats(), 10 * 60 * 1000).unref();
  */
 async function startPolling(attempt = 1) {
   try {
+    // The commands Telegram offers in its own menu, so the three ways in are
+    // visible without anybody being told them.
+    await bot.api.setMyCommands([
+      { command: 'start', description: 'start over, and choose a language' },
+      { command: 'visa', description: 'apply for an e-visa' },
+      { command: 'arrival', description: 'the pre-arrival declaration' },
+      { command: 'documents', description: 'fetch a filed application' },
+    ]);
     await bot.start();
   } catch (error) {
     if (error.error_code === 409 && attempt <= 12) {

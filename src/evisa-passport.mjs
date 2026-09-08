@@ -667,6 +667,36 @@ function cleanAuthorityBody(reading) {
 }
 
 /**
+ * A consular authority in a reading of the authority line: a passport
+ * issued abroad names "Г/К РОССИИ, <city>", the consulate general, or an
+ * embassy, with no code after it. Anything else yields nothing.
+ */
+export function cleanConsularAuthority(reading) {
+  const tokens = String(reading ?? '')
+    .toUpperCase()
+    .split(/[^\p{L}/]+/u)
+    .filter(Boolean)
+    .map(asCyrillic);
+  const at = tokens.findIndex(
+    (token) => token.length >= 6 && editDistance(token.slice(-6), 'РОССИИ') <= 1
+  );
+  if (at < 0) {
+    return null;
+  }
+  const before = tokens[at].slice(0, -6) || tokens[at - 1] || '';
+  const body =
+    editDistance(before, 'ПОСОЛЬСТВО') <= 2
+      ? 'ПОСОЛЬСТВО РОССИИ'
+      : 'Г/К РОССИИ';
+  const city = tokens
+    .slice(at + 1)
+    .filter((token) => token !== 'В' && /^[Ѐ-ӿ]{3,}$/.test(token))
+    .slice(0, 2)
+    .join(' ');
+  return city ? `${body}, ${city}` : null;
+}
+
+/**
  * The code in a reading of the authority line, read with digits alone
  * allowed so the letters beside it cannot bleed into it. A zero often reads
  * as the letter O over the pattern, and is taken as one.
@@ -710,6 +740,13 @@ export async function readPassportPage(imagePath, known = {}) {
   const place = birth && readPlaceBeside(page, birth, lang);
   if (place) {
     data.placeOfBirth = place;
+  }
+  const printedName =
+    birth?.w &&
+    known.givenName &&
+    readPrintedGivenName(page, birth, known.givenName);
+  if (printedName) {
+    data.givenNameAsPrinted = printedName;
   }
   const authority = issue?.w && readAuthorityUnder(page, issue, expiry, lang);
   if (authority) {
@@ -777,18 +814,80 @@ function readPlaceBeside(page, birth, lang) {
  * letters beside it cannot bleed into it.
  */
 function readAuthorityUnder(page, issue, expiry, lang) {
-  const line = {
-    left: issue.x - issue.h,
-    top: issue.y + issue.h * 1.3,
-    width: (expiry ? expiry.x - issue.x : issue.w * 2) + issue.h,
-    height: issue.h * 2.4,
-  };
-  const body = readStrip(page, line, { lang, clean: cleanAuthorityBody });
-  const code = readStrip(page, line, {
-    whitelist: '0123456789O',
-    clean: cleanAuthorityCode,
+  // The value stands one line under the date on some passports and two on
+  // others, under its own label, and how tall the date's box came out
+  // varies with the photo; so a few bands under the date are read in turn.
+  for (const offset of [1.3, 2.9, 4.5]) {
+    const line = {
+      left: issue.x - issue.h,
+      top: issue.y + issue.h * offset,
+      width: (expiry ? expiry.x - issue.x : issue.w * 2) + issue.h,
+      height: issue.h * 2.4,
+    };
+    const body = readStrip(page, line, { lang, clean: cleanAuthorityBody });
+    const code = readStrip(page, line, {
+      whitelist: '0123456789O',
+      clean: cleanAuthorityCode,
+    });
+    if (body && code) {
+      return `${body} ${code}`;
+    }
+    // No body and code: a consulate abroad, named without one and at
+    // greater length, so the strip runs on into the expiry column; the
+    // reading keeps Cyrillic words only, and the expiry's digits pass it by.
+    const consular = readStrip(
+      page,
+      { ...line, width: line.width + issue.h * 4 },
+      { lang, clean: cleanConsularAuthority }
+    );
+    if (consular) {
+      return consular;
+    }
+  }
+  return null;
+}
+
+/**
+ * The given name as the passport prints it in Latin letters, under the
+ * native one, when it matches the zone's reading: the zone writes a hyphen
+ * as a filler, so "[REDACTED]" comes out of it as two names, and
+ * only the print has the hyphen.
+ *
+ * Read as a block of lines, since the print sits between the native name
+ * and the nationality; a line that is the zone's name with hyphens for some
+ * of its spaces, or one letter off, is the print. Null when none is.
+ */
+function readPrintedGivenName(page, birth, zoneName) {
+  const cut = cutPixels(page, {
+    left: birth.x - birth.h,
+    top: birth.y - birth.h * 7,
+    width: birth.h * 24,
+    height: birth.h * 4,
   });
-  return body && code ? `${body} ${code}` : null;
+  if (cut.width < 8 || cut.height < 8) {
+    return null;
+  }
+  const strip = upscale(cut, 2);
+  const votes = new Map();
+  for (const prepared of preparations(strip)) {
+    const reading = ocrCanvas(prepared, {
+      psm: 6,
+      lang: 'eng',
+      whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ- ',
+    });
+    for (const line of reading.split('\n')) {
+      const candidate = line.trim().replace(/\s+/g, ' ');
+      const asZone = candidate.replace(/-/g, ' ');
+      if (candidate.includes('-') && editDistance(asZone, zoneName) <= 1) {
+        votes.set(candidate, (votes.get(candidate) ?? 0) + 1);
+      }
+    }
+  }
+  const ranked = [...votes.entries()].sort((a, b) => b[1] - a[1]);
+  if (!ranked.length || (ranked.length > 1 && ranked[0][1] === ranked[1][1])) {
+    return null;
+  }
+  return ranked[0][0];
 }
 
 /**

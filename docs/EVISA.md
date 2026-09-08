@@ -184,8 +184,12 @@ somewhere they never said. Every value stays editable in the browser.
 The permanent, contact and emergency addresses are copied onto the form as
 written, in Latin letters. An address written the Russian way carries markers
 that mean nothing once transliterated, so those are translated or dropped, the
-country and the best-known cities get their English names, and the rest is
-spelled the way the passport's machine-readable zone would spell it:
+country, the regions and the best-known cities get their English names
+(`Московская область` is `Moscow Region`, `Краснодарский край` `Krasnodar
+Krai`), a street's type becomes the English word after its name (`ул.
+Ленина` is `Lenina street`, `Невский проспект` `Nevskii avenue`), the house
+follows the street without a comma, and the rest is spelled the way the
+passport's machine-readable zone would spell it:
 
 ```
 Россия, г. Москва, 101000, ул. Пушкина, д. 10, корп. 2, кв. 5
@@ -194,7 +198,7 @@ spelled the way the passport's machine-readable zone would spell it:
 becomes
 
 ```
-Russian Federation, Moscow, 101000, ul. Pushkina, 10, bld. 2, apt. 5
+Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5
 ```
 
 A Russian address is put into one order however it was written: country,
@@ -204,7 +208,10 @@ APARTMENT 5`) is taken apart the same way and comes out in the same order.
 Every address is then written one way: names with a capital first letter,
 markers and street types in lower case, house letters in capitals, and the
 country by one spelling (`Russian Federation`, never `Russia` or `RUSSIA`),
-so the permanent, contact and emergency addresses read alike on the form. An
+so the permanent, contact and emergency addresses read alike on the form.
+The place of birth is the exception: it is rendered as the passport prints
+it, `Г.МОСКВА/RUSSIA` as `Moscow, Russia` and `Г.МОСКВА/USSR` as `Moscow,
+USSR`, since it is the passport's statement, not an address. An
 address from elsewhere keeps its own order and gets only its case settled. Units written without commas (`г. Москва ул. Пушкина
 д. 10 кв. 5`) are split apart, and a remark after a dash or in brackets
 (`- адрес для всех`) is dropped.
@@ -262,7 +269,11 @@ relationship. `Номер контакта +7...` on its own is their phone. A l
 the flight or the entry gives the entry date, in digits or in words: `Дата
 билетов на самолёт: 16 сентября 2026 года`. Typed passport details are read
 with their labels: `дата выдачи 17.02.2020`, `место рождения: Тула`, `орган:
-МВД 0001`. So one message can carry the email, the flight date, the address
+МВД 0001`. A passport issued at a consulate names its authority without
+a code, `Г/К РОССИИ, <city>`, and is read as such; a given name the passport
+hyphenates, `[REDACTED]`, is read off the print, since the zone
+writes the hyphen as a filler, and goes on the form with a space, which the
+site takes, with a note in the summary saying so. So one message can carry the email, the flight date, the address
 and phone, and the contact's name, address and phone under `Сестра:`, sent
 alongside the passport and the portrait.
 

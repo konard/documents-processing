@@ -70,6 +70,8 @@ export const MESSAGES = {
     assumedNote:
       'What is marked "(assumed)" was not given, so I chose it. If any of ' +
       'it is wrong, send the value you want.',
+    hyphenNote: (printed) =>
+      `(the passport has ${printed}; the site takes no hyphen, so a space)`,
     derived: {
       contactAddress: '(same as the permanent address)',
       validFrom: '(the entry date)',
@@ -182,6 +184,8 @@ export const MESSAGES = {
     assumedNote:
       'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Если ' +
       'что-то не так, пришлите нужное значение.',
+    hyphenNote: (printed) =>
+      `(в паспорте ${printed}; дефис сайт не принимает, заменён пробелом)`,
     derived: {
       contactAddress: '(как адрес регистрации)',
       validFrom: '(день въезда)',
@@ -792,12 +796,20 @@ export function describeSummary(applicant, supplied, language, reported = {}) {
     return ` ${strings.assumedMark}`;
   };
 
+  // A name the passport hyphenates goes on the form with a space, and the
+  // line says so, since the applicant will look for the hyphen.
+  const noteFor = (key) => {
+    const given = String(supplied[key] ?? '');
+    return given.includes('-') && !String(applicant[key]).includes('-')
+      ? ` ${strings.hyphenNote(escapeHtml(given))}`
+      : '';
+  };
   const blocks = SECTIONS.map(([section, keys]) => {
     const lines = keys
       .filter(fresh)
       .map(
         (key) =>
-          `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}`
+          `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}`
       );
     if (!lines.length) {
       return null;

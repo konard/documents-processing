@@ -127,8 +127,9 @@ describe('no personal data is committed', () => {
       ].map((m) => m[1]);
       const unexpected = values.filter(
         (value) =>
+          // A hyphen joins two names, "JOHN-ALEX", each a placeholder.
           !value
-            .split(/[\s,]+/)
+            .split(/[\s,-]+/)
             .filter(Boolean)
             .every((part) => {
               const plain = part

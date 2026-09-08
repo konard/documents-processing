@@ -775,10 +775,11 @@ function confirm(ctx, chatId) {
     return;
   }
   if (stage === 'declared') {
-    // The application is in; Confirm closes the site's dialog and leads
-    // on. Nothing to count down for.
-    log(chatId, 'confirmation received; pressing Confirm in the dialog');
-    pressNextAndShow(ctx, chatId, 'Confirm').catch(failing('Confirm'));
+    // The application is in. What follows is Confirm and then payment,
+    // which is the applicant's to do in the browser window: a card, a
+    // charge, nothing to press on their behalf.
+    log(chatId, 'confirmation received past registration; nothing pressed');
+    ctx.reply(strings.inBrowserNow).catch(failing('the reply'));
     return;
   }
   log(chatId, `confirmation received at the ${stage} stage; counting down`);

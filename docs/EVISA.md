@@ -313,10 +313,10 @@ a dialog over the review page, "DECLARATION COMPLETED", with the
 electronic document code that checks the application's status later; the
 step bar does not move for it, so the bot reads the dialog itself as a
 stage of its own. The dialog is relayed line by line under a capture of
-the screen, and the bot waits for the word `подтверждаю` or `confirm`
-before pressing the dialog's Confirm, then sends the page that follows.
-Nothing in a dialog is ever pressed on the bot's own account: its buttons
-are the site's next steps. When the site refused the code the review page
+the screen, and that is where the bot stops: Confirm in the dialog and
+the payment after it are the applicant's to do in the browser window, and
+the bot says so, again to any word to send from then on. Nothing in a
+dialog is ever pressed by the bot. When the site refused the code the review page
 is sent again with what the site said, "Captcha invalid", under it,
 followed by a fresh picture to read, as many times as it takes. A code sent during the countdown replaces the one typed, and the
 countdown starts over. The form is never filled again for a refused code,

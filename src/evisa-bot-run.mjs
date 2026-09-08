@@ -7,7 +7,8 @@
 //
 // The bot holds one browser per chat, opened on first contact and reused for
 // as long as the chat goes on, so the applicant sees the same form growing as
-// they send documents. It fills but never submits.
+// they send documents. It fills on its own; it presses Next only on the
+// applicant's word, after a countdown they can still stop.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,11 +26,13 @@ import {
 import {
   MESSAGES,
   IDLE_FILL_MS,
+  SEND_COUNTDOWN_MS,
   CHAT_TTL_MS,
   detectLanguage,
   describeChecklist,
   describeSummary,
   describeOutcome,
+  describeStep,
   isConfirmation,
   isCancellation,
   NOT_ASKED,
@@ -44,6 +47,7 @@ import {
   reopenForm,
   readPassportDocumentInWorker,
   fillAndCapture,
+  advanceAndCapture,
 } from './evisa-session.mjs';
 import {
   lookupAddress,
@@ -69,6 +73,8 @@ const { Bot, InputFile } = await import('grammy');
 const sessions = createSessionStore();
 const browsers = new Map();
 const timers = new Map();
+// Chats counting down to Next, each with the function that ends the count.
+const countdowns = new Map();
 
 /**
  * With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, so an
@@ -137,6 +143,7 @@ async function endChat(chatId) {
   }
   sessions.clear(chatId);
   disarmIdleFill(chatId);
+  settleCountdown(chatId, 'stop');
 }
 
 /**
@@ -148,6 +155,7 @@ async function endChat(chatId) {
  */
 async function restartChat(chatId) {
   disarmIdleFill(chatId);
+  settleCountdown(chatId, 'stop');
   sessions.clear(chatId);
   const held = browsers.get(chatId);
   if (!browserAlive(held)) {
@@ -245,6 +253,9 @@ function showStatus(ctx, action) {
 async function fillPage(ctx, chatId, page, dir) {
   const session = sessions.get(chatId);
   const busy = showStatus(ctx, 'typing');
+  // What arrived before this fill started; what arrives during it is for
+  // the next one, and keeps the form counted as changed.
+  const received = session.received ?? 0;
   try {
     const applicant = normalizeApplicant(session.data);
     log(chatId, `filling with: ${describeFields(applicant)}`);
@@ -278,6 +289,7 @@ async function fillPage(ctx, chatId, page, dir) {
         session.reported[key] = value;
       }
     }
+    session.filledThrough = received;
     return { result, summary };
   } finally {
     session.filling = false;
@@ -431,6 +443,116 @@ async function fillNow(ctx, chatId) {
   await turn;
 }
 
+/** True when something has arrived since the last fill, or nothing was filled. */
+function formIsStale(session) {
+  return (
+    session.filledThrough === undefined ||
+    session.filledThrough !== (session.received ?? 0)
+  );
+}
+
+/**
+ * Waits out the countdown to Next, and says how it ended: "go" or "stop"
+ * from the applicant, or "timeout" when they let it run.
+ */
+function countdown(chatId) {
+  return new Promise((resolve) => {
+    const finish = (verdict) => {
+      clearTimeout(timer);
+      countdowns.delete(chatId);
+      resolve(verdict);
+    };
+    const timer = setTimeout(() => finish('timeout'), SEND_COUNTDOWN_MS);
+    countdowns.set(chatId, finish);
+  });
+}
+
+/** Ends a chat's countdown with the verdict; false when none is running. */
+function settleCountdown(chatId, verdict) {
+  const finish = countdowns.get(chatId);
+  if (!finish) {
+    return false;
+  }
+  finish(verdict);
+  return true;
+}
+
+/**
+ * Presses Next and sends back the page it led to, with what happened under
+ * it: the next step of the application, or the form with the site's own
+ * messages on it. On a chat's page, in turn with its fills.
+ *
+ * A page that moved on is past the form, and the chat is told so if it
+ * sends more details afterwards. Whatever goes wrong, the browser is left
+ * as it is.
+ */
+async function pressNextAndShow(ctx, chatId) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  const turn = (session.fillChain ?? Promise.resolve()).then(async () => {
+    const busy = showStatus(ctx, 'typing');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-step-${chatId}-`));
+    try {
+      session.filling = true;
+      const page = await pageFor(chatId);
+      log(chatId, 'pressing Next');
+      const step = await advanceAndCapture(page, path.join(dir, 'page.png'));
+      const headings = step.headings.length
+        ? ` (${step.headings.join(' | ')})`
+        : '';
+      log(
+        chatId,
+        step.moved
+          ? `the site accepted the form; now at ${step.url}${headings}`
+          : `the site kept the form with ${step.errors.length} messages: ${step.errors.slice(0, 5).join(' | ')}`
+      );
+      if (step.moved) {
+        session.pastForm = true;
+      }
+      busy();
+      const sending = showStatus(ctx, 'upload_document');
+      try {
+        await ctx.replyWithDocument(
+          new InputFile(step.screenshot, 'page.png'),
+          { caption: describeStep(step, session.language) }
+        );
+      } finally {
+        sending();
+      }
+    } catch (error) {
+      log(chatId, `pressing Next failed: ${error.stack ?? error.message}`);
+      await ctx
+        .reply(strings.stepFailed(error.message.split('\n')[0]))
+        .catch(() => {});
+    } finally {
+      session.filling = false;
+      busy();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  session.fillChain = turn.catch(() => {});
+  await turn;
+}
+
+/**
+ * The applicant's word to send: a countdown, said in the chat, then Next.
+ *
+ * The countdown is the one wait in the conversation, and it is here because
+ * this is the one step that is hard to take back. "Стой" during it drops
+ * the step; a second word to send skips the rest of the wait.
+ */
+async function sendAfterCountdown(ctx, chatId) {
+  const session = sessions.get(chatId);
+  const strings = MESSAGES[session.language];
+  await ctx.reply(strings.sendCountdown(SEND_COUNTDOWN_MS / 1000));
+  const verdict = await countdown(chatId);
+  log(chatId, `countdown to Next ended: ${verdict}`);
+  if (verdict === 'stop') {
+    return;
+  }
+  await pressNextAndShow(ctx, chatId);
+}
+
 /**
  * Checks an address that just arrived against the map, and keeps the map's
  * rendering when it confirms the house. An address the map cannot place is
@@ -479,23 +601,53 @@ bot.command('start', async (ctx) => {
 });
 
 /**
- * "Стой": the quiet timer is dropped, and nothing is filled until the
- * applicant says otherwise.
+ * "Стой": the countdown to Next and the quiet timer are dropped, and
+ * nothing is filled or pressed until the applicant says otherwise.
  *
  * A fill that has already started is not interrupted, since a half-filled
- * form is not a danger: nothing submits it. The applicant is told so.
+ * form is not a danger: Next is not pressed without their word. The
+ * applicant is told so.
  */
 async function stopFilling(ctx, chatId) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
-  if (session.filling) {
+  const counting = settleCountdown(chatId, 'stop');
+  if (session.filling && !counting) {
     log(chatId, 'stop received during a fill');
     await ctx.reply(strings.alreadyFilling);
     return;
   }
   disarmIdleFill(chatId);
-  log(chatId, 'stop received; quiet timer ended');
+  log(chatId, `stop received; ${counting ? 'countdown' : 'quiet timer'} ended`);
   await ctx.reply(strings.stopped);
+}
+
+/**
+ * A word to send: what it does depends on where the chat is.
+ *
+ * During the countdown it skips the rest of the wait. With details on the
+ * form not yet filled, or no fill at all, it fills now: the applicant
+ * confirms what they see, and they have not seen this yet. With the form
+ * filled and nothing new since, it starts the countdown to Next. Never a
+ * fill and Next in one word.
+ */
+function confirm(ctx, chatId) {
+  const session = sessions.get(chatId);
+  if (settleCountdown(chatId, 'go')) {
+    log(chatId, 'confirmation received; skipping the rest of the countdown');
+    return;
+  }
+  if (formIsStale(session)) {
+    log(chatId, 'confirmation received; filling now');
+    fillNow(ctx, chatId).catch((error) =>
+      log(chatId, `filling failed: ${error.message}`)
+    );
+    return;
+  }
+  log(chatId, 'confirmation received; counting down to Next');
+  sendAfterCountdown(ctx, chatId).catch((error) =>
+    log(chatId, `the step to Next failed: ${error.message}`)
+  );
 }
 
 bot.command('fill', async (ctx) => {
@@ -591,6 +743,9 @@ async function receiveDocument(ctx) {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
   touch(chatId);
+  if (await refuseIfPastForm(ctx, session)) {
+    return;
+  }
   const busy = showStatus(ctx, 'typing');
 
   let buffer;
@@ -645,6 +800,7 @@ async function receiveDocument(ctx) {
         log(chatId, 'no passport zone found; treating it as the portrait');
         keepPortrait(chatId, session, read, local, extension);
       }
+      session.received = (session.received ?? 0) + 1;
     },
     // Kept while debugging, under the system temp directory. What eventually
     // removes them is the sweep below, which runs daily: a container's volume
@@ -653,6 +809,21 @@ async function receiveDocument(ctx) {
   ).finally(busy);
 
   armIdleFill(ctx, chatId);
+}
+
+/**
+ * Details sent after the site took the form cannot reach it: the page has
+ * moved on. The chat is told, and the countdown, if one runs, is stopped,
+ * since a message with details in it is not a word to send.
+ */
+async function refuseIfPastForm(ctx, session) {
+  if (!session.pastForm) {
+    return false;
+  }
+  settleCountdown(ctx.chat.id, 'stop');
+  log(ctx.chat.id, 'details received past the form; refused');
+  await ctx.reply(MESSAGES[session.language].pastForm);
+  return true;
 }
 
 bot.on('message:text', (ctx) => inTurn(ctx.chat.id, () => receiveText(ctx)));
@@ -667,17 +838,20 @@ async function receiveText(ctx) {
     return;
   }
   if (isConfirmation(ctx.message.text)) {
-    // "Подтверждаю", "go": the form is filled now, not after the quiet
-    // window. Never submitted, whatever the word. The fill runs on its own,
-    // so a "стой" sent after it is still heard.
-    log(chatId, 'confirmation received; filling now');
-    fillNow(ctx, chatId).catch((error) =>
-      log(chatId, `filling failed: ${error.message}`)
-    );
+    // "Подтверждаю", "отправляй", "go": runs on its own, so a "стой" sent
+    // after it is still heard.
+    confirm(ctx, chatId);
     return;
   }
-  // New details restart the quiet timer; the fill that follows puts only
+  if (await refuseIfPastForm(ctx, session)) {
+    return;
+  }
+  // New details end a countdown, since the form they go on is about to
+  // change, and restart the quiet timer; the fill that follows puts only
   // what changed on the form, and explains only that.
+  if (settleCountdown(chatId, 'stop')) {
+    log(chatId, 'details received during the countdown; Next not pressed');
+  }
   const parsed = parseFreeText(ctx.message.text);
   // The text itself is logged too: what was not read out of it is only
   // diagnosable against the words that were sent.
@@ -689,6 +863,7 @@ async function receiveText(ctx) {
     `text message (${session.language})${text}; read: ${describeFields(parsed)}`
   );
   Object.assign(session.data, parsed);
+  session.received = (session.received ?? 0) + 1;
 
   for (const field of ADDRESS_FIELDS) {
     if (parsed[field]) {

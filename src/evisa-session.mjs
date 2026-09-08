@@ -15,6 +15,8 @@ import {
   waitForForm,
   fillForm,
   readFilledFields,
+  tickDeclarations,
+  pressNext,
 } from './evisa-fill.mjs';
 import { FIELDS } from './evisa-schema.mjs';
 
@@ -271,8 +273,11 @@ async function emptiedFields(page, applicant, filled) {
  * Fills the form and captures the result, which is what both front ends call
  * with whatever data they hold.
  *
- * The capture waits for the page to settle and for every value to be on it,
- * so what the applicant is shown is the finished form.
+ * The declarations under the form are ticked with the first fill, so the
+ * form the applicant sees is the one that Next accepts; which were ticked is
+ * reported, since each is a statement made in their name. The capture waits
+ * for the page to settle and for every value to be on it, so what the
+ * applicant is shown is the finished form.
  */
 export async function fillAndCapture(page, applicant, { uploads, screenshot }) {
   const result = await fillForm(page, applicant, { uploads });
@@ -287,7 +292,19 @@ export async function fillAndCapture(page, applicant, { uploads, screenshot }) {
     result.failures.push(...again.failures);
     await settleForm(page);
   }
+  const declared = await tickDeclarations(page);
 
   const image = screenshot ? await captureForm(page, screenshot) : null;
-  return { ...result, refilled: emptied, screenshot: image };
+  return { ...result, refilled: emptied, declared, screenshot: image };
+}
+
+/**
+ * Presses Next and captures whatever page that leads to: the next step when
+ * the site accepted the form, or the form with its validation messages when
+ * it did not.
+ */
+export async function advanceAndCapture(page, screenshot) {
+  const step = await pressNext(page);
+  const image = screenshot ? await captureForm(page, screenshot) : null;
+  return { ...step, screenshot: image };
 }

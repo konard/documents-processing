@@ -2,10 +2,11 @@
 //
 // Drives the e-visa form in a real, headed browser.
 //
-// The form is never submitted. The browser is left open on a fully populated
-// form so the applicant can check every field, correct anything, and press
-// submit themselves. Submitting on someone's behalf would mean signing a legal
-// declaration for them, which this tool deliberately does not do.
+// Filling and moving on are separate steps. The fill populates every field
+// and ticks the declarations under the form; the browser is then left open on
+// the finished form for the applicant to check. Pressing Next is a step of its
+// own that a front end takes only on the applicant's word: the declarations
+// are theirs, and the fee is not refunded when an application is refused.
 
 import { FIELDS, RADIO_GROUPS, UPLOADS } from './evisa-schema.mjs';
 
@@ -449,6 +450,100 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
   }
 
   return { filled, typed, failures, extracted, corrected, agreed, siteOnly };
+}
+
+/**
+ * The declarations under the form, each known by what its label says.
+ *
+ * Next stays disabled until all four are ticked. The site's "agree to create
+ * an account by email" box comes ticked and is not one of them.
+ */
+export const DECLARATIONS = {
+  temporaryResidence: 'temporary residence',
+  truthful: 'hereby declare',
+  compliance: 'compliance with vietnamese laws',
+  instructionsRead: 'reading carefully instructions',
+};
+
+/**
+ * Ticks the declarations under the form and says which it ticked, which it
+ * found ticked, and which it did not find on the page.
+ *
+ * Found by their wording, since the site gives most of them no id. The click
+ * goes to the label, not the box: Angular listens on the label.
+ */
+export function tickDeclarations(page) {
+  return page.evaluate((declarations) => {
+    const ticked = [];
+    const already = [];
+    const missing = [];
+    const labels = [...document.querySelectorAll('label')];
+    for (const [key, words] of Object.entries(declarations)) {
+      const label = labels.find(
+        (candidate) =>
+          candidate.querySelector('input[type=checkbox]') &&
+          candidate.innerText.toLowerCase().includes(words)
+      );
+      if (!label) {
+        missing.push(key);
+        continue;
+      }
+      const box = label.querySelector('input[type=checkbox]');
+      if (box.checked) {
+        already.push(key);
+        continue;
+      }
+      label.click();
+      ticked.push(key);
+    }
+    return { ticked, already, missing };
+  }, DECLARATIONS);
+}
+
+/** The validation messages the form shows, top to bottom. */
+export function readValidationErrors(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.ant-form-item-explain-error')]
+      .map((element) => element.innerText.trim())
+      .filter(Boolean)
+  );
+}
+
+/**
+ * Presses the form's Next button and reports where that led.
+ *
+ * A form the site accepts moves to another page; one it does not stays put
+ * and shows its validation messages. The button that is looked for is the
+ * visible one: the NOTE dialog's own Next stays in the document, hidden.
+ */
+export async function pressNext(page) {
+  const from = page.url();
+  const next = page.locator('button:has-text("Next"):visible');
+  if (!(await next.count())) {
+    throw new Error('there is no Next button on this page');
+  }
+  if (await next.first().isDisabled()) {
+    throw new Error('the Next button is disabled: a declaration is not ticked');
+  }
+  await next.first().click();
+  await page
+    .waitForFunction(
+      (before) =>
+        document.location.href !== before ||
+        document.querySelector('.ant-form-item-explain-error'),
+      from,
+      { timeout: 30000 }
+    )
+    .catch(() => {});
+  const url = page.url();
+  const errors = url === from ? await readValidationErrors(page) : [];
+  const headings = await page.evaluate(() =>
+    [...document.querySelectorAll('h1, h2')]
+      .map((element) => element.innerText.trim())
+      .filter(Boolean)
+      .slice(0, 3)
+  );
+  return { from, url, moved: url !== from, errors, headings };
 }
 
 /** Captures the whole filled form, including the parts below the fold. */

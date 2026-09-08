@@ -405,24 +405,22 @@ async function fillPage(ctx, chatId, page, dir) {
 }
 
 /**
- * Sends the captured page with the fill's outcome under it, then the
+ * Sends the filled form with the fill's outcome under it, then the
  * explanation of what went where.
  *
- * The page first: it is what the applicant checks, and the explanation
- * reads against it. Sent as a file, since Telegram shrinks a photo to fit a
- * screen and a page several screens tall comes out too small to read. The
- * explanation is its own message because Telegram's caption limit would cut
- * a list of forty values short.
+ * The form first: it is what the applicant checks, and the explanation reads
+ * against it. It goes as a PDF, paged at the same cuts as the pictures, and
+ * as those pictures: Telegram shrinks a photo to fit a screen, and a page
+ * nine screens tall comes out too small to read either way. The explanation
+ * is its own message because Telegram's caption limit would cut a list of
+ * forty values short.
  */
 async function sendOutcome(ctx, chatId, result, summary, outstanding) {
   const session = sessions.get(chatId);
   const caption = describeOutcome(result, outstanding, session.language);
   const sending = showStatus(ctx, 'upload_document');
   try {
-    await ctx.replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
-      caption,
-    });
-    await sendSections(ctx, chatId, result.screenshot);
+    await sendFormAndSections(ctx, chatId, result.screenshot, caption);
   } finally {
     sending();
   }
@@ -435,20 +433,23 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
 const ALBUM_LIMIT = 10;
 
 /**
- * Sends the page again as pictures, cut into sections.
+ * Sends the page as a PDF to keep and as pictures to read.
  *
- * The file above holds the whole form, which is what to keep, but reading it
- * means downloading it and zooming in. The sections are sized for a phone
- * screen, so the applicant can check the values by scrolling the chat.
+ * The PDF is the record: one page per section, so a page is never a field
+ * split down the middle and a reader opens on a screenful. The pictures are
+ * the same sections, which the applicant checks by scrolling the chat without
+ * downloading anything.
+ *
+ * A capture that cannot be cut still goes, as the image itself: the applicant
+ * seeing their form matters more than the form it arrives in.
  */
-async function sendSections(ctx, chatId, screenshot) {
+async function sendFormAndSections(ctx, chatId, screenshot, caption) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-slice-'));
   try {
-    const { sliceImage } = await import('./evisa-slice.mjs');
+    const { sliceImage, sectionsToPdf } = await import('./evisa-slice.mjs');
     const sections = await sliceImage(screenshot, dir);
-    if (sections.length < 2) {
-      return;
-    }
+    const pdf = await sectionsToPdf(sections, path.join(dir, 'form.pdf'));
+    await ctx.replyWithDocument(new InputFile(pdf, 'form.pdf'), { caption });
     for (let at = 0; at < sections.length; at += ALBUM_LIMIT) {
       const album = sections.slice(at, at + ALBUM_LIMIT).map((section) => ({
         type: 'photo',
@@ -457,11 +458,12 @@ async function sendSections(ctx, chatId, screenshot) {
       }));
       await ctx.replyWithMediaGroup(album);
     }
-    log(chatId, `sent the form in ${sections.length} sections`);
+    log(chatId, `sent the form as a PDF and ${sections.length} sections`);
   } catch (error) {
-    // The file above is the record; sections are for reading comfort, so
-    // failing to cut them is worth a log line and nothing more.
     log(chatId, `could not cut the page into sections: ${error.message}`);
+    await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
+      caption,
+    });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -144,3 +144,27 @@ export async function sliceImage(imagePath, outputDir, { quality = 82 } = {}) {
   }
   return sections;
 }
+
+/**
+ * Binds the sections into one PDF, a page each.
+ *
+ * A PDF is what the applicant keeps and can print. Paging it at the same cuts
+ * keeps every field whole on its page, and each page opens as a screenful.
+ */
+export async function sectionsToPdf(sections, outputPath) {
+  const { PDFDocument } = await import('pdf-lib');
+  const pdf = await PDFDocument.create();
+  for (const section of sections) {
+    const image = await pdf.embedJpg(fs.readFileSync(section.path));
+    const page = pdf.addPage([image.width, image.height]);
+    page.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: image.width,
+      height: image.height,
+    });
+  }
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, await pdf.save({ useObjectStreams: false }));
+  return outputPath;
+}

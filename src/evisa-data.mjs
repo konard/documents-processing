@@ -406,7 +406,12 @@ export function normalizeApplicant(input) {
 
   for (const key of ['surname', 'givenName', 'emergencyName']) {
     if (out[key]) {
-      const cleaned = normalizeName(out[key]);
+      // The site takes no hyphen in a name; a space stands in for it, as it
+      // does in the passport's machine-readable zone.
+      const cleaned = normalizeName(out[key])
+        .replace(/-/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       // Keep the original when normalizing empties it, so validation can say
       // the name is not in Latin letters, which is the actual problem.
       out[key] = cleaned || String(out[key]).trim();

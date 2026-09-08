@@ -65,6 +65,86 @@ const CITIES = {
 };
 
 /**
+ * Regions by the adjective they are named with, "Московская область" being
+ * Moscow Region, since an officer abroad knows the city's name, not the
+ * adjective. A region not listed is transliterated and still called Region.
+ */
+const REGIONS = {
+  московская: 'Moscow',
+  ленинградская: 'Leningrad',
+  тульская: 'Tula',
+  калужская: 'Kaluga',
+  тверская: 'Tver',
+  владимирская: 'Vladimir',
+  рязанская: 'Ryazan',
+  смоленская: 'Smolensk',
+  ярославская: 'Yaroslavl',
+  ивановская: 'Ivanovo',
+  костромская: 'Kostroma',
+  тамбовская: 'Tambov',
+  липецкая: 'Lipetsk',
+  орловская: 'Oryol',
+  курская: 'Kursk',
+  брянская: 'Bryansk',
+  белгородская: 'Belgorod',
+  воронежская: 'Voronezh',
+  нижегородская: 'Nizhny Novgorod',
+  самарская: 'Samara',
+  саратовская: 'Saratov',
+  пензенская: 'Penza',
+  ульяновская: 'Ulyanovsk',
+  волгоградская: 'Volgograd',
+  астраханская: 'Astrakhan',
+  ростовская: 'Rostov',
+  свердловская: 'Sverdlovsk',
+  челябинская: 'Chelyabinsk',
+  тюменская: 'Tyumen',
+  курганская: 'Kurgan',
+  оренбургская: 'Orenburg',
+  кировская: 'Kirov',
+  вологодская: 'Vologda',
+  архангельская: 'Arkhangelsk',
+  мурманская: 'Murmansk',
+  новгородская: 'Novgorod',
+  псковская: 'Pskov',
+  калининградская: 'Kaliningrad',
+  новосибирская: 'Novosibirsk',
+  омская: 'Omsk',
+  томская: 'Tomsk',
+  кемеровская: 'Kemerovo',
+  иркутская: 'Irkutsk',
+  амурская: 'Amur',
+  магаданская: 'Magadan',
+  сахалинская: 'Sakhalin',
+  краснодарский: 'Krasnodar',
+  ставропольский: 'Stavropol',
+  красноярский: 'Krasnoyarsk',
+  алтайский: 'Altai',
+  пермский: 'Perm',
+  приморский: 'Primorsky',
+  хабаровский: 'Khabarovsk',
+  забайкальский: 'Zabaykalsky',
+  камчатский: 'Kamchatka',
+};
+
+/**
+ * Renders a region unit, "Московская область" or "Краснодарский край",
+ * as its English name and kind; null for a unit that is not one.
+ */
+function renderRegion(text) {
+  const match = text.match(
+    /^(?:(?:обл|область|край)\.?\s+)?(\S+?)\s+(?:обл|область|край)\.?$|^(?:(?:обл|область|край)\.?\s+)(\S+)$/i
+  );
+  if (!match) {
+    return null;
+  }
+  const adjective = (match[1] ?? match[2]).toLowerCase();
+  const kind = /край/i.test(text) ? 'Krai' : 'Region';
+  const name = REGIONS[adjective] ?? transliterate(adjective);
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${kind}`;
+}
+
+/**
  * Markers that open a unit of the address. A `null` rendering drops the
  * marker and keeps what follows, which is what an English address does with a
  * house number or a city name.
@@ -74,7 +154,6 @@ const CITIES = {
  */
 const MARKERS = [
   [/^(?:г|гор|город)(?:\.\s*|\s+)/i, null],
-  [/^(?:обл|область)(?:\.\s*|\s+)/i, null],
   [/^(?:р-н|район)(?:\.\s*|\s+)/i, null],
   [
     /^(?:пос|посёлок|поселок|п|с|село|дер|деревня|д)(?:\.\s*|\s+)(?=\p{L})/iu,
@@ -89,30 +168,50 @@ const MARKERS = [
   [/^(?:эт|этаж)\.?\s*(?=\d)/i, 'floor '],
 ];
 
-/** Markers that close a unit: "Московская обл." or "Кировский р-н". */
+/** Markers that close a unit: "Кировский р-н" or "г. Тула" written after. */
 const TRAILING = [
-  [/\s+(?:обл|область)\.?$/i, ' oblast'],
-  [/\s+(?:р-н|район)\.?$/i, ' district'],
+  [/\s+(?:р-н|район)\.?$/i, ' District'],
   [/\s+(?:г|гор|город)\.?$/i, ''],
 ];
 
-/** Street types, so "ул." and "улица" read the same way. */
+/**
+ * Street types, each rendered as the English word after the name, "ул.
+ * Ленина" being "Lenina street": the word says what the unit is to an
+ * officer who reads no Russian, where "ul." says nothing.
+ */
 const STREET_TYPES = [
-  [/^(?:ул|улица)(?:\.\s*|\s+)/i, 'ul. '],
-  [/\s+(?:ул|улица)\.?$/i, ' ul.'],
-  [/^(?:пр-т|просп|проспект|пр)(?:\.\s*|\s+)/i, 'prospekt '],
-  [/\s+(?:пр-т|просп|проспект|пр)\.?$/i, ' prospekt'],
-  [/^(?:пер|переулок)(?:\.\s*|\s+)/i, 'pereulok '],
-  [/\s+(?:пер|переулок)\.?$/i, ' pereulok'],
-  [/^(?:б-р|бул|бульвар)(?:\.\s*|\s+)/i, 'bulvar '],
-  [/\s+(?:б-р|бул|бульвар)\.?$/i, ' bulvar'],
-  [/^(?:наб|набережная)(?:\.\s*|\s+)/i, 'naberezhnaya '],
-  [/\s+(?:наб|набережная)\.?$/i, ' naberezhnaya'],
-  [/^(?:ш|шоссе)(?:\.\s*|\s+)/i, 'shosse '],
-  [/\s+(?:ш|шоссе)\.?$/i, ' shosse'],
-  [/^(?:пл|площадь)(?:\.\s*|\s+)/i, 'ploshchad '],
-  [/\s+(?:пл|площадь)\.?$/i, ' ploshchad'],
-  [/^(?:мкр|мкрн|микрорайон)(?:\.\s*|\s+)/i, 'mikroraion '],
+  [/^(?:ул|улица)(?:\.\s*|\s+)(.+)$/i, '$1 street'],
+  [/^(.+?)\s+(?:ул|улица)\.?$/i, '$1 street'],
+  [/^(?:пр-т|просп|проспект|пр)(?:\.\s*|\s+)(.+)$/i, '$1 avenue'],
+  [/^(.+?)\s+(?:пр-т|просп|проспект|пр)\.?$/i, '$1 avenue'],
+  [/^(?:пер|переулок)(?:\.\s*|\s+)(.+)$/i, '$1 lane'],
+  [/^(.+?)\s+(?:пер|переулок)\.?$/i, '$1 lane'],
+  [/^(?:б-р|бул|бульвар)(?:\.\s*|\s+)(.+)$/i, '$1 boulevard'],
+  [/^(.+?)\s+(?:б-р|бул|бульвар)\.?$/i, '$1 boulevard'],
+  [/^(?:наб|набережная)(?:\.\s*|\s+)(.+)$/i, '$1 embankment'],
+  [/^(.+?)\s+(?:наб|набережная)\.?$/i, '$1 embankment'],
+  [/^(?:ш|шоссе)(?:\.\s*|\s+)(.+)$/i, '$1 highway'],
+  [/^(.+?)\s+(?:ш|шоссе)\.?$/i, '$1 highway'],
+  [/^(?:пл|площадь)(?:\.\s*|\s+)(.+)$/i, '$1 square'],
+  [/^(.+?)\s+(?:пл|площадь)\.?$/i, '$1 square'],
+  [/^(?:пр-д|проезд)(?:\.\s*|\s+)(.+)$/i, '$1 passage'],
+  [/^(.+?)\s+(?:пр-д|проезд)\.?$/i, '$1 passage'],
+  [/^(?:мкр|мкрн|микрорайон)(?:\.\s*|\s+)(.+)$/i, '$1 microdistrict'],
+  // The same types typed in Latin letters the Russian way.
+  [/^(?:ul|ulitsa)(?:\.\s*|\s+)(.+)$/i, '$1 street'],
+  [/^(.+?)\s+(?:ul|ulitsa)\.?$/i, '$1 street'],
+  [/^(?:prospekt|prosp|pr-t)(?:\.\s*|\s+)(.+)$/i, '$1 avenue'],
+  [/^(.+?)\s+(?:prospekt|prosp|pr-t)\.?$/i, '$1 avenue'],
+  [/^(?:pereulok|per)(?:\.\s*|\s+)(.+)$/i, '$1 lane'],
+  [/^(.+?)\s+(?:pereulok|per)\.?$/i, '$1 lane'],
+  [/^(?:bulvar|bulv|b-r)(?:\.\s*|\s+)(.+)$/i, '$1 boulevard'],
+  [/^(.+?)\s+(?:bulvar|bulv|b-r)\.?$/i, '$1 boulevard'],
+  [/^(?:naberezhnaya|nab)(?:\.\s*|\s+)(.+)$/i, '$1 embankment'],
+  [/^(.+?)\s+(?:naberezhnaya|nab)\.?$/i, '$1 embankment'],
+  [/^(?:shosse|sh)(?:\.\s*|\s+)(.+)$/i, '$1 highway'],
+  [/^(.+?)\s+(?:shosse|sh)\.?$/i, '$1 highway'],
+  [/^(?:ploshchad|pl)(?:\.\s*|\s+)(.+)$/i, '$1 square'],
+  [/^(.+?)\s+(?:ploshchad|pl)\.?$/i, '$1 square'],
 ];
 
 /**
@@ -200,6 +299,10 @@ function renderUnit(unit) {
     return '';
   }
 
+  const region = renderRegion(text);
+  if (region) {
+    return region;
+  }
   for (const [pattern, rendering] of MARKERS) {
     const match = text.match(pattern);
     if (match) {
@@ -226,7 +329,10 @@ function renderUnit(unit) {
     ''
   );
   for (const [pattern, rendering] of STREET_TYPES) {
-    text = text.replace(pattern, rendering);
+    if (pattern.test(text)) {
+      text = text.replace(pattern, rendering);
+      break;
+    }
   }
   return transliterate(text);
 }
@@ -264,14 +370,17 @@ export function latinAddress(value) {
 export function canonicalAddress(parts, confirmed = {}) {
   const building = parts.building ? `bld. ${parts.building}` : '';
   const flat = parts.flat ? `apt. ${parts.flat}` : '';
+  const street = confirmed.street ?? parts.street;
+  // The house follows its street without a comma, "Lenina street 7", as an
+  // English address writes them.
+  const streetAndHouse = [street, parts.house].filter(Boolean).join(' ');
   return normalizeLatinAddress(
     [
       confirmed.country ?? parts.country,
       confirmed.postalCode ?? parts.postalCode,
       ...parts.regions,
       confirmed.city ?? parts.city,
-      confirmed.street ?? parts.street,
-      parts.house,
+      streetAndHouse,
       building,
       flat,
       ...parts.rest,
@@ -299,6 +408,19 @@ const LOWER_WORDS = new Set([
   'entrance',
   'room',
   'house',
+  'street',
+  'st',
+  'avenue',
+  'ave',
+  'road',
+  'rd',
+  'lane',
+  'boulevard',
+  'embankment',
+  'highway',
+  'square',
+  'passage',
+  'microdistrict',
   'ul',
   'ulitsa',
   'bulvar',
@@ -308,9 +430,6 @@ const LOWER_WORDS = new Set([
   'naberezhnaya',
   'ploshchad',
   'mikroraion',
-  'oblast',
-  'district',
-  'region',
   'kv',
   'dom',
   'of',
@@ -397,12 +516,17 @@ function caseWord(word, first) {
  * address then all read alike on the form.
  */
 export function normalizeLatinAddress(text) {
+  return caseLatinAddress(text, COUNTRY_SPELLINGS);
+}
+
+/** The casing of an address, with the country spellings given, if any. */
+function caseLatinAddress(text, spellings = {}) {
   return String(text ?? '')
     .split(',')
     .map((unit) => unit.trim().replace(/\s+/g, ' '))
     .filter(Boolean)
     .map((unit) => {
-      const spelling = COUNTRY_SPELLINGS[unit.toLowerCase()];
+      const spelling = spellings[unit.toLowerCase()];
       if (spelling) {
         return spelling;
       }
@@ -423,7 +547,7 @@ const POSTAL_UNIT = /^\d{6}$/;
 const REGION_UNIT =
   /(?:^|\s)(?:обл|область|р-н|район|край|oblast|district|region|krai)\.?$/i;
 const STREET_TYPED =
-  /(?:^|\s)(?:ул|улица|пр-т|просп|проспект|пр|пер|переулок|б-р|бул|бульвар|наб|набережная|ш|шоссе|пл|площадь|мкр|street|st|avenue|ave|road|rd|lane|ul|ulitsa|bulvar|prospekt|pereulok|shosse|naberezhnaya|ploshchad)\.?(?:\s|$)/i;
+  /(?:^|\s)(?:ул|улица|пр-т|просп|проспект|пр|пер|переулок|б-р|бул|бульвар|наб|набережная|ш|шоссе|пл|площадь|пр-д|проезд|мкр|street|st|avenue|ave|road|rd|lane|boulevard|embankment|highway|square|passage|ul|ulitsa|bulvar|prospekt|pereulok|shosse|naberezhnaya|ploshchad)\.?(?:\s|$)/i;
 const STREET_WITH_HOUSE = /^(.*\p{L}.*?)\s+(\d+\S*)$/u;
 
 /** The one spelling of a country the applicant may have written either way. */
@@ -443,7 +567,10 @@ function canonicalCountry(unit) {
  * naming a country of the region.
  */
 export function addressParts(value) {
-  const text = separateUnits(stripAddressNote(stripAddressLabel(value)));
+  // A full stop closing the address is punctuation, not part of the flat.
+  const text = separateUnits(
+    stripAddressNote(stripAddressLabel(value)).replace(/\.\s*$/, '')
+  );
   const units = text
     .split(',')
     .map((unit) => unit.trim())
@@ -656,6 +783,8 @@ export function sameStreet(a, b) {
 /** Countries a passport names as a birthplace, in the applicant's language. */
 const BIRTH_COUNTRIES = {
   ...COUNTRIES,
+  // A passport's English half says "RUSSIA", and the birthplace keeps it.
+  россия: 'Russia',
   ссср: 'USSR',
   индия: 'India',
   германия: 'Germany',
@@ -733,5 +862,7 @@ export function latinPlaceOfBirth(value) {
         (other) => other.toLowerCase() === part.toLowerCase()
       ) === index
   );
-  return normalizeLatinAddress(unique.join(', '));
+  // Cased like an address, but the country as the passport prints it:
+  // "Russia" on the passport is not made "Russian Federation".
+  return caseLatinAddress(unique.join(', '));
 }

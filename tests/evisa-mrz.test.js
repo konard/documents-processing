@@ -82,3 +82,17 @@ describe('parseMrzLine2', () => {
     expect(parseMrzLine2('SHORT')).toBe(null);
   });
 });
+
+describe('a filler read as a letter in the name line', () => {
+  it('is dropped when it stands alone, and once when it doubles a K', () => {
+    // "<" comes out of the reader as "K" now and then: "<KARL<K" reads as
+    // the name KKARL and a name K. Neither is a name.
+    const line = parseMrzLine1('P<RUSDOE<<JOHN<KKARL<K<<<<<<<<<<<<<<<<<<<<<');
+    expect(line.surname).toBe('DOE');
+    expect(line.given).toBe('JOHN KARL');
+    // A name that really begins with one K keeps it.
+    expect(
+      parseMrzLine1('P<RUSDOE<<KARL<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<').given
+    ).toBe('KARL');
+  });
+});

@@ -167,9 +167,16 @@ export async function readPassportDocument(inputPath, outputPath) {
   const page = await readPassportPage(prepared.path, data).catch(() => ({
     data: {},
   }));
+  // The zone's reading wins over the print, except for a given name the
+  // print spells with a hyphen the zone cannot carry.
+  const { givenNameAsPrinted, ...printed } = page.data;
   return {
     prepared,
-    data: { ...page.data, ...data },
+    data: {
+      ...printed,
+      ...data,
+      ...(givenNameAsPrinted ? { givenName: givenNameAsPrinted } : {}),
+    },
     unverified: mrz.unverified,
   };
 }

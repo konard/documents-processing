@@ -63,41 +63,57 @@ function inRussian(date) {
 describe('rendering a home address in Latin letters', () => {
   it('translates the markers and names the country and city in English', () => {
     expect(latinAddress(MOSCOW)).toBe(
-      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5'
+    );
+  });
+
+  it('names a region and the street type in English, and drops a closing stop', () => {
+    expect(
+      latinAddress(
+        'Россия, 141980, Московская область, г. Дубна, ул. Ленина, д. 7, кв. 3.'
+      )
+    ).toBe(
+      'Russian Federation, 141980, Moscow Region, Dubna, Lenina street 7, apt. 3'
+    );
+    expect(latinAddress('Краснодарский край, г. Сочи, ул. Мира 5')).toBe(
+      'Krasnodar Krai, Sochi, Mira street 5'
+    );
+    expect(latinAddress('Россия, Москва, Ленинский пр-т, д. 4, корп. 2')).toBe(
+      'Russian Federation, Moscow, Leninskii avenue 4, bld. 2'
     );
   });
 
   it('keeps a street type, since it is part of the name', () => {
     expect(latinAddress('ул. Ленина, д. 5, кв. 12')).toBe(
-      'ul. Lenina, 5, apt. 12'
+      'Lenina street 5, apt. 12'
     );
     expect(latinAddress('Санкт-Петербург, Невский пр., 28')).toBe(
-      'Saint Petersburg, Nevskii prospekt, 28'
+      'Saint Petersburg, Nevskii avenue 28'
     );
   });
 
   it('names a region and a district', () => {
     expect(latinAddress('Московская обл., Одинцовский р-н, п. Лесной')).toBe(
-      'Moskovskaia oblast, Odintsovskii district, Lesnoi'
+      'Moscow Region, Odintsovskii District, Lesnoi'
     );
   });
 
   it('does not take a word that merely starts like a marker for one', () => {
     // "Гагарина" is not "г. агарина", and "Облонская" is not a region.
     expect(latinAddress('Гагарина 5, Облонская ул., 3')).toBe(
-      'Gagarina, 5, Oblonskaia ul., 3'
+      'Gagarina 5, Oblonskaia street, 3'
     );
   });
 
   it('keeps an address already in Latin letters, in one way of writing', () => {
-    expect(latinAddress('12 Baker Street, London, UK')).toBe(
-      '12 Baker Street, London, United Kingdom'
+    expect(latinAddress('12 Baker street, London, UK')).toBe(
+      '12 Baker street, London, United Kingdom'
     );
     expect(
       latinAddress('RUSSIAN FEDERATION, GOGOLEVSKII BULVAR 3A, APARTMENT 16')
-    ).toBe('Russian Federation, Gogolevskii bulvar, 3A, apt. 16');
+    ).toBe('Russian Federation, Gogolevskii boulevard 3A, apt. 16');
     expect(latinAddress('russia, rostov-on-don, ul. mira 5, apt. 7')).toBe(
-      'Russian Federation, Rostov-on-Don, ul. Mira, 5, apt. 7'
+      'Russian Federation, Rostov-on-Don, Mira street 5, apt. 7'
     );
   });
 
@@ -107,7 +123,7 @@ describe('rendering a home address in Latin letters', () => {
       '1 Main St'
     );
     expect(latinAddress('Адрес: г. Тула, ул. Мира, 1')).toBe(
-      'Tula, ul. Mira, 1'
+      'Tula, Mira street 1'
     );
   });
 
@@ -117,13 +133,13 @@ describe('rendering a home address in Latin letters', () => {
     );
     expect(stripAddressNote('ул. Мира, 1 (прописка)')).toBe('ул. Мира, 1');
     expect(latinAddress(TYPED)).toBe(
-      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5'
     );
   });
 
   it('keeps one street type when a name carries its own', () => {
     expect(latinAddress('ул. Гоголевский б-р, д. 3')).toBe(
-      'Gogolevskii bulvar, 3'
+      'Gogolevskii boulevard 3'
     );
   });
 
@@ -147,10 +163,10 @@ describe('rendering a home address in Latin letters', () => {
     expect(sameStreet(mapStreet(latin), 'улица Пушкина')).toBe(true);
     // A street on its own unit, its type word telling it from a city.
     const rendered = addressParts(
-      'Russian Federation, Gogolevskii bulvar, 3A, apt. 16'
+      'Russian Federation, Gogolevskii boulevard 3A, apt. 16'
     );
     expect(rendered.city).toBe('');
-    expect(rendered.street).toBe('Gogolevskii bulvar');
+    expect(rendered.street).toBe('Gogolevskii boulevard');
     expect(mapQuery(rendered)).toBe('Россия, Гоголевскии бульвар, 3А');
     expect(sameStreet('Гоголевскии бульвар', 'Гоголевский бульвар')).toBe(true);
     expect(sameStreet('Гоголевскии бульвар', 'Верх-Исетский бульвар')).toBe(
@@ -161,11 +177,15 @@ describe('rendering a home address in Latin letters', () => {
 });
 
 describe('a place of birth as a passport prints it', () => {
+  it('keeps the country as the passport prints it, not as an address spells it', () => {
+    expect(latinPlaceOfBirth('Г.МОСКВА/RUSSIA')).toBe('Moscow, Russia');
+    expect(latinPlaceOfBirth('Г.МОСКВА/USSR')).toBe('Moscow, USSR');
+    expect(latinPlaceOfBirth('РОССИЯ/RUSSIA')).toBe('Russia');
+  });
+
   it('names the city in English and keeps the country as printed', () => {
     expect(latinPlaceOfBirth('Г.МОСКВА/USSR')).toBe('Moscow, USSR');
-    expect(latinPlaceOfBirth('г. Химки/RUSSIA')).toBe(
-      'Khimki, Russian Federation'
-    );
+    expect(latinPlaceOfBirth('г. Химки/RUSSIA')).toBe('Khimki, Russia');
   });
 
   it('gives a country a single time when both halves name it', () => {
@@ -212,7 +232,7 @@ describe('checking an address against the map', () => {
     expect(found.houseMatches).toBe(true);
     expect(found.postalCodeMatches).toBe(true);
     expect(renderVerifiedAddress(TYPED, found)).toBe(
-      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5'
     );
   });
 
@@ -221,7 +241,7 @@ describe('checking an address against the map', () => {
     const one = await lookupAddress(TYPED, { fetchImpl: answer([house]) });
     const two = await lookupAddress(latin, { fetchImpl: answer([house]) });
     expect(renderVerifiedAddress(latin, two)).toBe(
-      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, apt. 5'
+      'Russian Federation, 101000, Moscow, Pushkina street 10, apt. 5'
     );
     expect(sameAddress(one, two)).toBe(true);
     const otherFlat = await lookupAddress(latin.replace('5', '6'), {
@@ -269,7 +289,7 @@ describe('telling an address from other text', () => {
   it('recognizes one by its markers and postal code', () => {
     expect(looksLikeAddress(MOSCOW)).toBe(true);
     expect(looksLikeAddress('ул. Ленина, д. 5')).toBe(true);
-    expect(looksLikeAddress('12 Baker Street, London, UK')).toBe(true);
+    expect(looksLikeAddress('12 Baker street, London, UK')).toBe(true);
   });
 
   it('does not take a name, a phone or a sentence for one', () => {
@@ -302,16 +322,16 @@ describe('an address in a chat message', () => {
 
   it('goes to the field its label names', () => {
     const found = parseFreeText(
-      `Contact address: 12 Baker Street, London, UK\nАдрес: ${MOSCOW}`
+      `Contact address: 12 Baker street, London, UK\nАдрес: ${MOSCOW}`
     );
-    expect(found.contactAddress).toBe('12 Baker Street, London, UK');
+    expect(found.contactAddress).toBe('12 Baker street, London, UK');
     expect(found.permanentAddress).toBe(MOSCOW);
   });
 
   it('reaches the form in Latin letters, and serves as the contact address', () => {
     const applicant = normalizeApplicant({ permanentAddress: MOSCOW });
     expect(applicant.permanentAddress).toBe(
-      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5'
     );
     expect(applicant.contactAddress).toBe(applicant.permanentAddress);
     expect(applicant.purpose).toBe('Tourist');
@@ -411,10 +431,10 @@ describe('the contact person in a chat message', () => {
     const applicant = normalizeApplicant(found);
     expect(applicant.entryDate).toBe(toFormDate(flight));
     expect(applicant.permanentAddress).toBe(
-      'Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      'Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5'
     );
     expect(applicant.emergencyAddress).toBe(
-      'Russian Federation, Pushkina Street, 10, bld. 2, apt. 5'
+      'Russian Federation, Pushkina street 10, bld. 2, apt. 5'
     );
     expect(applicant.emergencyName).toBe('JANE DOE');
     expect(applicant.emergencyRelationship).toBe('Sister');
@@ -475,7 +495,7 @@ describe('what the bot says about a form', () => {
     const applicant = normalizeApplicant(supplied);
     const summary = describeSummary(applicant, supplied, 'ru');
     expect(summary).toContain(
-      '• контактный адрес (как адрес регистрации): Russian Federation, 101000, Moscow, ul. Pushkina, 10, bld. 2, apt. 5'
+      '• контактный адрес (как адрес регистрации): Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5'
     );
     expect(summary).toContain('• дата въезда: 16/09/2026');
     expect(summary).toContain('• виза с (день въезда): 16/09/2026');
@@ -517,6 +537,18 @@ describe('what the bot says about a form', () => {
         'Once you send it, I fill the form again and show it.',
       ].join('\n')
     );
+  });
+
+  it('says when a hyphenated name goes on the form with a space', () => {
+    const summary = describeSummary(
+      { givenName: 'JOHN ALEX', surname: 'DOE' },
+      { givenName: 'JOHN-ALEX', surname: 'DOE' },
+      'ru'
+    );
+    expect(summary).toContain(
+      '• имя и отчество: JOHN ALEX (в паспорте JOHN-ALEX; дефис сайт не принимает, заменён пробелом)'
+    );
+    expect(summary).toContain('• фамилия: DOE\n');
   });
 
   it('names the declarations it ticked, since each is made in their name', () => {

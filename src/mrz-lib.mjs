@@ -273,7 +273,12 @@ export function parseMrzLine1(raw) {
     (t || '')
       .replace(/</g, ' ')
       .split(/\s+/)
+      // A single letter between fillers is a filler misread, most often
+      // "<" as "K"; no name in the zone is one letter long.
       .filter((w) => w.length > 1)
+      // "<" read as "K" in front of a name doubles its K: "<KRISTIAN" comes
+      // out "KKRISTIAN". No name begins with two.
+      .map((w) => w.replace(/^KK+/, 'K'))
       .join(' ')
       .trim();
   return { issuer: m[1], surname: clean(parts[0]), given: clean(parts[1]) };

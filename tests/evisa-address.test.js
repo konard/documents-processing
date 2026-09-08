@@ -182,6 +182,14 @@ describe('the address fields as the form renders them', () => {
   });
 });
 
+describe('a name on the applicant record', () => {
+  it('gets a space for a hyphen, as the site and the zone want it', () => {
+    const out = normalizeApplicant({ givenName: 'JOHN-ALEX', surname: 'DOE' });
+    expect(out.givenName).toBe('JOHN ALEX');
+    expect(out.surname).toBe('DOE');
+  });
+});
+
 describe('an address on the applicant record', () => {
   it('is split into the three fields when given as one line', () => {
     const out = normalizeApplicant({

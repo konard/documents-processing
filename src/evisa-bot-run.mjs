@@ -466,7 +466,8 @@ async function fillNow(ctx, chatId, { review = false } = {}) {
         .catch(() => {});
     }
   });
-  session.fillChain = turn;
+  // The chain stays settled whatever a fill did, so the next one still runs.
+  session.fillChain = turn.catch(() => {});
   await turn;
 }
 
@@ -712,7 +713,9 @@ async function receiveText(ctx) {
     // fill runs on its own, so a "стой" sent after it is still heard.
     log(chatId, 'confirmation received; filling now');
     if (!settleReview(chatId, 'go')) {
-      fillNow(ctx, chatId);
+      fillNow(ctx, chatId).catch((error) =>
+        log(chatId, `filling failed: ${error.message}`)
+      );
     }
     return;
   }
@@ -743,7 +746,8 @@ async function receiveText(ctx) {
 // error is logged with its chat, and the applicant hears that it failed.
 bot.catch(async (error) => {
   const chatId = error.ctx?.chat?.id ?? '?';
-  log(chatId, `handler failed: ${error.error?.stack ?? error.message}`);
+  const cause = error.error ?? error;
+  log(chatId, `handler failed: ${cause.stack ?? cause.message ?? cause}`);
   const language = error.ctx?.chat ? sessions.get(chatId).language : 'en';
   await error.ctx
     ?.reply(MESSAGES[language].fillFailed(String(error.error?.message ?? '')))

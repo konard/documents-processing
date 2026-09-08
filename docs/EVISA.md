@@ -337,6 +337,14 @@ dialog stands over it: a dialog locks the page, and a capture of the whole
 page then comes out as the dialog over one screen and a long blank tail,
 so the screen alone is captured.
 
+What the browser reports goes to the log as well: console errors and
+warnings, script errors, requests that failed, and answers of 400 and up,
+each with its chat. With `EVISA_BOT_CDP_PORT=9222` every browser the bot
+opens listens for a debugger on a port of its own from there up, and the
+log names it when the browser opens; `chrome://inspect` in another Chrome,
+with that port added under "Configure", or Playwright's `connectOverCDP`
+then shows and drives the very page the bot is on.
+
 For diagnosis, the bot keeps the page's markup at three moments under the
 system temp directory, in `evisa-markup-*` directories: the empty form, the
 filled form, and the page after each Next. A site that has changed shows

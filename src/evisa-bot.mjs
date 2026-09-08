@@ -135,6 +135,10 @@ export const MESSAGES = {
       `Pressed Next, and the site accepted the page. Now at: ${stage}. ` +
       'This is the whole page.',
     stepKept: 'Pressed Next, but the site kept the page.',
+    reviewEmpty:
+      'Pressed Next, and the site opened the review page, but empty: no ' +
+      'application and no code on it. That is a failure on its side. I ' +
+      'open the form again, fill it again and show it.',
     stepMessages: (n) =>
       `${n} ${n === 1 ? 'message' : 'messages'} on it. Send the corrections.`,
     siteSaid: (text) => `The site said: "${text}".`,
@@ -240,6 +244,10 @@ export const MESSAGES = {
     stepMoved: (stage) =>
       `Нажал «Next», сайт принял страницу. Шаг: ${stage}. Вот вся страница.`,
     stepKept: 'Нажал «Next», но сайт оставил страницу.',
+    reviewEmpty:
+      'Нажал «Next», сайт открыл страницу проверки, но пустую: ни анкеты, ' +
+      'ни кода на ней. Это сбой на его стороне. Открою форму заново, ' +
+      'заполню и покажу ещё раз.',
     stepMessages: (n) => `Замечаний на ней: ${n}. Пришлите исправления.`,
     siteSaid: (text) => `Сайт ответил: «${text}».`,
     stepFailed: (why) =>
@@ -635,9 +643,9 @@ export function describeOutcome(result, outstanding, language) {
  * page and which stage it shows now, or that it kept the page, with the
  * form's first few messages and whatever the site said in a dialog.
  */
-export function describeStep(step, language) {
-  const strings = MESSAGES[language] ?? MESSAGES.en;
-  if (step.moved && step.stage === 'declared') {
+/** What to say under a page that the site accepted and went on from. */
+function describeArrival(step, strings) {
+  if (step.stage === 'declared') {
     const lines = step.dialog?.lines ?? [];
     return [
       strings.applicationIn,
@@ -646,10 +654,18 @@ export function describeStep(step, language) {
       strings.applicationInNext,
     ].join('\n');
   }
+  if (step.stage === 'review' && step.empty) {
+    return strings.reviewEmpty;
+  }
+  return strings.stepMoved(
+    strings.stages[step.stage] ?? strings.stages.unknown
+  );
+}
+
+export function describeStep(step, language) {
+  const strings = MESSAGES[language] ?? MESSAGES.en;
   if (step.moved) {
-    return strings.stepMoved(
-      strings.stages[step.stage] ?? strings.stages.unknown
-    );
+    return describeArrival(step, strings);
   }
   const parts = [strings.stepKept];
   const errors = step.errors ?? [];

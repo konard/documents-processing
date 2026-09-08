@@ -27,13 +27,23 @@ import { FIELDS } from './evisa-schema.mjs';
  * `headless` is the only thing the two callers differ on: the command-line tool
  * hands the window to the applicant, the bot never shows one.
  */
-export async function openForm({ headless = false, viewport } = {}) {
+export async function openForm({
+  headless = false,
+  viewport,
+  debugPort = 0,
+} = {}) {
   const { chromium } = await import('playwright');
+  const args = headless ? [] : ['--window-size=1500,1000'];
+  if (debugPort) {
+    // A debugger, chrome://inspect or a second Playwright, can then attach
+    // to this browser and see what it sees.
+    args.push(`--remote-debugging-port=${debugPort}`);
+  }
   const browser = await chromium.launch({
     headless,
     // Start the window large enough to show the form without scrolling
     // horizontally; the page itself then follows whatever size the window is.
-    args: headless ? [] : ['--window-size=1500,1000'],
+    args,
   });
   // A visible window gets no fixed viewport, so resizing it resizes the page.
   // Pinning one would leave the layout stuck at its original size, which is
@@ -313,6 +323,14 @@ export async function advanceAndCapture(page, screenshot, label = 'Next') {
   // The stage the step bar names is drawn a moment later; what is captured
   // and asked of the page afterwards must be the drawn stage.
   await settleForm(page);
+  // The review page is drawn from data the site fetches, and now and then
+  // that fails and the page stays bare: a step bar over nothing. Its
+  // captcha is the sign that it drew.
+  const empty =
+    step.stage === 'review' &&
+    !(await page
+      .waitForSelector('#basic_captcha', { timeout: 15000 })
+      .catch(() => null));
   const image = screenshot ? await captureForm(page, screenshot) : null;
-  return { ...step, screenshot: image };
+  return { ...step, empty, screenshot: image };
 }

@@ -81,3 +81,50 @@ describe('planning the cuts for a tall capture', () => {
     }
   });
 });
+
+describe('binding the sections into a PDF', () => {
+  it('gives one page per section, sized as that section', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const nodePath = await import('node:path');
+    const sharp = (await import('sharp')).default;
+    const { sliceImage, sectionsToPdf } =
+      await import('../src/evisa-slice.mjs');
+    const { PDFDocument } = await import('pdf-lib');
+
+    const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'slice-test-'));
+    try {
+      // A page tall enough to need cutting, with blank bands to cut in.
+      const width = 600;
+      const height = 3000;
+      const band = Buffer.alloc(width * height * 3, 255);
+      for (let row = 0; row < height; row++) {
+        // Ink on most rows, leaving a clear gap every 200 rows.
+        if (row % 200 < 150) {
+          band.fill(20, row * width * 3, (row + 1) * width * 3);
+        }
+      }
+      const source = nodePath.join(dir, 'page.png');
+      await sharp(band, { raw: { width, height, channels: 3 } })
+        .png()
+        .toFile(source);
+
+      const sections = await sliceImage(source, dir);
+      expect(sections.length > 1).toBe(true);
+
+      const target = await sectionsToPdf(
+        sections,
+        nodePath.join(dir, 'form.pdf')
+      );
+      const pdf = await PDFDocument.load(fs.readFileSync(target));
+      expect(pdf.getPageCount()).toBe(sections.length);
+      // Each page is exactly its section, so nothing is scaled or cropped.
+      pdf.getPages().forEach((page, at) => {
+        expect(Math.round(page.getWidth())).toBe(width);
+        expect(Math.round(page.getHeight())).toBe(sections[at].height);
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

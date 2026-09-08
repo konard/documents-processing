@@ -23,15 +23,15 @@ import {
   stripAddressNote,
 } from './evisa-home-address.mjs';
 
-/** How long a chat may go quiet before the bot fills the form on its own. */
-export const IDLE_FILL_MS = 45_000;
-
 /**
- * How long the bot waits between telling the applicant what will go on the
- * form and filling it: time to read the list and say "стой" if anything is
- * wrong, or "отправляй" to skip the wait.
+ * How long a chat may go quiet before the bot fills the form on its own.
+ *
+ * Enough for the next of several messages sent together to arrive, and not
+ * more: the fill is the answer, and nothing else is said until it is done.
+ * The filled form is checked in the browser, and the bot never submits it,
+ * so the fill itself is safe to run without asking first.
  */
-export const REVIEW_MS = 30_000;
+export const IDLE_FILL_MS = 20_000;
 
 /**
  * How long a chat's browser is kept after its last message.
@@ -51,7 +51,7 @@ export const MESSAGES = {
     checklistFooter:
       'Photos, PDFs and forwarded messages all work, in any order.',
     readFromPassport: 'read from your passport photo',
-    summary: 'Going on the form:',
+    summary: 'What I put on the form:',
     sections: {
       applicant: 'Applicant',
       passport: 'Passport',
@@ -76,9 +76,6 @@ export const MESSAGES = {
     fillFailed: (why) =>
       `Filling stopped: ${why}. The browser is left open with the form as ` +
       'far as it got.',
-    reviewNote: (seconds) =>
-      `Filling in ${seconds} seconds. Say "stop" if anything is wrong, or ` +
-      '"go" to fill now.',
     stopped: 'Stopped. Send corrections, or say "go" when everything is right.',
     alreadyFilling:
       'Already filling. The form is not submitted; check it in the browser.',
@@ -97,7 +94,7 @@ export const MESSAGES = {
     checklistFooter:
       'Подойдут фото, PDF и пересланные сообщения, в любом порядке.',
     readFromPassport: 'прочитаю с фото паспорта',
-    summary: 'В анкету пойдёт:',
+    summary: 'Что я вписал в анкету:',
     sections: {
       applicant: 'Заявитель',
       passport: 'Паспорт',
@@ -122,9 +119,6 @@ export const MESSAGES = {
     fillFailed: (why) =>
       `Заполнение прервалось: ${why}. Браузер оставлен открытым с формой в ` +
       'том виде, до которого дошло.',
-    reviewNote: (seconds) =>
-      `Заполню через ${seconds} секунд. Напишите «стой», если что-то не ` +
-      'так, или «отправляй», чтобы не ждать.',
     stopped:
       'Остановил. Пришлите исправления или напишите «отправляй», когда всё ' +
       'верно.',
@@ -553,8 +547,8 @@ function escapeHtml(value) {
 }
 
 /**
- * Reports everything the form will be filled with, in one message, as
- * Telegram HTML.
+ * Reports everything the form was filled with, in one message, as Telegram
+ * HTML: the explanation that follows the captured page.
  *
  * Forty values in one list are hard to check, so they are grouped the way
  * the form itself is: applicant, passport, contacts, emergency contact, trip.

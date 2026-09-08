@@ -21,12 +21,12 @@ const FORM = [
   '3.2. Passport number: 712345678                                                                         3.3. Issuing Authority/Place of issue: CONSULATE',
   '                                                                                                        GENERAL, SOMEWHERE',
   '3.4. Date of issue (dd/mm/yyyy): [REDACTED]                                                             3.5. Expiry date (dd/mm/yyyy): [REDACTED]',
-  '4.1. Contact address: Wonderland, 100000, Capital City, Long Boulevard 18A, apt. 16',
+  '4.1. Contact address: Wonderland, 100000, Capital City, Long Boulevard 7B, apt. 3',
   '4.2. Current residential address (if contact address is different from current residential address): Wonderland, 100000, Capital City, Long',
-  'Boulevard 18A, apt. 16',
+  'Boulevard 7B, apt. 3',
   '4.3. Mobile phone number or landline phone number: +10000000001                                         4.4. Email address: someone@example.com',
   'a) Full name: JANE DOE                                                        b) Current residential address: Wonderland, 100000, Capital',
-  '                                                                              City, Long Boulevard 18A, apt. 16',
+  '                                                                              City, Long Boulevard 7B, apt. 3',
   'c) Telephone number: +10000000002',
   '                                                                              d) Relationship: Aunt',
   '6.3. Intended duration of stay: 90 days                                6.4. Intended date of entry (dd/mm/yyyy): 16/09/2026',
@@ -66,10 +66,10 @@ describe('reading a Vietnam e-visa application form', () => {
   it('joins a value that wraps under its own label', () => {
     expect(record.issuingAuthority).toBe('CONSULATE GENERAL, SOMEWHERE');
     expect(record.homeAddress).toBe(
-      'Wonderland, 100000, Capital City, Long Boulevard 18A, apt. 16'
+      'Wonderland, 100000, Capital City, Long Boulevard 7B, apt. 3'
     );
     expect(record.emergencyAddress).toBe(
-      'Wonderland, 100000, Capital City, Long Boulevard 18A, apt. 16'
+      'Wonderland, 100000, Capital City, Long Boulevard 7B, apt. 3'
     );
   });
 
@@ -80,7 +80,7 @@ describe('reading a Vietnam e-visa application form', () => {
 
   it('reads the contact and trip details', () => {
     expect(record.contactAddress).toBe(
-      'Wonderland, 100000, Capital City, Long Boulevard 18A, apt. 16'
+      'Wonderland, 100000, Capital City, Long Boulevard 7B, apt. 3'
     );
     expect(record.phone).toBe('+10000000001');
     expect(record.email).toBe('someone@example.com');

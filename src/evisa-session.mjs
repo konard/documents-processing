@@ -16,7 +16,8 @@ import {
   fillForm,
   readFilledFields,
   tickDeclarations,
-  pressNext,
+  pressButton,
+  readDialog,
 } from './evisa-fill.mjs';
 import { FIELDS } from './evisa-schema.mjs';
 
@@ -254,7 +255,11 @@ export async function settleForm(page, { timeout = 15000 } = {}) {
 export async function captureForm(page, outputPath) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   await settleForm(page);
-  await page.screenshot({ path: outputPath, fullPage: true });
+  // A dialog locks the page's scrolling, and a capture of the whole page
+  // under it comes out as the dialog over a screen of content and a long
+  // blank tail. The dialog is what there is to see, and it fits a screen.
+  const fullPage = !(await readDialog(page));
+  await page.screenshot({ path: outputPath, fullPage });
   return outputPath;
 }
 
@@ -299,12 +304,12 @@ export async function fillAndCapture(page, applicant, { uploads, screenshot }) {
 }
 
 /**
- * Presses Next and captures whatever page that leads to: the next stage
- * when the site accepted the page, or the same page with the site's
- * messages when it did not.
+ * Presses a button, Next unless another label is given, and captures
+ * whatever page that leads to: the next stage when the site accepted the
+ * page, or the same page with the site's messages when it did not.
  */
-export async function advanceAndCapture(page, screenshot) {
-  const step = await pressNext(page);
+export async function advanceAndCapture(page, screenshot, label = 'Next') {
+  const step = await pressButton(page, label);
   // The stage the step bar names is drawn a moment later; what is captured
   // and asked of the page afterwards must be the drawn stage.
   await settleForm(page);

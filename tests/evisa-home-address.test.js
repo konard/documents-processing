@@ -581,6 +581,33 @@ describe('what the bot says after Next, and what it hears', () => {
     );
   });
 
+  it("relays the site's dialog when the application is registered", () => {
+    const step = {
+      moved: true,
+      stage: 'declared',
+      errors: [],
+      notices: [],
+      dialog: {
+        lines: [
+          'DECLARATION COMPLETED',
+          'Electronic document code: E000000XXX00000000000',
+          'Date of apply: 08/09/2026',
+        ],
+        buttons: ['Print', 'Confirm'],
+      },
+    };
+    expect(describeStep(step, 'ru')).toBe(
+      [
+        'Сайт принял код и зарегистрировал заявление. В его окне написано:',
+        'DECLARATION COMPLETED',
+        'Electronic document code: E000000XXX00000000000',
+        'Date of apply: 08/09/2026',
+        '',
+        'Запишите код электронного документа: по нему потом проверяют статус. Напишите «подтверждаю», и я нажму «Confirm» в этом окне и покажу, что будет дальше.',
+      ].join('\n')
+    );
+  });
+
   it('tells a captcha code from a detail', () => {
     expect(looksLikeCaptcha('3A0101')).toBe(true);
     expect(looksLikeCaptcha(' 031368 ')).toBe(true);

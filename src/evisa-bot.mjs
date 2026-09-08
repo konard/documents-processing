@@ -103,9 +103,17 @@ export const MESSAGES = {
     stages: {
       form: 'the application form',
       review: 'review of the application',
+      declared: 'declaration completed',
       payment: 'payment',
       unknown: 'a page I do not know',
     },
+    applicationIn:
+      'The site took the code and registered the application. Its dialog ' +
+      'says:',
+    applicationInNext:
+      'Note the electronic document code: it is what checks the status ' +
+      'later. Say "confirm" and I press Confirm in the dialog, then show ' +
+      'what follows.',
     stepMoved: (stage) =>
       `Pressed Next, and the site accepted the page. Now at: ${stage}. ` +
       'This is the whole page.',
@@ -123,8 +131,7 @@ export const MESSAGES = {
       'The site did not take the code. Here is a new picture; type its code.',
     captchaEntered: (seconds) =>
       `Typed the code. Pressing Next in ${seconds} seconds, which sends the ` +
-      'application on to payment. Say "stop" to cancel, or "send" to skip ' +
-      'the wait.',
+      'application in. Say "stop" to cancel, or "send" to skip the wait.',
     sendCountdown: (seconds) =>
       `Pressing Next in ${seconds} seconds. Say "stop" to cancel, or "send" ` +
       'to skip the wait.',
@@ -187,9 +194,16 @@ export const MESSAGES = {
     stages: {
       form: 'анкета',
       review: 'проверка анкеты',
+      declared: 'заявление принято',
       payment: 'оплата',
       unknown: 'незнакомая мне страница',
     },
+    applicationIn:
+      'Сайт принял код и зарегистрировал заявление. В его окне написано:',
+    applicationInNext:
+      'Запишите код электронного документа: по нему потом проверяют ' +
+      'статус. Напишите «подтверждаю», и я нажму «Confirm» в этом окне и ' +
+      'покажу, что будет дальше.',
     stepMoved: (stage) =>
       `Нажал «Next», сайт принял страницу. Шаг: ${stage}. Вот вся страница.`,
     stepKept: 'Нажал «Next», но сайт оставил страницу.',
@@ -203,8 +217,8 @@ export const MESSAGES = {
     captchaAgain: 'Сайт не принял код. Вот новая картинка, напишите код с неё.',
     captchaEntered: (seconds) =>
       `Вписал код. Нажму «Next» через ${seconds} секунд, это отправит ` +
-      'анкету к оплате. Напишите «стой», чтобы отменить, или «отправляй», ' +
-      'чтобы не ждать.',
+      'заявление. Напишите «стой», чтобы отменить, или «отправляй», чтобы ' +
+      'не ждать.',
     sendCountdown: (seconds) =>
       `Нажму «Next» через ${seconds} секунд. Напишите «стой», чтобы ` +
       'отменить, или «отправляй», чтобы не ждать.',
@@ -580,6 +594,15 @@ export function describeOutcome(result, outstanding, language) {
  */
 export function describeStep(step, language) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
+  if (step.moved && step.stage === 'declared') {
+    const lines = step.dialog?.lines ?? [];
+    return [
+      strings.applicationIn,
+      ...lines,
+      '',
+      strings.applicationInNext,
+    ].join('\n');
+  }
   if (step.moved) {
     return strings.stepMoved(
       strings.stages[step.stage] ?? strings.stages.unknown

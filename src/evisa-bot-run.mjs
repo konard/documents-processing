@@ -35,6 +35,7 @@ import {
   describeStep,
   isConfirmation,
   looksLikeCaptcha,
+  browserHasGone,
   isCancellation,
   NOT_ASKED,
   parseFreeText,
@@ -459,9 +460,14 @@ async function fillNow(ctx, chatId) {
     } catch (error) {
       log(chatId, `filling failed: ${error.stack ?? error.message}`);
       const strings = MESSAGES[sessions.get(chatId).language];
-      await ctx
-        .reply(strings.fillFailed(error.message.split('\n')[0]))
-        .catch(() => {});
+      // A browser that has gone cannot be "left open": the applicant is
+      // told to start over, not to look for a window that is not there.
+      const text = browserHasGone(error)
+        ? strings.browserGone
+        : strings.fillFailed(error.message.split('\n')[0]);
+      if (!shuttingDown) {
+        await ctx.reply(text).catch(() => {});
+      }
     }
   });
   // The chain stays settled whatever a fill did, so the next one still runs.
@@ -550,10 +556,13 @@ function pressNextAndShow(ctx, chatId, label = 'Next') {
       }
       return step;
     } catch (error) {
-      log(chatId, `pressing Next failed: ${error.stack ?? error.message}`);
-      await ctx
-        .reply(strings.stepFailed(error.message.split('\n')[0]))
-        .catch(() => {});
+      log(chatId, `pressing ${label} failed: ${error.stack ?? error.message}`);
+      const text = browserHasGone(error)
+        ? strings.browserGone
+        : strings.stepFailed(error.message.split('\n')[0]);
+      if (!shuttingDown) {
+        await ctx.reply(text).catch(() => {});
+      }
       return null;
     } finally {
       session.filling = false;
@@ -1039,9 +1048,23 @@ bot.catch(async (error) => {
     .catch(() => {});
 });
 
+/** True while the process is on its way out: a failure then goes unreported. */
+let shuttingDown = false;
+
 process.on('SIGINT', async () => {
-  // Browsers get a few seconds to close; one that hangs must not keep the
-  // process from exiting.
+  shuttingDown = true;
+  // Each chat with a browser hears that it is closing, since the fill or
+  // the page in it is lost with it; then browsers get a few seconds to
+  // close, and one that hangs must not keep the process from exiting.
+  const warned = [...browsers.keys()].map((chatId) => {
+    const strings = MESSAGES[sessions.get(chatId).language];
+    log(chatId, 'restarting; the chat is told its browser closes');
+    return bot.api.sendMessage(chatId, strings.restarting).catch(() => {});
+  });
+  await Promise.race([
+    Promise.all(warned),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]);
   const closing = Promise.all([...browsers.keys()].map(endChat));
   const grace = new Promise((resolve) => setTimeout(resolve, 5000));
   await Promise.race([closing, grace]);

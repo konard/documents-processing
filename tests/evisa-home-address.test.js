@@ -26,6 +26,7 @@ import {
   IDLE_FILL_MS,
   SEND_COUNTDOWN_MS,
   describeStep,
+  looksLikeCaptcha,
   NOT_ASKED,
 } from '../src/evisa-bot.mjs';
 import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
@@ -502,7 +503,7 @@ describe('what the bot says about a form', () => {
         'Исправил то, что сайт распознал иначе:',
         '• телефон: "+7999111223" → "+79991112233"',
         '',
-        'Проверьте анкету. Если всё верно, напишите «отправляй», и я нажму «Next». Если нет, пришлите исправление.',
+        'Проверьте анкету. Если всё верно, напишите «отправляй», и я нажму «Next»: сайт покажет анкету на проверку. Если нет, пришлите исправление.',
       ].join('\n')
     );
     const missing = [{ name: 'phone' }];
@@ -536,27 +537,56 @@ describe('what the bot says about a form', () => {
     };
     expect(describeOutcome(again, [], 'en')).not.toContain('Ticked');
   });
+});
 
-  it('describes the page after Next: the next step, or the form kept', () => {
-    expect(describeStep({ moved: true, errors: [] }, 'ru')).toBe(
-      'Нажал «Next», сайт принял анкету. Вот следующая страница. Если всё верно, напишите «отправляй», и я нажму «Next» и здесь.'
+describe('what the bot says after Next, and what it hears', () => {
+  it('describes the page after Next: the stage reached, or the page kept', () => {
+    expect(
+      describeStep({ moved: true, stage: 'review', errors: [] }, 'ru')
+    ).toBe(
+      'Нажал «Next», сайт принял страницу. Шаг: проверка анкеты. Вот вся страница.'
     );
     expect(
       describeStep(
         {
           moved: false,
+          stage: 'form',
           errors: ['Please enter First name', 'Please enter Sex'],
+          notices: [],
         },
         'en'
       )
     ).toBe(
       [
-        'Pressed Next, but the site kept the form: 2 messages on it. Send the corrections.',
+        'Pressed Next, but the site kept the page.',
+        '2 messages on it. Send the corrections.',
         '',
         '• Please enter First name',
         '• Please enter Sex',
       ].join('\n')
     );
+    // A refused captcha comes as a dialog, not a message on a field.
+    expect(
+      describeStep(
+        {
+          moved: false,
+          stage: 'review',
+          errors: [],
+          notices: ['Notification Captcha invalid'],
+        },
+        'ru'
+      )
+    ).toBe(
+      'Нажал «Next», но сайт оставил страницу.\nСайт ответил: «Notification Captcha invalid».'
+    );
+  });
+
+  it('tells a captcha code from a detail', () => {
+    expect(looksLikeCaptcha('3A0101')).toBe(true);
+    expect(looksLikeCaptcha(' 031368 ')).toBe(true);
+    expect(looksLikeCaptcha('да')).toBe(false);
+    expect(looksLikeCaptcha('+79991112233')).toBe(false);
+    expect(looksLikeCaptcha(MOSCOW)).toBe(false);
   });
 
   it('takes a word of confirmation as the signal to fill now', () => {

@@ -291,23 +291,42 @@ purpose, gates, province and a hotel address in Ho Chi Minh City, the
 passport type and the religion. The explanation is its own message because
 Telegram's caption limit would cut a list of forty values short.
 
-The one step the bot takes only on the applicant's word is Next. A message
-that is only a word to send, `Отправляй`, `Отправь`, `Подтверждаю`, `send`,
-`go`, `yes`, starts a countdown of 30 seconds, said in the chat; `Стой`,
-`стоп`, `отмена`, `stop` or `cancel` during it drops the step, a second word
-to send skips the rest of the wait, and new details drop it too, since the
-form they go on is about to change. When the countdown runs out the bot
-presses Next, waits for the page to settle, and sends what it shows as a
-file: the next step of the application when the site accepted the form, or
-the form itself with the site's own messages listed under it when it did
-not. The same word on the next page presses its Next in the same way. A
+The site is one page that swaps its content: the address never changes,
+and the step bar at the top, "Fill out the Application form", "Review
+application form", "Payment", says where it is. The bot reads the stage
+from there.
+
+The steps the bot takes only on the applicant's word are the Nexts. A
+message that is only a word to send, `Отправляй`, `Отправь`,
+`Подтверждаю`, `send`, `go`, `yes`, on the filled form presses Next at
+once: the site answers with the application laid out for review, with a
+Back button, and nothing is sent yet. The bot sends that page as a file,
+then the captcha at its foot as a picture, enlarged, and asks for its code.
+A message that is only the code, four to eight letters and digits, is typed
+in; then comes the one countdown, of 30 seconds, said in the chat, since
+the Next that follows sends the application on to payment. `Стой`, `стоп`,
+`отмена`, `stop` or `cancel` during it drops the step, a second word to
+send skips the rest of the wait, and new details drop it too. When the
+countdown runs out the bot presses Next, waits for the page to settle, and
+sends what it shows as a file: the payment stage when the site accepted
+the code, or the review page again with what the site said, "Captcha
+invalid", under it, followed by a fresh picture to read. A word to send on
+a later stage counts down and presses that stage's Next in the same way. A
 word to send while something has arrived since the last fill fills first,
-since the applicant confirms what they have seen, and `/fill` fills at once.
+since the applicant confirms what they have seen, and `/fill` fills at
+once.
 
 Details sent after the site has taken the form cannot reach it, and the bot
 says so: the page is corrected in the browser, or the application starts
 over with `/start`. A stop word during a fill already under way is answered
 with that, and the fill runs on; Next is never pressed by a fill.
+
+For diagnosis, the bot keeps the page's markup at three moments under the
+system temp directory, in `evisa-markup-*` directories: the empty form, the
+filled form, and the page after each Next. A site that has changed shows
+in the first; a fill that went wrong, in the second. They hold the
+applicant's details, so they are written only when values are allowed in
+the log, and the daily sweep removes them with the documents.
 
 With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, for an
 operator at the machine who wants to watch the fill or take over. A fill that

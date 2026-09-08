@@ -205,7 +205,7 @@ describe('no personal data is committed', () => {
     expect(logging.includes('RETENTION_DAYS')).toBe(true);
     expect(logging.includes('rmSync')).toBe(true);
     // The sweep only touches directories this bot made.
-    expect(logging.includes('evisa-(bot|doc|shot)-')).toBe(true);
+    expect(logging.includes('evisa-(bot|doc|shot|markup)-')).toBe(true);
   });
 
   it('says nothing to an applicant about how their documents are handled', () => {

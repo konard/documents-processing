@@ -113,7 +113,10 @@ export function sweepKeptFiles({
 
   for (const entry of entries) {
     // Only the directories this bot made, so nothing else is ever touched.
-    if (!entry.isDirectory() || !/^evisa-(bot|doc|shot)-/.test(entry.name)) {
+    if (
+      !entry.isDirectory() ||
+      !/^evisa-(bot|doc|shot|markup)-/.test(entry.name)
+    ) {
       continue;
     }
     const full = path.join(root, entry.name);

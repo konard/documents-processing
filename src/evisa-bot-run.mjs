@@ -86,6 +86,44 @@ const countdowns = new Map();
  */
 const HEADED = process.env.EVISA_BOT_HEADED === '1';
 
+/**
+ * With `EVISA_BOT_CDP_PORT=9222` each chat's browser listens for a
+ * debugger on a port of its own from there up, and the log says which:
+ * chrome://inspect in another Chrome, or Playwright's connectOverCDP, then
+ * attaches to the very browser the bot drives.
+ */
+const DEBUG_PORT = Number(process.env.EVISA_BOT_CDP_PORT ?? 0) || 0;
+
+/**
+ * Writes what the browser reports to the log: console errors and warnings,
+ * script errors, requests that failed and answers of 400 and up. When the
+ * site draws a page bare, this is where the reason shows.
+ */
+function logBrowserEvents(chatId, page) {
+  page.on('console', (message) => {
+    if (['error', 'warning'].includes(message.type())) {
+      log(chatId, `browser console ${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on('pageerror', (error) => {
+    log(chatId, `browser script error: ${error.message}`);
+  });
+  page.on('requestfailed', (request) => {
+    log(
+      chatId,
+      `browser request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? '?'})`
+    );
+  });
+  page.on('response', (response) => {
+    if (response.status() >= 400) {
+      log(
+        chatId,
+        `browser response ${response.status()}: ${response.request().method()} ${response.url()}`
+      );
+    }
+  });
+}
+
 /** Fields read off the printed side of a passport, which fill gaps only. */
 const PRINTED_SIDE = [
   'passportIssueDate',
@@ -160,11 +198,16 @@ async function pageFor(chatId) {
     browsers.delete(chatId);
     sessions.get(chatId).uploaded = {};
   }
+  const debugPort = DEBUG_PORT ? DEBUG_PORT + browsers.size : 0;
+  const attachable = debugPort
+    ? `; a debugger can attach on port ${debugPort}`
+    : '';
   log(
     chatId,
-    `opening a ${HEADED ? 'visible' : 'headless'} browser on the form`
+    `opening a ${HEADED ? 'visible' : 'headless'} browser on the form${attachable}`
   );
-  const { browser, page } = await openForm({ headless: !HEADED });
+  const { browser, page } = await openForm({ headless: !HEADED, debugPort });
+  logBrowserEvents(chatId, page);
   const opened = { browser, page, closing: false };
   browsers.set(chatId, opened);
   // A window the applicant closes, or a browser that crashes, is noticed
@@ -650,6 +693,10 @@ async function followStep(ctx, chatId, step) {
   if (!step || step.stage !== 'review') {
     return;
   }
+  if (step.moved && step.empty) {
+    await refillAfterEmptyReview(ctx, chatId);
+    return;
+  }
   if (step.moved) {
     await askCaptcha(ctx, chatId, strings.captchaAsk);
     return;
@@ -660,6 +707,28 @@ async function followStep(ctx, chatId, step) {
     log(chatId, `could not refresh the captcha: ${error.message}`)
   );
   await askCaptcha(ctx, chatId, strings.captchaAgain);
+}
+
+/**
+ * The way back from a review page the site left bare: the form is opened
+ * again in the same browser, what was on the old page is forgotten, and
+ * the fill runs again from what the chat has sent. The applicant then
+ * sees the filled form once more and sends it again.
+ */
+async function refillAfterEmptyReview(ctx, chatId) {
+  const session = sessions.get(chatId);
+  log(
+    chatId,
+    'the review page came up empty; reopening the form to fill again'
+  );
+  const page = await pageFor(chatId);
+  await reopenForm(page);
+  session.uploaded = {};
+  session.reported = {};
+  session.filledThrough = undefined;
+  session.stage = 'form';
+  session.captchaEntered = false;
+  await fillNow(ctx, chatId);
 }
 
 /**

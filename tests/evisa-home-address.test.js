@@ -609,6 +609,17 @@ describe('what the bot says after Next, and what it hears', () => {
     );
   });
 
+  it('says when the site opened the review page empty', () => {
+    expect(
+      describeStep({ moved: true, stage: 'review', empty: true }, 'ru')
+    ).toBe(
+      'Нажал «Next», сайт открыл страницу проверки, но пустую: ни анкеты, ни кода на ней. Это сбой на его стороне. Открою форму заново, заполню и покажу ещё раз.'
+    );
+    expect(
+      describeStep({ moved: true, stage: 'review', empty: false }, 'ru')
+    ).toContain('проверка анкеты');
+  });
+
   it('tells a browser that has gone from any other failure', () => {
     expect(
       browserHasGone(

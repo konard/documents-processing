@@ -526,8 +526,47 @@ export const STAGES = {
   payment: 'payment',
 };
 
-/** The stage the page is at: a key of STAGES, or 'unknown'. */
+/** A dialog the site has open: what it says, line by line, and its buttons. */
+const DIALOG_SELECTOR = '.ant-modal-wrap:not([style*="display: none"])';
+
+/**
+ * The dialog the site has open, or null: its lines, without the buttons'
+ * labels, and the buttons by label. Nothing is clicked: a dialog's buttons
+ * do things, "Print" and "Confirm" among them, and which to press is the
+ * applicant's call.
+ */
+export function readDialog(page) {
+  return page.evaluate((selector) => {
+    const wrap = document.querySelector(selector);
+    const body = wrap?.querySelector('.ant-modal-body');
+    if (!wrap || !body || !wrap.offsetWidth) {
+      return null;
+    }
+    const buttons = [...wrap.querySelectorAll('button')]
+      .map((button) => button.innerText.trim())
+      .filter(Boolean);
+    const lines = body.innerText
+      .split('\n')
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter((line) => line && !buttons.includes(line));
+    return { lines, buttons };
+  }, DIALOG_SELECTOR);
+}
+
+/**
+ * The stage the page is at: a key of STAGES; 'declared' while the site's
+ * "declaration completed" dialog stands over the review page, a stage the
+ * step bar does not show; or 'unknown'.
+ */
 export async function readStage(page) {
+  const dialog = await readDialog(page);
+  if (
+    dialog &&
+    (dialog.buttons.includes('Confirm') ||
+      dialog.lines.some((line) => /declaration completed/i.test(line)))
+  ) {
+    return 'declared';
+  }
   const active = await page.evaluate(
     () =>
       document
@@ -542,17 +581,16 @@ export async function readStage(page) {
 }
 
 /** Where the site puts what it has to say: a dialog, a message, a toast. */
-const NOTICE_SELECTOR =
-  '.ant-modal-wrap:not([style*="display: none"]) .ant-modal-body, ' +
-  '.ant-message-notice, .ant-notification-notice';
+const NOTICE_SELECTOR = `${DIALOG_SELECTOR} .ant-modal-body, .ant-message-notice, .ant-notification-notice`;
 
 /**
- * What the site says in a dialog or a toast, such as "Captcha invalid",
- * and closes the dialog so the page can be used again. A toast closes
- * itself. The toast's own title, "Notification", is dropped.
+ * What the site says in a dialog or a toast, such as "Captcha invalid".
+ * Nothing is closed: a toast closes itself, and a dialog is the site's
+ * next step, for the applicant to take. The toast's own title,
+ * "Notification", is dropped.
  */
-export async function takeNotices(page) {
-  const notices = await page.evaluate(
+export function readNotices(page) {
+  return page.evaluate(
     (selector) =>
       [...document.querySelectorAll(selector)]
         .map((element) =>
@@ -564,59 +602,60 @@ export async function takeNotices(page) {
         .filter(Boolean),
     NOTICE_SELECTOR
   );
-  if (notices.length) {
-    const button = page.locator(
-      '.ant-modal-wrap:not([style*="display: none"]) button:visible'
-    );
-    if (await button.count()) {
-      await button
-        .first()
-        .click()
-        .catch(() => {});
-    } else {
-      await page.keyboard.press('Escape').catch(() => {});
-    }
-    await page.waitForTimeout(500);
-  }
-  return notices;
 }
 
 /**
- * Presses the page's Next button and reports where that led.
+ * Presses a button on the page by its label, "Next" or "Confirm", and
+ * reports where that led.
  *
- * A page the site accepts moves to the next stage; one it does not stays
- * put, with validation messages on the form or a notice from the site.
- * The button that is looked for is the visible one: the NOTE dialog's own
- * Next stays in the document, hidden.
+ * A page the site accepts moves to the next stage, or puts up its dialog;
+ * one it does not stays put, with validation messages on the form or a
+ * notice from the site. The button that is looked for is the visible one:
+ * the NOTE dialog's own Next stays in the document, hidden.
  */
-export async function pressNext(page) {
+export async function pressButton(page, label = 'Next') {
   const from = await readStage(page);
-  const next = page.locator('button:has-text("Next"):visible');
-  if (!(await next.count())) {
-    throw new Error('there is no Next button on this page');
+  const button = page.locator(`button:has-text("${label}"):visible`);
+  if (!(await button.count())) {
+    throw new Error(`there is no ${label} button on this page`);
   }
-  if (await next.first().isDisabled()) {
-    throw new Error('the Next button is disabled: a declaration is not ticked');
+  if (await button.first().isDisabled()) {
+    throw new Error(`the ${label} button is disabled`);
   }
   const activeBefore = await page.evaluate(
     () => document.querySelector('.ant-steps-item-active')?.innerText ?? ''
   );
-  await next.first().click();
+  const dialogBefore = Boolean(await readDialog(page));
+  await button.first().click();
   await page
     .waitForFunction(
-      ({ before, selector }) =>
+      ({ before, selector, hadDialog }) =>
         (document.querySelector('.ant-steps-item-active')?.innerText ?? '') !==
           before ||
-        document.querySelector(`.ant-form-item-explain-error, ${selector}`),
-      { before: activeBefore, selector: NOTICE_SELECTOR },
+        (hadDialog
+          ? !document.querySelector(selector)
+          : document.querySelector(
+              `.ant-form-item-explain-error, ${selector}, .ant-message-notice, .ant-notification-notice`
+            )),
+      {
+        before: activeBefore,
+        selector: DIALOG_SELECTOR,
+        hadDialog: dialogBefore,
+      },
       { timeout: 30000 }
     )
     .catch(() => {});
   const stage = await readStage(page);
   const moved = stage !== from;
   const errors = moved ? [] : await readValidationErrors(page);
-  const notices = moved ? [] : await takeNotices(page);
-  return { from, stage, moved, errors, notices, url: page.url() };
+  const notices = moved ? [] : await readNotices(page);
+  const dialog = await readDialog(page);
+  return { from, stage, moved, errors, notices, dialog, url: page.url() };
+}
+
+/** Presses Next: the button that moves the application on. */
+export function pressNext(page) {
+  return pressButton(page, 'Next');
 }
 
 /** The captcha input's id on the review page. */

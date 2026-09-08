@@ -512,7 +512,7 @@ function settleCountdown(chatId, verdict) {
  * The stage the page is at is remembered, since what a message means
  * depends on it. Whatever goes wrong, the browser is left as it is.
  */
-function pressNextAndShow(ctx, chatId) {
+function pressNextAndShow(ctx, chatId, label = 'Next') {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
   const turn = (session.fillChain ?? Promise.resolve()).then(async () => {
@@ -521,8 +521,12 @@ function pressNextAndShow(ctx, chatId) {
     try {
       session.filling = true;
       const page = await pageFor(chatId);
-      log(chatId, `pressing Next at the ${session.stage ?? 'form'} stage`);
-      const step = await advanceAndCapture(page, path.join(dir, 'page.png'));
+      log(chatId, `pressing ${label} at the ${session.stage ?? 'form'} stage`);
+      const step = await advanceAndCapture(
+        page,
+        path.join(dir, 'page.png'),
+        label
+      );
       const said = step.notices.length
         ? `; it said: ${step.notices.join(' | ')}`
         : '';
@@ -768,6 +772,13 @@ function confirm(ctx, chatId) {
   if (stage === 'review' && !session.captchaEntered) {
     log(chatId, 'confirmation received; the captcha is still needed');
     askCaptcha(ctx, chatId, strings.captchaAsk).catch(failing('the captcha'));
+    return;
+  }
+  if (stage === 'declared') {
+    // The application is in; Confirm closes the site's dialog and leads
+    // on. Nothing to count down for.
+    log(chatId, 'confirmation received; pressing Confirm in the dialog');
+    pressNextAndShow(ctx, chatId, 'Confirm').catch(failing('Confirm'));
     return;
   }
   log(chatId, `confirmation received at the ${stage} stage; counting down`);

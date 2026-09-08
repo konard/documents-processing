@@ -308,10 +308,17 @@ the Next that follows sends the application on to payment. `Стой`, `стоп
 `отмена`, `stop` or `cancel` during it drops the step, a second word to
 send skips the rest of the wait, and new details drop it too. When the
 countdown runs out the bot presses Next, waits for the page to settle, and
-sends what it shows as a file: the payment stage when the site accepted
-the code, or the review page again with what the site said, "Captcha
-invalid", under it, followed by a fresh picture to read, as many times as
-it takes. A code sent during the countdown replaces the one typed, and the
+sends what it shows as a file. When the site accepted the code it puts up
+a dialog over the review page, "DECLARATION COMPLETED", with the
+electronic document code that checks the application's status later; the
+step bar does not move for it, so the bot reads the dialog itself as a
+stage of its own. The dialog is relayed line by line under a capture of
+the screen, and the bot waits for the word `подтверждаю` or `confirm`
+before pressing the dialog's Confirm, then sends the page that follows.
+Nothing in a dialog is ever pressed on the bot's own account: its buttons
+are the site's next steps. When the site refused the code the review page
+is sent again with what the site said, "Captcha invalid", under it,
+followed by a fresh picture to read, as many times as it takes. A code sent during the countdown replaces the one typed, and the
 countdown starts over. The form is never filled again for a refused code,
 and nothing sent on the review page fills it. A word to send on
 a later stage counts down and presses that stage's Next in the same way. A
@@ -323,6 +330,11 @@ Details sent after the site has taken the form cannot reach it, and the bot
 says so: the page is corrected in the browser, or the application starts
 over with `/start`. A stop word during a fill already under way is answered
 with that, and the fill runs on; Next is never pressed by a fill.
+
+A capture is of the whole page, however far it scrolls, except while a
+dialog stands over it: a dialog locks the page, and a capture of the whole
+page then comes out as the dialog over one screen and a long blank tail,
+so the screen alone is captured.
 
 For diagnosis, the bot keeps the page's markup at three moments under the
 system temp directory, in `evisa-markup-*` directories: the empty form, the

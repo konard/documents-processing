@@ -91,6 +91,12 @@ export const MESSAGES = {
     fillFailed: (why) =>
       `Filling stopped: ${why}. The browser is left open with the form as ` +
       'far as it got.',
+    browserGone:
+      'Filling stopped: the browser closed, most likely because the bot was ' +
+      'restarted. Send /start, then the documents and details again.',
+    restarting:
+      'The bot is restarting, and this browser closes with it. Afterwards, ' +
+      'send /start, then the documents and details again.',
     stopped:
       'Stopped. Send corrections, or say "send" when everything is right.',
     alreadyFilling: 'Still filling. Next is not pressed without your word.',
@@ -184,6 +190,12 @@ export const MESSAGES = {
     fillFailed: (why) =>
       `Заполнение прервалось: ${why}. Браузер оставлен открытым с формой в ` +
       'том виде, до которого дошло.',
+    browserGone:
+      'Заполнение прервалось: браузер закрылся, скорее всего из-за ' +
+      'перезапуска бота. Пришлите /start, затем документы и данные заново.',
+    restarting:
+      'Бот перезапускается, и этот браузер закрывается вместе с ним. Когда ' +
+      'он вернётся, пришлите /start, затем документы и данные заново.',
     stopped:
       'Остановил. Пришлите исправления или напишите «отправляй», когда всё ' +
       'верно.',
@@ -400,6 +412,16 @@ export function isConfirmation(text) {
 /** Words that tell the bot not to fill: the applicant wants another look. */
 const CANCELLATIONS =
   /^[^\p{L}\p{N}]*(?:стой|стоп|отмена|отменить|отмени|подожди|погоди|не\s+(?:отправляй|заполняй)|stop|cancel|wait|hold\s+on|don'?t)[^\p{L}\p{N}]*$/iu;
+
+/**
+ * True for an error that says the browser or its page has gone: Playwright
+ * words it in a few ways, all of them "closed".
+ */
+export function browserHasGone(error) {
+  return /(?:target|page|context|browser)[^.]*(?:has been |was )?closed/i.test(
+    String(error?.message ?? error)
+  );
+}
 
 /**
  * True for a message that is only a captcha code: the site's are six

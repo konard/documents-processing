@@ -27,6 +27,7 @@ import {
   SEND_COUNTDOWN_MS,
   describeStep,
   looksLikeCaptcha,
+  browserHasGone,
   NOT_ASKED,
 } from '../src/evisa-bot.mjs';
 import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
@@ -606,6 +607,18 @@ describe('what the bot says after Next, and what it hears', () => {
         'Запишите код электронного документа: по нему потом проверяют статус. Дальше в окне браузера: нажмите там «Confirm» и пройдите оплату сами. В этом окне я ничего не нажимаю.',
       ].join('\n')
     );
+  });
+
+  it('tells a browser that has gone from any other failure', () => {
+    expect(
+      browserHasGone(
+        new Error(
+          'page.evaluate: Target page, context or browser has been closed'
+        )
+      )
+    ).toBe(true);
+    expect(browserHasGone(new Error('Target closed'))).toBe(true);
+    expect(browserHasGone(new Error('could not set basic_ttcnHo'))).toBe(false);
   });
 
   it('tells a captcha code from a detail', () => {

@@ -97,6 +97,14 @@ export const MESSAGES = {
     restarting:
       'The bot is restarting, and this browser closes with it. Afterwards, ' +
       'send /start, then the documents and details again.',
+    browserClosed:
+      'The browser window has closed, and the form in it is gone. I still ' +
+      'have everything you sent: say "fill" and I open a new window and ' +
+      'fill it again.',
+    sentAsPhoto: (kb) =>
+      `This came as a Telegram photo, shrunk to ${kb} KB with the camera's ` +
+      'data stripped; the site may doubt a portrait like that. I use it, ' +
+      'but a copy sent as a file (attach, then File) arrives as it is.',
     stopped:
       'Stopped. Send corrections, or say "send" when everything is right.',
     alreadyFilling: 'Still filling. Next is not pressed without your word.',
@@ -196,6 +204,13 @@ export const MESSAGES = {
     restarting:
       'Бот перезапускается, и этот браузер закрывается вместе с ним. Когда ' +
       'он вернётся, пришлите /start, затем документы и данные заново.',
+    browserClosed:
+      'Окно браузера закрылось, и анкета в нём пропала. Всё присланное я ' +
+      'помню: напишите «заполняй», и я открою новое окно и заполню заново.',
+    sentAsPhoto: (kb) =>
+      `Это пришло как фото: Telegram сжал его до ${kb} КБ и убрал данные ` +
+      'камеры, и сайт может усомниться в таком портрете. Я его использую, ' +
+      'но лучше прислать ещё раз как файл (скрепка, затем «Файл»).',
     stopped:
       'Остановил. Пришлите исправления или напишите «отправляй», когда всё ' +
       'верно.',

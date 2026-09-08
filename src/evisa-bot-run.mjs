@@ -122,6 +122,15 @@ async function keepMarkup(chatId, page, moment) {
   }
 }
 
+/**
+ * True within a minute of the chat hearing that its browser closed: a
+ * fill that dies of the same closing needs no second message.
+ */
+function justLostBrowser(chatId) {
+  const at = sessions.get(chatId).browserLostAt;
+  return Boolean(at) && Date.now() - at < 60_000;
+}
+
 /** A value for the log, or a note that values are being withheld. */
 function shown(value) {
   return valuesAllowed() ? value : '(value withheld)';
@@ -146,6 +155,7 @@ async function pageFor(chatId) {
   }
   if (held) {
     log(chatId, 'the browser had gone; opening another');
+    held.closing = true;
     await held.browser.close().catch(() => {});
     browsers.delete(chatId);
     sessions.get(chatId).uploaded = {};
@@ -155,7 +165,31 @@ async function pageFor(chatId) {
     `opening a ${HEADED ? 'visible' : 'headless'} browser on the form`
   );
   const { browser, page } = await openForm({ headless: !HEADED });
-  browsers.set(chatId, { browser, page });
+  const opened = { browser, page, closing: false };
+  browsers.set(chatId, opened);
+  // A window the applicant closes, or a browser that crashes, is noticed
+  // then and there, not at the next fill: the chat hears, and what was on
+  // the page is forgotten so the next fill starts from an empty form.
+  const gone = (what) => {
+    if (opened.closing || shuttingDown || browsers.get(chatId) !== opened) {
+      return;
+    }
+    browsers.delete(chatId);
+    log(chatId, `${what}; the chat is told`);
+    const session = sessions.get(chatId);
+    session.uploaded = {};
+    session.reported = {};
+    session.stage = 'form';
+    session.captchaEntered = false;
+    session.filledThrough = undefined;
+    session.browserLostAt = Date.now();
+    settleCountdown(chatId, 'stop');
+    bot.api
+      .sendMessage(chatId, MESSAGES[session.language].browserClosed)
+      .catch(() => {});
+  };
+  page.once('close', () => gone('the window was closed'));
+  browser.once('disconnected', () => gone('the browser has gone'));
   await keepMarkup(chatId, page, 'empty-form');
   return page;
 }
@@ -164,6 +198,7 @@ async function pageFor(chatId) {
 async function endChat(chatId) {
   const held = browsers.get(chatId);
   if (held) {
+    held.closing = true;
     await held.browser.close().catch(() => {});
     browsers.delete(chatId);
   }
@@ -465,7 +500,7 @@ async function fillNow(ctx, chatId) {
       const text = browserHasGone(error)
         ? strings.browserGone
         : strings.fillFailed(error.message.split('\n')[0]);
-      if (!shuttingDown) {
+      if (!shuttingDown && !justLostBrowser(chatId)) {
         await ctx.reply(text).catch(() => {});
       }
     }
@@ -560,7 +595,7 @@ function pressNextAndShow(ctx, chatId, label = 'Next') {
       const text = browserHasGone(error)
         ? strings.browserGone
         : strings.stepFailed(error.message.split('\n')[0]);
-      if (!shuttingDown) {
+      if (!shuttingDown && !justLostBrowser(chatId)) {
         await ctx.reply(text).catch(() => {});
       }
       return null;
@@ -907,10 +942,15 @@ async function receiveDocument(ctx) {
     await ctx.reply(MESSAGES[session.language].unreadable);
     return;
   }
-  log(
-    chatId,
-    `document received: ${extension}, ${Math.round(buffer.length / 1024)} KB`
-  );
+  const kb = Math.round(buffer.length / 1024);
+  log(chatId, `document received: ${extension}, ${kb} KB`);
+  if (ctx.message.photo) {
+    // Telegram shrinks a photo to a few kilobytes and strips what the
+    // camera wrote; the site then doubts the portrait. Said each time, since
+    // the fix is in how the next one is sent.
+    log(chatId, 'sent as a photo, not a file; the chat is told');
+    await ctx.reply(MESSAGES[session.language].sentAsPhoto(kb)).catch(() => {});
+  }
 
   // Kept for inspection while debugging: a bad crop or read is only
   // diagnosable against the image that caused it.

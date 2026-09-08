@@ -24,6 +24,8 @@ import {
   isConfirmation,
   isCancellation,
   IDLE_FILL_MS,
+  SEND_COUNTDOWN_MS,
+  describeStep,
   NOT_ASKED,
 } from '../src/evisa-bot.mjs';
 import { normalizeApplicant, toFormDate } from '../src/evisa-data.mjs';
@@ -451,8 +453,8 @@ describe('what the bot says about a form', () => {
         '<b>Поездка</b>',
         '• цель поездки (по умолчанию): Tourist',
         '',
-        'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Любое ' +
-          'можно исправить в браузере перед отправкой.',
+        'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Если ' +
+          'что-то не так, пришлите нужное значение.',
       ].join('\n')
     );
     // Said once: the next form of the conversation repeats none of it.
@@ -500,7 +502,7 @@ describe('what the bot says about a form', () => {
         'Исправил то, что сайт распознал иначе:',
         '• телефон: "+7999111223" → "+79991112233"',
         '',
-        'Форма НЕ отправлена. Проверьте каждое поле и отправьте сами в браузере.',
+        'Проверьте анкету. Если всё верно, напишите «отправляй», и я нажму «Next». Если нет, пришлите исправление.',
       ].join('\n')
     );
     const missing = [{ name: 'phone' }];
@@ -510,7 +512,49 @@ describe('what the bot says about a form', () => {
         '',
         'Still needed:',
         '• your phone number',
-        'The form is NOT submitted. Check every field, then submit it yourself in the browser.',
+        'Once you send it, I fill the form again and show it.',
+      ].join('\n')
+    );
+  });
+
+  it('names the declarations it ticked, since each is made in their name', () => {
+    const result = {
+      filled: [],
+      failures: [],
+      declared: {
+        ticked: ['truthful', 'compliance'],
+        already: [],
+        missing: [],
+      },
+    };
+    expect(describeOutcome(result, [], 'ru')).toContain(
+      'Поставил галочки под анкетой: достоверность сведений, соблюдение законов Вьетнама при въезде.'
+    );
+    const again = {
+      ...result,
+      declared: { ticked: [], already: ['truthful'] },
+    };
+    expect(describeOutcome(again, [], 'en')).not.toContain('Ticked');
+  });
+
+  it('describes the page after Next: the next step, or the form kept', () => {
+    expect(describeStep({ moved: true, errors: [] }, 'ru')).toBe(
+      'Нажал «Next», сайт принял анкету. Вот следующая страница. Если всё верно, напишите «отправляй», и я нажму «Next» и здесь.'
+    );
+    expect(
+      describeStep(
+        {
+          moved: false,
+          errors: ['Please enter First name', 'Please enter Sex'],
+        },
+        'en'
+      )
+    ).toBe(
+      [
+        'Pressed Next, but the site kept the form: 2 messages on it. Send the corrections.',
+        '',
+        '• Please enter First name',
+        '• Please enter Sex',
       ].join('\n')
     );
   });
@@ -518,6 +562,8 @@ describe('what the bot says about a form', () => {
   it('takes a word of confirmation as the signal to fill now', () => {
     expect(isConfirmation('Подтверждаю')).toBe(true);
     expect(isConfirmation('отправляй!')).toBe(true);
+    expect(isConfirmation('Отправь.')).toBe(true);
+    expect(isConfirmation('send')).toBe(true);
     expect(isConfirmation('go')).toBe(true);
     expect(isConfirmation('да, адрес: Тула')).toBe(false);
     expect(isConfirmation(MOSCOW)).toBe(false);
@@ -531,8 +577,9 @@ describe('what the bot says about a form', () => {
     expect(isCancellation('stop')).toBe(true);
     expect(isCancellation('стой, адрес другой: Тула')).toBe(false);
     expect(isCancellation('отправляй')).toBe(false);
-    // The quiet window is the only wait: a fill follows it, with no pause
-    // to read a list over first, since the bot never submits the form.
+    // The quiet window ends in a fill, with no pause to read a list over
+    // first; the one countdown is before Next, the step hard to take back.
     expect(IDLE_FILL_MS).toBe(20_000);
+    expect(SEND_COUNTDOWN_MS).toBe(30_000);
   });
 });

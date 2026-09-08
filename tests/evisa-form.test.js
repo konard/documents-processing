@@ -12,6 +12,34 @@ import {
   sexLabel,
 } from '../src/evisa-schema.mjs';
 import { parseArgs } from '../src/evisa-apply.mjs';
+import { DECLARATIONS } from '../src/evisa-fill.mjs';
+
+/** The declarations under the live form, as their labels read. */
+const DECLARATION_LABELS = [
+  'Committed to declare temporary residence according to the provisions of Vietnameses laws',
+  'I hereby declare that the above statements are true, accurate and I am fully responsible before the Vietnamese laws for the information provided to apply for an e-Visa of Viet Nam and I am aware that the application fee is not refunded if the application for e-Visa of Viet Nam is denied.',
+  'Confirm compliance with Vietnamese laws upon entry',
+  'Confirmation of reading carefully instructions and having completed application',
+];
+
+describe('the declarations under the form', () => {
+  it('are each known by words found in exactly one label', () => {
+    for (const words of Object.values(DECLARATIONS)) {
+      const matching = DECLARATION_LABELS.filter((label) =>
+        label.toLowerCase().includes(words)
+      );
+      expect(matching.length).toBe(1);
+    }
+    expect(Object.keys(DECLARATIONS).length).toBe(DECLARATION_LABELS.length);
+  });
+
+  it('leave the account-by-email box alone, since the site ticks it', () => {
+    const account = 'Agree to create account by email';
+    for (const words of Object.values(DECLARATIONS)) {
+      expect(account.toLowerCase().includes(words)).toBe(false);
+    }
+  });
+});
 
 describe('evisa schema', () => {
   it('gives every text field a distinct element id', () => {

@@ -28,10 +28,17 @@ import {
  *
  * Enough for the next of several messages sent together to arrive, and not
  * more: the fill is the answer, and nothing else is said until it is done.
- * The filled form is checked in the browser, and the bot never submits it,
- * so the fill itself is safe to run without asking first.
+ * The filled form is checked in the browser, and Next is only pressed on
+ * the applicant's word, so the fill itself is safe to run without asking.
  */
 export const IDLE_FILL_MS = 20_000;
+
+/**
+ * How long the bot waits between the applicant's word to send and pressing
+ * Next: time to say "стой" after all. The one countdown in the conversation,
+ * since this is the one step that is hard to take back.
+ */
+export const SEND_COUNTDOWN_MS = 30_000;
 
 /**
  * How long a chat's browser is kept after its last message.
@@ -61,8 +68,8 @@ export const MESSAGES = {
     },
     assumedMark: '(assumed)',
     assumedNote:
-      'What is marked "(assumed)" was not given, so I chose it. Change any ' +
-      'of it in the browser before submitting.',
+      'What is marked "(assumed)" was not given, so I chose it. If any of ' +
+      'it is wrong, send the value you want.',
     derived: {
       contactAddress: '(same as the permanent address)',
       validFrom: '(the entry date)',
@@ -72,17 +79,40 @@ export const MESSAGES = {
     siteAgreed: (n) =>
       `The site read ${n} of them from the passport itself, and they matched.`,
     siteCorrected: 'Corrected what the site read differently:',
+    declarations: {
+      temporaryResidence: 'the commitment to declare temporary residence',
+      truthful: 'that the statements are true',
+      compliance: 'compliance with Vietnamese law on entry',
+      instructionsRead: 'that the instructions were read',
+    },
+    declared: (names) =>
+      `Ticked the declarations under the form: ${names.join(', ')}.`,
     failed: (field, why) => `Could not fill ${field}: ${why}`,
     fillFailed: (why) =>
       `Filling stopped: ${why}. The browser is left open with the form as ` +
       'far as it got.',
-    stopped: 'Stopped. Send corrections, or say "go" when everything is right.',
-    alreadyFilling:
-      'Already filling. The form is not submitted; check it in the browser.',
+    stopped:
+      'Stopped. Send corrections, or say "send" when everything is right.',
+    alreadyFilling: 'Still filling. Next is not pressed without your word.',
     needed: 'Still needed:',
+    thenAgain: 'Once you send it, I fill the form again and show it.',
     ready:
-      'The form is NOT submitted. Check every field, then submit it ' +
-      'yourself in the browser.',
+      'Check the form. If everything is right, say "send" and I press Next. ' +
+      'If not, send the correction.',
+    sendCountdown: (seconds) =>
+      `Pressing Next in ${seconds} seconds. Say "stop" to cancel, or "send" ` +
+      'to skip the wait.',
+    stepMoved:
+      'Pressed Next, and the site accepted the form. This is the next page. ' +
+      'If everything is right, say "send" and I press Next here too.',
+    stepBlocked: (n) =>
+      `Pressed Next, but the site kept the form: ${n} ` +
+      `${n === 1 ? 'message' : 'messages'} on it. Send the corrections.`,
+    stepFailed: (why) =>
+      `Could not press Next: ${why}. The browser is left open as it is.`,
+    pastForm:
+      'The form has gone past its first page, and I cannot change it from ' +
+      'the chat. Correct it in the browser, or start over with /start.',
     unreadable:
       'I could not read that. Please send a sharper photo of the whole page.',
     languageSet: 'Now speaking English.',
@@ -104,8 +134,8 @@ export const MESSAGES = {
     },
     assumedMark: '(по умолчанию)',
     assumedNote:
-      'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Любое ' +
-      'можно исправить в браузере перед отправкой.',
+      'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Если ' +
+      'что-то не так, пришлите нужное значение.',
     derived: {
       contactAddress: '(как адрес регистрации)',
       validFrom: '(день въезда)',
@@ -115,6 +145,13 @@ export const MESSAGES = {
     siteAgreed: (n) =>
       `Из них ${n} сайт сам распознал с паспорта, и они совпали.`,
     siteCorrected: 'Исправил то, что сайт распознал иначе:',
+    declarations: {
+      temporaryResidence: 'обязательство заявить о временном проживании',
+      truthful: 'достоверность сведений',
+      compliance: 'соблюдение законов Вьетнама при въезде',
+      instructionsRead: 'ознакомление с инструкцией',
+    },
+    declared: (names) => `Поставил галочки под анкетой: ${names.join(', ')}.`,
     failed: (field, why) => `Не удалось заполнить ${field}: ${why}`,
     fillFailed: (why) =>
       `Заполнение прервалось: ${why}. Браузер оставлен открытым с формой в ` +
@@ -122,12 +159,26 @@ export const MESSAGES = {
     stopped:
       'Остановил. Пришлите исправления или напишите «отправляй», когда всё ' +
       'верно.',
-    alreadyFilling:
-      'Уже заполняю. Форма не отправляется, проверьте её в браузере.',
+    alreadyFilling: 'Ещё заполняю. «Next» без вашего слова не нажму.',
     needed: 'Ещё нужно:',
+    thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',
     ready:
-      'Форма НЕ отправлена. Проверьте каждое поле и отправьте сами в ' +
-      'браузере.',
+      'Проверьте анкету. Если всё верно, напишите «отправляй», и я нажму ' +
+      '«Next». Если нет, пришлите исправление.',
+    sendCountdown: (seconds) =>
+      `Нажму «Next» через ${seconds} секунд. Напишите «стой», чтобы ` +
+      'отменить, или «отправляй», чтобы не ждать.',
+    stepMoved:
+      'Нажал «Next», сайт принял анкету. Вот следующая страница. Если всё ' +
+      'верно, напишите «отправляй», и я нажму «Next» и здесь.',
+    stepBlocked: (n) =>
+      `Нажал «Next», но сайт не пропустил анкету: замечаний на ней — ${n}. ` +
+      'Пришлите исправления.',
+    stepFailed: (why) =>
+      `Нажать «Next» не вышло: ${why}. Браузер оставлен как есть.`,
+    pastForm:
+      'Анкета уже ушла дальше первой страницы, и из чата я её не изменю. ' +
+      'Исправьте в браузере или начните заново: /start.',
     unreadable:
       'Не удалось прочитать. Пришлите более чёткое фото всей страницы.',
     languageSet: 'Говорю по-русски.',
@@ -287,7 +338,7 @@ function labelFor(key, language) {
 
 /** Words that tell the bot to fill the form now, without waiting. */
 const CONFIRMATIONS =
-  /^[^\p{L}\p{N}]*(?:подтверждаю|отправляй|заполняй|заполни|готово|давай|поехали|confirm(?:ed)?|go|fill|ok|okay|yes|да)[^\p{L}\p{N}]*$/iu;
+  /^[^\p{L}\p{N}]*(?:подтверждаю|отправляй|отправляйте|отправь|отправьте|отправить|заполняй|заполни|готово|давай|поехали|confirm(?:ed)?|go|fill|send|submit|ok|okay|yes|да)[^\p{L}\p{N}]*$/iu;
 
 /** True for a message that says "go ahead", in either language. */
 export function isConfirmation(text) {
@@ -436,9 +487,10 @@ const CAPTION_LIMIT = 1024;
  * the captured page.
  *
  * One message, not four. How many fields went in; how the site's own reading
- * of the passport compared, since it asks the applicant to check those; what
- * could not be filled; and either what is still needed or that the form is
- * waiting, unsubmitted, in the browser.
+ * of the passport compared, since it asks the applicant to check those;
+ * which declarations were ticked, since each is made in the applicant's
+ * name; what could not be filled; and either what is still needed or that
+ * the form waits for their word before Next is pressed.
  */
 export function describeOutcome(result, outstanding, language) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
@@ -446,6 +498,13 @@ export function describeOutcome(result, outstanding, language) {
 
   if (result.agreed?.length) {
     parts.push(strings.siteAgreed(result.agreed.length));
+  }
+  if (result.declared?.ticked?.length) {
+    parts.push(
+      strings.declared(
+        result.declared.ticked.map((key) => strings.declarations[key] ?? key)
+      )
+    );
   }
   if (result.corrected?.length) {
     parts.push('', strings.siteCorrected);
@@ -464,9 +523,30 @@ export function describeOutcome(result, outstanding, language) {
   }
   parts.push('');
   if (outstanding.length) {
-    parts.push(describeMissing(outstanding, language));
+    parts.push(describeMissing(outstanding, language), strings.thenAgain);
+  } else {
+    parts.push(strings.ready);
   }
-  parts.push(strings.ready);
+  const text = parts.join('\n');
+  return text.length > CAPTION_LIMIT
+    ? `${text.slice(0, CAPTION_LIMIT - 1)}…`
+    : text;
+}
+
+/**
+ * What to say under the page captured after Next: that the site took the
+ * form and what to do on the page now shown, or that it kept the form, with
+ * its first few messages.
+ */
+export function describeStep(step, language) {
+  const strings = MESSAGES[language] ?? MESSAGES.en;
+  if (step.moved) {
+    return strings.stepMoved;
+  }
+  const parts = [strings.stepBlocked(step.errors.length)];
+  if (step.errors.length) {
+    parts.push('', ...step.errors.slice(0, 8).map((error) => `• ${error}`));
+  }
   const text = parts.join('\n');
   return text.length > CAPTION_LIMIT
     ? `${text.slice(0, CAPTION_LIMIT - 1)}…`

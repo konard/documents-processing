@@ -4,10 +4,12 @@ Prefills the Vietnam e-visa application at
 <https://evisa.gov.vn/e-visa/foreigners> from documents you already have, then
 hands the browser to you.
 
-**The form is never submitted.** The tool fills the fields, takes a screenshot
-if you ask for one, and leaves a headed browser open so you can check every
-value and press submit yourself. Submitting means signing a legal declaration,
-and only the applicant can do that.
+**The command-line tool never presses Next.** It fills the fields, ticks the
+four declarations under the form, takes a screenshot if you ask for one, and
+leaves a headed browser open so you can check every value and go on yourself.
+The Telegram bot presses Next, but only on the applicant's word and after a
+countdown they can stop: the declarations are theirs, and the fee is not
+refunded when an application is refused.
 
 ## Quick start
 
@@ -240,7 +242,8 @@ carries; without it the Latin halves alone are read.
 The same filling runs behind a bot that collects documents in conversation, in
 English or Russian. It asks the live form what is required rather than carrying
 its own list, fills after 20 seconds of quiet, and replies with a full-height
-screenshot and an explanation of what went where. It never submits.
+screenshot and an explanation of what went where. It presses Next only on
+the applicant's word.
 
 A line of a message that reads as a postal address, by its markers or postal
 code, is taken as the permanent address; a label such as `Contact address:`
@@ -263,34 +266,48 @@ and phone, and the contact's name, address and phone under `Сестра:`, sent
 alongside the passport and the portrait.
 
 Once the chat has been quiet for 20 seconds the form is filled, with no
-pause to read anything over first: the bot never submits, so the filled form
-in the browser is what gets checked, and a value that is wrong is corrected
-there or by a message that fills again. `/start` has already opened the
-browser, so nothing waits on that either.
+pause to read anything over first: filling changes nothing that cannot be
+changed again, and `/start` has already opened the browser, so nothing
+waits on that either. The fill also ticks the four declarations under the
+form, the commitment to declare temporary residence, that the statements
+are true, compliance with Vietnamese law on entry, and that the instructions
+were read, since Next stays disabled until they are; the caption names the
+ones it ticked.
 
 After the fill come two messages. First the captured page as a file, with
 the fill's outcome in its caption: how many fields went in, how many the
 site read from the passport itself and whether they matched, what the site
-had read differently, what could not be filled, what is still needed, and
-that the form is not submitted. Then the explanation: what went on the form,
-grouped as the form is, applicant, passport, contacts, emergency contact,
-trip. A value the applicant did not give is marked `(assumed)` or `(по
-умолчанию)`, and a note under the list says those can be changed in the
-browser. A value that follows from one they gave is marked with its source
-instead: the contact address `(same as the permanent address)`, the visa's
-first day `(the entry date)`, its last day `(90 days, the most an e-visa
-allows)`. No address, phone or name is ever a default; the only defaults are
-the trip's purpose, gates, province and a hotel address in Ho Chi Minh City,
-the passport type and the religion. The explanation is its own message
-because Telegram's caption limit would cut a list of forty values short.
+had read differently, which declarations were ticked, what could not be
+filled, and either what is still needed or that the form waits for the word
+to send. Then the explanation: what went on the form, grouped as the form
+is, applicant, passport, contacts, emergency contact, trip. A value the
+applicant did not give is marked `(assumed)` or `(по умолчанию)`, and a
+note under the list says to send the wanted value if any of it is wrong. A
+value that follows from one they gave is marked with its source instead:
+the contact address `(same as the permanent address)`, the visa's first day
+`(the entry date)`, its last day `(90 days, the most an e-visa allows)`. No
+address, phone or name is ever a default; the only defaults are the trip's
+purpose, gates, province and a hotel address in Ho Chi Minh City, the
+passport type and the religion. The explanation is its own message because
+Telegram's caption limit would cut a list of forty values short.
 
-`Стой`, `стоп`, `отмена`, `stop` or `cancel` during the quiet window drops
-the fill; the applicant then sends corrections, and the window starts over.
-A message that is only a word of confirmation, `Подтверждаю`, `Отправляй`,
-`Заполняй`, `go`, `fill`, fills at once instead of waiting out the window,
-as does `/fill`. Nothing submits the form, whatever the word says; a stop
-word during a fill already under way is answered with that, and the fill
-runs on. A countdown to cancel belongs to a submit step, and there is none.
+The one step the bot takes only on the applicant's word is Next. A message
+that is only a word to send, `Отправляй`, `Отправь`, `Подтверждаю`, `send`,
+`go`, `yes`, starts a countdown of 30 seconds, said in the chat; `Стой`,
+`стоп`, `отмена`, `stop` or `cancel` during it drops the step, a second word
+to send skips the rest of the wait, and new details drop it too, since the
+form they go on is about to change. When the countdown runs out the bot
+presses Next, waits for the page to settle, and sends what it shows as a
+file: the next step of the application when the site accepted the form, or
+the form itself with the site's own messages listed under it when it did
+not. The same word on the next page presses its Next in the same way. A
+word to send while something has arrived since the last fill fills first,
+since the applicant confirms what they have seen, and `/fill` fills at once.
+
+Details sent after the site has taken the form cannot reach it, and the bot
+says so: the page is corrected in the browser, or the application starts
+over with `/start`. A stop word during a fill already under way is answered
+with that, and the fill runs on; Next is never pressed by a fill.
 
 With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, for an
 operator at the machine who wants to watch the fill or take over. A fill that

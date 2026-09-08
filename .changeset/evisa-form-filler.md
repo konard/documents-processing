@@ -19,8 +19,10 @@ house are recognised as the same address.
 
 `src/evisa-bot-run.mjs` does the same in conversation, in Russian or English:
 it reads passports and details out of messages, fills the form once the
-chat goes quiet, sends the page back as a file, and explains what went on
-the form in sections. It never submits. The bot
+chat goes quiet, ticks the declarations under it, sends the page back as a
+file, and explains what went on the form in sections. On the applicant's
+word to send, and after a countdown of 30 seconds they can stop, it presses
+Next and sends back the page that follows. The bot
 ships with a Dockerfile and compose file, and can run with visible browsers.
 
 Also fixes a passport-expiry misread in `parseMrzLine2`: two-digit years were

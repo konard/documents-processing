@@ -45,7 +45,7 @@ Sources are merged left to right, and **a later source wins**. That is how a
 verified record overrides raw OCR:
 
 ```bash
-node src/evisa-apply.mjs --input scans/ --input verified.json --ocr
+node src/evisa-apply.mjs --input scans/ --input verified.json --ocr --fill
 ```
 
 Field names are flexible: `last_name`, `lastname`, `family_name` and `surname`
@@ -54,7 +54,9 @@ than silently dropped.
 
 ## Using a passport, with or without OCR
 
-With `--ocr`, the passport's machine-readable zone is read and converted into
+`--ocr` reads and reports, and stops there; add `--fill` to open a browser and
+put the result on the form. With `--ocr`, the passport's machine-readable zone
+is read and converted into
 surname, given names, passport number, nationality, date of birth, sex and
 expiry date.
 
@@ -476,7 +478,8 @@ enforces this, so it cannot regress. Keep real documents outside the repository.
 | `--portrait <path>` | Portrait photo to upload.                       |
 | `--passport <path>` | Passport data page to upload.                   |
 | `--out <dir>`       | Output directory. Default `evisa-output`.       |
-| `--ocr`             | Read the passport MRZ for missing fields.       |
+| `--ocr`             | Read the passport and report; opens no browser. |
+| `--fill`            | Open the browser and fill after reading.        |
 | `--dry-run`         | Validate only; do not open a browser.           |
 | `--screenshot`      | Save a full-page screenshot of the filled form. |
 | `--emit-lino`       | Print the resolved record as lino notation.     |

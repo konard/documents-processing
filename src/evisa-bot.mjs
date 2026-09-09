@@ -166,6 +166,13 @@ export const MESSAGES = {
       'payment.',
     captchaAgain:
       'The site did not take the code. Here is a new picture; type its code.',
+    applicationKept: (number) =>
+      `I have noted the application number ${number}. Once the payment goes ` +
+      'through in the browser, I fetch the form and the receipt on my own; ' +
+      'you can also ask any time with /documents.',
+    paymentSeen:
+      'The browser reached the site\u2019s payment page, so the payment is ' +
+      'through. Fetching the documents now.',
     documentsNeedNumber:
       'Send the application number with the command, like ' +
       '/documents E260908XXX0000000000. It is in the email the site sent ' +
@@ -310,6 +317,13 @@ export const MESSAGES = {
       'Внизу сайт просит код с этой картинки. Напишите его сюда как есть, и ' +
       'я нажму «Next»: это отправит анкету дальше, к оплате.',
     captchaAgain: 'Сайт не принял код. Вот новая картинка, напишите код с неё.',
+    applicationKept: (number) =>
+      `Запомнил номер заявления ${number}. Как только в браузере пройдёт ` +
+      'оплата, сам скачаю анкету и квитанцию; можно и в любой момент ' +
+      'спросить командой /documents.',
+    paymentSeen:
+      'Браузер дошёл до страницы оплаты — значит, оплата прошла. Скачиваю ' +
+      'документы.',
     documentsNeedNumber:
       'Пришлите номер заявления вместе с командой, например ' +
       '/documents E260908XXX0000000000. Он есть в письме, которое сайт ' +

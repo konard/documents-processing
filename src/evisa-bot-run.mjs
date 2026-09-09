@@ -53,6 +53,7 @@ import {
   advanceAndCapture,
 } from './evisa-session.mjs';
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
+import { createDocuments } from './evisa-documents.mjs';
 import {
   lookupAddress,
   renderVerifiedAddress,
@@ -246,6 +247,9 @@ async function endChat(chatId) {
     await held.browser.close().catch(() => {});
     browsers.delete(chatId);
   }
+  // The watch holds a timer of its own, which outlives the session it
+  // belongs to unless it is stopped first.
+  stopWatchingPayment(chatId);
   sessions.clear(chatId);
   disarmIdleFill(chatId);
   settleCountdown(chatId, 'stop');
@@ -718,6 +722,22 @@ async function askCaptcha(ctx, chatId, caption, page = null) {
   return true;
 }
 
+const {
+  keepRegistration,
+  stopWatchingPayment,
+  lookUpApplication,
+  tookLookupCaptcha,
+} = createDocuments({
+  sessions,
+  browsers,
+  log,
+  shown,
+  askCaptcha: (...args) => askCaptcha(...args),
+  pageFor,
+  logBrowserEvents,
+  InputFile,
+});
+
 /**
  * Takes the page the applicant's word to send led to, and asks for what it
  * needs: the review page wants its captcha, and one that stayed put after
@@ -731,6 +751,10 @@ async function askCaptcha(ctx, chatId, caption, page = null) {
 async function followStep(ctx, chatId, step) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
+  if (step?.stage === 'declared') {
+    await keepRegistration(ctx, chatId, step);
+    return;
+  }
   if (!step || step.stage !== 'review') {
     return;
   }
@@ -1018,7 +1042,7 @@ bot.command('documents', async (ctx) => {
   // only the applicant has it: it arrives by email when the application is
   // filed.
   const asked = ctx.message.text.replace(/^\/documents\s*/, '').trim();
-  const number = asked || session.data?.applicationNumber;
+  const number = asked || session.application?.applicationNumber;
   if (!number) {
     await ctx.reply(strings.documentsNeedNumber);
     return;
@@ -1026,128 +1050,6 @@ bot.command('documents', async (ctx) => {
   log(chatId, `/documents for ${shown(number)}`);
   await lookUpApplication(ctx, chatId, number);
 });
-
-/**
- * A page of its own for looking applications up.
- *
- * The application form lives on the chat's own page, half filled and waiting
- * on its applicant. Navigating that page to the search would throw the form
- * away, so a lookup gets a second tab in the same browser, kept for as long
- * as the lookups go on and closed with the browser.
- */
-async function lookupPageFor(chatId) {
-  const held = browsers.get(chatId);
-  if (held?.lookup && !held.lookup.isClosed()) {
-    return held.lookup;
-  }
-  // Opening the form's page first gives the browser to put the tab in.
-  await pageFor(chatId);
-  const opened = browsers.get(chatId);
-  opened.lookup = await opened.browser.newPage();
-  logBrowserEvents(chatId, opened.lookup);
-  log(chatId, 'opened a second tab for the lookup');
-  return opened.lookup;
-}
-
-/**
- * Opens the site's search page on an application and asks for its captcha.
- *
- * The search needs the number, the email the application was filed with and
- * the applicant's date of birth; all three are already known, so the captcha
- * is the only thing to ask for.
- */
-async function lookUpApplication(ctx, chatId, number) {
-  const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
-  const page = await lookupPageFor(chatId);
-  const { openSearch } = await import('./evisa-download.mjs');
-  await openSearch(page, {
-    applicationNumber: number,
-    email: session.data?.email,
-    dateOfBirth: session.data?.dateOfBirth,
-  });
-  session.lookingUp = number;
-  if (!(await askCaptcha(ctx, chatId, strings.captchaAsk, page))) {
-    await ctx.reply(strings.documentsNoCaptcha);
-  }
-}
-
-/**
- * Types the captcha into the search page, then saves whatever the result
- * offers: the filled form, the receipt, and the visa after a grant.
- *
- * A wrong code leaves the page where it was, and the site says so; another
- * captcha is then asked for, as on the application form.
- */
-async function fetchDocuments(ctx, chatId, code) {
-  const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
-  const page = await lookupPageFor(chatId);
-  const { fillSearchCaptcha, pressSearch, downloadAll, meaningOf } =
-    await import('./evisa-download.mjs');
-  await fillSearchCaptcha(page, code);
-  const { result, notice } = await pressSearch(page);
-  if (!result) {
-    log(chatId, `search returned nothing${notice ? `: ${notice}` : ''}`);
-    await ctx.reply(notice ? strings.siteSaid(notice) : strings.documentsNone);
-    await refreshCaptcha(page);
-    await askCaptcha(ctx, chatId, strings.captchaAgain, page);
-    return;
-  }
-  session.lookingUp = null;
-  log(chatId, `application status: ${result.status}`);
-  await ctx.reply(
-    strings.applicationStatus(result.status, meaningOf(result.status))
-  );
-
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-docs-'));
-  try {
-    const { saved, failed } = await downloadAll(page, dir);
-    for (const file of saved) {
-      await ctx.replyWithDocument(
-        new InputFile(file.path, path.basename(file.path))
-      );
-    }
-    log(chatId, `saved ${saved.length}, failed ${failed.length}`);
-    if (!saved.length) {
-      await ctx.reply(strings.documentsNotReady);
-    }
-  } finally {
-    // The files hold the applicant's own documents; the chat now has them.
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-/**
- * Keeps the chat in the language its applicant reads.
- *
- * A language the applicant chose stays chosen. Reading it afresh from every
- * message turns a Russian chat to English on a captcha code, which is digits
- * and says nothing about the language its writer speaks.
- */
-function followLanguage(ctx, session) {
-  if (session.languageChosen) {
-    return;
-  }
-  session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
-}
-
-/**
- * Takes a code as the lookup's captcha when a lookup is waiting on one.
- *
- * Reports whether it did, so the caller can stop: the application form is
- * untouched by any of this.
- */
-function tookLookupCaptcha(ctx, chatId, session) {
-  if (!session.lookingUp || !looksLikeCaptcha(ctx.message.text)) {
-    return false;
-  }
-  log(chatId, 'captcha code received for the document lookup');
-  fetchDocuments(ctx, chatId, ctx.message.text).catch((error) =>
-    log(chatId, `the document lookup failed: ${error.message}`)
-  );
-  return true;
-}
 
 /**
  * Runs a chat's messages one at a time, in the order they arrived.
@@ -1342,6 +1244,20 @@ async function refuseIfPastForm(ctx, session) {
 }
 
 bot.on('message:text', (ctx) => inTurn(ctx.chat.id, () => receiveText(ctx)));
+
+/**
+ * Keeps the chat in the language its applicant reads.
+ *
+ * A language the applicant chose stays chosen. Reading it afresh from every
+ * message turns a Russian chat to English on a captcha code, which is digits
+ * and says nothing about the language its writer speaks.
+ */
+function followLanguage(ctx, session) {
+  if (session.languageChosen) {
+    return;
+  }
+  session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
+}
 
 async function receiveText(ctx) {
   const chatId = ctx.chat.id;

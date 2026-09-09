@@ -145,6 +145,10 @@ reports/
 # documents-processing: real (private) document data must never be committed.
 # It lives in the data/ folder of your working tree; only the *.example.json
 # templates there are tracked. Copy them and fill in locally.
+# What the bot remembers between runs: chat ids, the language each chose and
+# the applications registered for them. All of it is personal.
+data/chats.lino
+data/chats.lino.writing
 data/match-checks-data.json
 data/ocr-overrides.json
 # Gmail OAuth secrets and issued token — never commit.

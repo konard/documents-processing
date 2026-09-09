@@ -32,6 +32,7 @@ export default [
         module: 'readonly',
         setInterval: 'readonly',
         clearInterval: 'readonly',
+        WebAssembly: 'readonly',
         // Node.js 18+ globals
         fetch: 'readonly',
         URL: 'readonly',

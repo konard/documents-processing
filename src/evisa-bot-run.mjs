@@ -54,6 +54,7 @@ import {
 } from './evisa-session.mjs';
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments } from './evisa-documents.mjs';
+import { prepareStore, openStore } from './evisa-store.mjs';
 import {
   lookupAddress,
   renderVerifiedAddress,
@@ -74,6 +75,18 @@ if (!token) {
 withholdFromLog(token);
 
 const { Bot, InputFile } = await import('grammy');
+
+/**
+ * What the bot remembers between runs, kept beside the application.
+ *
+ * A language the applicant chose, and the application the site registered,
+ * must survive both a /start and a restart of the bot.
+ */
+await prepareStore();
+const STORE_DIR =
+  process.env.EVISA_BOT_STORE ??
+  path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'data');
+const store = await openStore(STORE_DIR);
 
 const sessions = createSessionStore();
 const browsers = new Map();
@@ -730,6 +743,7 @@ const {
 } = createDocuments({
   sessions,
   browsers,
+  store,
   log,
   shown,
   askCaptcha: (...args) => askCaptcha(...args),
@@ -886,7 +900,12 @@ bot.command('start', async (ctx) => {
   const session = sessions.get(chatId);
   // Telegram's own language is the default, so most applicants are never
   // asked; the buttons are there for anyone it gets wrong.
-  session.language = detectLanguage(null, ctx.from?.language_code);
+  // A language the applicant chose before outlives both the session and the
+  // bot; Telegram's guess is only the fallback for a chat never seen.
+  const remembered = store.read(chatId, 'language');
+  session.language =
+    remembered ?? detectLanguage(null, ctx.from?.language_code);
+  session.languageChosen = Boolean(remembered);
   touch(chatId);
   await ctx.reply(MESSAGES[session.language].menu, {
     reply_markup: LANGUAGE_BUTTONS,
@@ -911,8 +930,9 @@ bot.callbackQuery(/^language:(ru|en)$/, async (ctx) => {
   // From here the applicant's choice holds, whatever any later message
   // happens to be written in.
   session.languageChosen = true;
+  await store.write(chatId, 'language', chosen);
   touch(chatId);
-  log(chatId, `language chosen: ${chosen}`);
+  log(chatId, `language chosen: ${chosen}, and remembered`);
   await ctx.answerCallbackQuery();
   await ctx.reply(MESSAGES[chosen].menu);
 });
@@ -1029,6 +1049,7 @@ bot.command('fill', async (ctx) => {
 });
 
 bot.command('reset', async (ctx) => {
+  await store.forget(ctx.chat.id);
   await endChat(ctx.chat.id);
   await ctx.reply('Cleared. Send /start to begin again.');
 });
@@ -1042,7 +1063,10 @@ bot.command('documents', async (ctx) => {
   // only the applicant has it: it arrives by email when the application is
   // filed.
   const asked = ctx.message.text.replace(/^\/documents\s*/, '').trim();
-  const number = asked || session.application?.applicationNumber;
+  const number =
+    asked ||
+    session.application?.applicationNumber ||
+    store.read(chatId, 'applicationNumber');
   if (!number) {
     await ctx.reply(strings.documentsNeedNumber);
     return;
@@ -1254,6 +1278,14 @@ bot.on('message:text', (ctx) => inTurn(ctx.chat.id, () => receiveText(ctx)));
  */
 function followLanguage(ctx, session) {
   if (session.languageChosen) {
+    return;
+  }
+  // A restart empties the sessions but not the store, so the first message
+  // after one still answers in the language the applicant chose.
+  const remembered = store.read(ctx.chat.id, 'language');
+  if (remembered) {
+    session.language = remembered;
+    session.languageChosen = true;
     return;
   }
   session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);

@@ -111,6 +111,7 @@ async function fetchDocuments(ctx, chatId, code, deps) {
 export function createDocuments({
   sessions,
   browsers,
+  store,
   log,
   shown,
   askCaptcha,
@@ -145,6 +146,12 @@ export function createDocuments({
       registeredAt: Date.now(),
     };
     log(chatId, `application registered: ${shown(details.applicationNumber)}`);
+    // The number outlives the conversation: a restart must not cost the
+    // applicant the one key their documents are fetched by.
+    await store?.write(chatId, 'applicationNumber', details.applicationNumber);
+    if (session.application.email) {
+      await store?.write(chatId, 'applicationEmail', session.application.email);
+    }
     await ctx.reply(strings.applicationKept(details.applicationNumber));
     if (canLookUp(session.application)) {
       watchForPayment(ctx, chatId);
@@ -233,7 +240,9 @@ export function createDocuments({
       logBrowserEvents,
     });
     const { openSearch } = await import('./evisa-download.mjs');
-    const known = session.application ?? {};
+    const known = session.application ?? {
+      email: store?.read(chatId, 'applicationEmail'),
+    };
     await openSearch(page, {
       applicationNumber: number,
       email: known.email ?? session.data?.email,

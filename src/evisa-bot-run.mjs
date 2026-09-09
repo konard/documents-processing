@@ -55,6 +55,7 @@ import {
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments } from './evisa-documents.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
+import { sortUnreadableImage } from './evisa-image-role.mjs';
 import {
   lookupAddress,
   renderVerifiedAddress,
@@ -446,9 +447,6 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
   }
 }
 
-/** How many pictures Telegram accepts in one album. */
-const ALBUM_LIMIT = 10;
-
 /**
  * Sends the page as a PDF to keep and as pictures to read.
  *
@@ -463,19 +461,21 @@ const ALBUM_LIMIT = 10;
 async function sendFormAndSections(ctx, chatId, screenshot, caption) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-slice-'));
   try {
-    const { sliceImage, sectionsToPdf } = await import('./evisa-slice.mjs');
-    const sections = await sliceImage(screenshot, dir);
-    const pdf = await sectionsToPdf(sections, path.join(dir, 'form.pdf'));
-    await ctx.replyWithDocument(new InputFile(pdf, 'form.pdf'), { caption });
-    for (let at = 0; at < sections.length; at += ALBUM_LIMIT) {
-      const album = sections.slice(at, at + ALBUM_LIMIT).map((section) => ({
-        type: 'photo',
-        media: new InputFile(section.path, `section-${section.index}.jpg`),
-        caption: `${section.index}/${section.of}`,
-      }));
-      await ctx.replyWithMediaGroup(album);
+    const { sliceImage } = await import('./evisa-slice.mjs');
+    const sections = await sliceImage(screenshot, dir, { trim: true });
+    // The whole page as one picture, which is what the applicant keeps.
+    await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
+      caption,
+    });
+    // Then a section at a time, in order, so the form unrolls down the chat
+    // as the applicant reads it.
+    for (const section of sections) {
+      await ctx.replyWithPhoto(
+        new InputFile(section.path, `section-${section.index}.jpg`),
+        { caption: section.title }
+      );
     }
-    log(chatId, `sent the form as a PDF and ${sections.length} sections`);
+    log(chatId, `sent the form and ${sections.length} sections`);
   } catch (error) {
     log(chatId, `could not cut the page into sections: ${error.message}`);
     await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
@@ -610,6 +610,9 @@ async function fillNow(ctx, chatId) {
   session.fillChain = turn.catch(() => {});
   await turn;
 }
+
+/** How many times an empty review page is worth answering with a refill. */
+const EMPTY_REVIEW_TRIES = 2;
 
 /** True when something has arrived since the last fill, or nothing was filled. */
 function formIsStale(session) {
@@ -796,9 +799,23 @@ async function followStep(ctx, chatId, step) {
  */
 async function refillAfterEmptyReview(ctx, chatId) {
   const session = sessions.get(chatId);
+  // The site draws the review from data it fetches, and that fetch fails now
+  // and then. Trying again is worth doing once; trying for ever fills the
+  // form over and over and never tells the applicant why.
+  session.emptyReviews = (session.emptyReviews ?? 0) + 1;
+  if (session.emptyReviews > EMPTY_REVIEW_TRIES) {
+    log(
+      chatId,
+      `the review page came up empty ${session.emptyReviews} times; giving up`
+    );
+    await ctx
+      .reply(MESSAGES[session.language].reviewKeepsFailing)
+      .catch(() => {});
+    return;
+  }
   log(
     chatId,
-    'the review page came up empty; reopening the form to fill again'
+    `the review page came up empty (${session.emptyReviews}); filling again`
   );
   const page = await pageFor(chatId);
   await reopenForm(page);
@@ -1181,11 +1198,13 @@ async function receiveDocument(ctx) {
   }
   const kb = Math.round(buffer.length / 1024);
   log(chatId, `document received: ${extension}, ${kb} KB`);
-  if (ctx.message.photo) {
-    // Telegram shrinks a photo to a few kilobytes and strips what the
-    // camera wrote; the site then doubts the portrait. Said each time, since
-    // the fix is in how the next one is sent.
-    log(chatId, 'sent as a photo, not a file; the chat is told');
+  if (ctx.message.photo && !session.warnedAboutPhotos) {
+    // Telegram shrinks a photo and strips what the camera wrote; the site
+    // then doubts the portrait. Worth saying, and worth saying once: the
+    // advice is the same for every photo that follows, and every file sent
+    // is used whether or not it was compressed.
+    session.warnedAboutPhotos = true;
+    log(chatId, 'sent as a photo, not a file; the chat is told once');
     await ctx.reply(MESSAGES[session.language].sentAsPhoto(kb)).catch(() => {});
   }
 
@@ -1238,8 +1257,22 @@ async function receiveDocument(ctx) {
       if (read && Object.keys(read.data).length) {
         keepPassport(session, read, extension);
       } else {
-        log(chatId, 'no passport zone found; treating it as the portrait');
-        keepPortrait(chatId, session, read, local, extension);
+        // No zone read means the picture is something else, and which
+        // something matters: a booking screenshot in the portrait upload is
+        // what made the site answer "no face detected".
+        await sortUnreadableImage({
+          ctx,
+          chatId,
+          session,
+          read,
+          local,
+          extension,
+          log,
+          shown,
+          keepPortrait,
+          keepForUpload,
+          strings: MESSAGES[session.language],
+        });
       }
       session.received = (session.received ?? 0) + 1;
     },

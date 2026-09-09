@@ -191,14 +191,9 @@ export async function sortUnreadableImage({
         session.data[field] = value;
       }
     }
+    // The summary under the filled form already lists every value that went
+    // on it, this one included, so saying it here as well says it twice.
     log(chatId, `address in Viet Nam read from a booking: ${shown(line)}`);
-    await ctx.reply(
-      strings.bookingAddress(
-        parsed.addressInVietnam,
-        parsed.provinceInVietnam,
-        parsed.wardInVietnam
-      )
-    );
     return;
   }
   await ctx.reply(strings.unclearPicture);

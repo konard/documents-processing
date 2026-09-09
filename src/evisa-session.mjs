@@ -232,6 +232,19 @@ export async function reopenForm(page) {
  */
 export async function settleForm(page, { timeout = 15000 } = {}) {
   await page.waitForLoadState('networkidle', { timeout }).catch(() => {});
+  // The uploaded portrait and passport page are drawn from data the site
+  // fetches back, and a capture taken before they arrive shows empty frames
+  // where the applicant is checking their own pictures.
+  await page
+    .waitForFunction(
+      () =>
+        [...document.images].every(
+          (image) => image.complete && image.naturalWidth > 0
+        ),
+      undefined,
+      { timeout }
+    )
+    .catch(() => {});
   await page
     .waitForFunction(
       () =>

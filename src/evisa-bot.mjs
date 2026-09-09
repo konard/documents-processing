@@ -166,6 +166,22 @@ export const MESSAGES = {
       'payment.',
     captchaAgain:
       'The site did not take the code. Here is a new picture; type its code.',
+    readAsPassportPage:
+      'This looks like a passport data page, so I used it as one. I could ' +
+      'not read the machine line at the bottom of it, so send the details ' +
+      'that are wrong and I will correct them.',
+    unclearPicture:
+      'I could not tell what this picture is, so I have not put it on the ' +
+      'form. A portrait goes in as a photo of a face on a plain background; ' +
+      'a passport goes in as the data page.',
+    bookingWithoutAddress:
+      'This looks like a booking, but I could not find the address on it. ' +
+      'Send the address in Viet Nam as text and I will use that.',
+    bookingAddress: (address, province, ward) =>
+      ['Read the address in Viet Nam off this booking:', `• ${address}`]
+        .concat(province ? [`• province: ${province}`] : [])
+        .concat(ward ? [`• ward: ${ward}`] : [])
+        .join('\n'),
     applicationKept: (number) =>
       `I have noted the application number ${number}. Once the payment goes ` +
       'through in the browser, I fetch the form and the receipt on my own; ' +
@@ -317,6 +333,22 @@ export const MESSAGES = {
       'Внизу сайт просит код с этой картинки. Напишите его сюда как есть, и ' +
       'я нажму «Next»: это отправит анкету дальше, к оплате.',
     captchaAgain: 'Сайт не принял код. Вот новая картинка, напишите код с неё.',
+    readAsPassportPage:
+      'Похоже на страницу паспорта с данными — так её и использую. Машинную ' +
+      'строку внизу прочитать не удалось, поэтому пришлите то, что неверно, ' +
+      'и я поправлю.',
+    unclearPicture:
+      'Не понял, что на этой картинке, и в анкету её не поставил. ' +
+      'Портретное фото — лицо на однотонном фоне; паспорт — страница с ' +
+      'данными.',
+    bookingWithoutAddress:
+      'Похоже на бронирование, но адреса на нём я не нашёл. Пришлите адрес ' +
+      'во Вьетнаме текстом, и я впишу его.',
+    bookingAddress: (address, province, ward) =>
+      ['Взял адрес во Вьетнаме из бронирования:', `• ${address}`]
+        .concat(province ? [`• провинция: ${province}`] : [])
+        .concat(ward ? [`• район: ${ward}`] : [])
+        .join('\n'),
     applicationKept: (number) =>
       `Запомнил номер заявления ${number}. Как только в браузере пройдёт ` +
       'оплата, сам скачаю анкету и квитанцию; можно и в любой момент ' +
@@ -725,6 +757,9 @@ const ARRIVAL_LABELS = {
   },
 };
 
+/** Fields where a hyphen the site refuses is worth remarking on. */
+const HYPHEN_NOTED = ['surname', 'givenName', 'emergencyName'];
+
 /** The three parts a pre-arrival declaration is printed in. */
 const ARRIVAL_GROUPS = {
   en: { passenger: 'Passenger', visa: 'Visa', trip: 'Trip' },
@@ -976,8 +1011,13 @@ export function describeSummary(
   };
 
   // A name the passport hyphenates goes on the form with a space, and the
-  // line says so, since the applicant will look for the hyphen.
+  // line says so, since the applicant will look for the hyphen. Only names:
+  // a date is written one way here and another in the passport, and saying
+  // so tells the applicant nothing they need.
   const noteFor = (key) => {
+    if (!HYPHEN_NOTED.includes(key)) {
+      return '';
+    }
     const given = String(supplied[key] ?? '');
     return given.includes('-') && !String(applicant[key]).includes('-')
       ? ` ${strings.hyphenNote(escapeHtml(given))}`
@@ -1102,7 +1142,10 @@ const LABELLED = [
 const LABELLED_LINE = /^(\p{L}[\p{L} ]{0,30}?)\s*:\s*(.*)$/u;
 
 /** A line that says when the applicant flies or enters. */
-const ENTRY_WORDS = /билет|вылет|прил[её]т|въезд|arriv|flight|entry|ticket/i;
+// "въезд" is often typed "вьезд", and the two are indistinguishable to a
+// reader, so both hard and soft signs are accepted.
+const ENTRY_WORDS =
+  /билет|вылет|прил[её]т|в[ъь]езд|arriv|flight|entry|ticket|дата\s+вьезда/i;
 
 /** Months by their opening letters, in Russian and English. */
 const MONTH_STEMS = [

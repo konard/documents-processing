@@ -13,6 +13,7 @@ import {
   KNOWN_KEYS,
   MAX_EVISA_DAYS,
   AIR_BORDER_GATES,
+  BORDER_GATES,
   PURPOSES,
   FIELD_DEFAULTS,
 } from './evisa-schema.mjs';
@@ -47,7 +48,7 @@ export function canonicalBorderGate(value) {
     return value;
   }
   const text = value.trim();
-  const exact = AIR_BORDER_GATES.find(
+  const exact = BORDER_GATES.find(
     (gate) => gate.toLowerCase() === text.toLowerCase()
   );
   if (exact) {
@@ -58,7 +59,7 @@ export function canonicalBorderGate(value) {
   const core = text
     .toLowerCase()
     .replace(
-      /\b(int|international)?\s*(airport|border gate|seaport|port)\b/g,
+      /\b(int|international)?\s*(airport|border gate|landport|seaport|port)\b/g,
       ' '
     )
     .replace(/[(),]/g, ' ')
@@ -67,10 +68,22 @@ export function canonicalBorderGate(value) {
   if (!core) {
     return value;
   }
-  const matches = AIR_BORDER_GATES.filter((gate) =>
+  const matches = BORDER_GATES.filter((gate) =>
     gate.toLowerCase().includes(core)
   );
-  return matches.length === 1 ? matches[0] : value;
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  // A city with both an airport and a seaport is named for its airport: that
+  // is how most applicants arrive.
+  const byAir = matches.filter((gate) => /airport/i.test(gate));
+  if (byAir.length === 1) {
+    return byAir[0];
+  }
+  // Otherwise the option the name itself opens, which is the place rather
+  // than somewhere that merely mentions it.
+  const named = matches.filter((gate) => gate.toLowerCase().startsWith(core));
+  return named.length === 1 ? named[0] : value;
 }
 
 /** Resolves a purpose of entry to one of the form's five options. */

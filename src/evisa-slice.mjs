@@ -107,39 +107,67 @@ function lastGapBefore(centres, limit, floor) {
 }
 
 /**
+ * The part of the page worth showing: from its first ink to its last.
+ *
+ * A capture opens on the site's banner and ends in its footer, neither of
+ * which holds anything the applicant entered.
+ */
+export function contentBand(rows) {
+  let top = 0;
+  let bottom = rows.length;
+  while (top < rows.length && rows[top]) {
+    top++;
+  }
+  while (bottom > top && rows[bottom - 1]) {
+    bottom--;
+  }
+  return { top, bottom: Math.max(bottom, top + 1) };
+}
+
+/**
  * Cuts a capture into readable sections and writes them as JPEG.
  *
  * Returns the files written, each with the band of the original it covers, so
  * a caption can say which part of the form the applicant is looking at.
  */
-export async function sliceImage(imagePath, outputDir, { quality = 82 } = {}) {
+export async function sliceImage(
+  imagePath,
+  outputDir,
+  { quality = 82, trim = false } = {}
+) {
   const sharp = (await import('sharp')).default;
   fs.mkdirSync(outputDir, { recursive: true });
   const image = sharp(imagePath, { failOn: 'none' });
   const { width, height } = await image.metadata();
 
   const rows = await blankRows(imagePath);
-  const cuts = planCuts(height, width, gapCentres(rows));
-  const edges = [0, ...cuts, height];
+  // The site's banner and its footer carry nothing the applicant entered, so
+  // they are left off when asked: what is worth checking is the form between.
+  const band = trim ? contentBand(rows) : { top: 0, bottom: height };
+  const cuts = planCuts(band.bottom - band.top, width, gapCentres(rows)).map(
+    (cut) => cut + band.top
+  );
+  const edges = [band.top, ...cuts, band.bottom];
 
   const sections = [];
   for (let i = 0; i < edges.length - 1; i++) {
     const top = edges[i];
-    const band = edges[i + 1] - top;
+    const height2 = edges[i + 1] - top;
     const target = path.join(
       outputDir,
       `section-${String(i + 1).padStart(2, '0')}.jpg`
     );
     await sharp(imagePath, { failOn: 'none' })
-      .extract({ left: 0, top, width, height: band })
+      .extract({ left: 0, top, width, height: height2 })
       .jpeg({ quality })
       .toFile(target);
     sections.push({
       path: target,
       index: i + 1,
       of: edges.length - 1,
+      title: `${i + 1} of ${edges.length - 1}`,
       top,
-      height: band,
+      height: height2,
     });
   }
   return sections;

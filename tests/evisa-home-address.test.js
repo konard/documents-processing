@@ -642,11 +642,15 @@ describe('what the bot says after Next, and what it hears', () => {
   });
 
   it('says when the site opened the review page empty', () => {
-    expect(
-      describeStep({ moved: true, stage: 'review', empty: true }, 'ru')
-    ).toBe(
-      'Нажал «Next», сайт открыл страницу проверки, но пустую: ни анкеты, ни кода на ней. Это сбой на его стороне. Открою форму заново, заполню и покажу ещё раз.'
+    // The form is left as the applicant made it and nothing is refilled on
+    // their behalf, so the message says what is there and waits.
+    const said = describeStep(
+      { moved: true, stage: 'review', empty: true },
+      'ru'
     );
+    expect(said).toContain('пустую');
+    expect(said).toContain('осталась как была');
+    expect(said).not.toContain('Открою форму заново');
     expect(
       describeStep({ moved: true, stage: 'review', empty: false }, 'ru')
     ).toContain('проверка анкеты');

@@ -155,8 +155,9 @@ export const MESSAGES = {
     stepKept: 'Pressed Next, but the site kept the page.',
     reviewEmpty:
       'Pressed Next, and the site opened the review page, but empty: no ' +
-      'application and no code on it. That is a failure on its side. I ' +
-      'open the form again, fill it again and show it.',
+      'application and no code on it. That is a failure on its side. Your ' +
+      'form is still in the browser as you left it — say "send" to try Next ' +
+      'again, or send a correction first.',
     stepMessages: (n) =>
       `${n} ${n === 1 ? 'message' : 'messages'} on it. Send the corrections.`,
     siteSaid: (text) => `The site said: "${text}".`,
@@ -191,6 +192,13 @@ export const MESSAGES = {
     paymentSeen:
       'The browser reached the site\u2019s payment page, so the payment is ' +
       'through. Fetching the documents now.',
+    fieldStuck: (fields) =>
+      `The site will not take ${fields.join(', ')}, and filling the form ` +
+      'again changes nothing. Send the value you want for it and I will try ' +
+      'that; everything else on the form is as you saw it.',
+    nothingChanged:
+      'Nothing changed on the form since you last saw it, so I have not sent ' +
+      'it again. Send a correction whenever you have one.',
     documentsNeedNumber:
       'Send the application number with the command, like ' +
       '/documents E260908XXX0000000000. It is in the email the site sent ' +
@@ -325,8 +333,9 @@ export const MESSAGES = {
     stepKept: 'Нажал «Next», но сайт оставил страницу.',
     reviewEmpty:
       'Нажал «Next», сайт открыл страницу проверки, но пустую: ни анкеты, ' +
-      'ни кода на ней. Это сбой на его стороне. Открою форму заново, ' +
-      'заполню и покажу ещё раз.',
+      'ни кода на ней. Это сбой на его стороне. Ваша анкета в браузере ' +
+      'осталась как была — напишите «отправляй», чтобы попробовать ещё раз, ' +
+      'или сначала пришлите исправление.',
     stepMessages: (n) => `Замечаний на ней: ${n}. Пришлите исправления.`,
     siteSaid: (text) => `Сайт ответил: «${text}».`,
     stepFailed: (why) =>
@@ -358,6 +367,13 @@ export const MESSAGES = {
     paymentSeen:
       'Браузер дошёл до страницы оплаты — значит, оплата прошла. Скачиваю ' +
       'документы.',
+    fieldStuck: (fields) =>
+      `Сайт не принимает ${fields.join(', ')}, и повторное заполнение ничего ` +
+      'не меняет. Пришлите нужное значение — попробую его; остальное в ' +
+      'анкете такое же, как вы видели.',
+    nothingChanged:
+      'С прошлого раза в анкете ничего не изменилось, поэтому не присылаю её ' +
+      'снова. Пришлите исправление, когда будет.',
     documentsNeedNumber:
       'Пришлите номер заявления вместе с командой, например ' +
       '/documents E260908XXX0000000000. Он есть в письме, которое сайт ' +

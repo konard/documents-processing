@@ -256,8 +256,20 @@ describe('no personal data is committed', () => {
     const logging = readFileSync('src/evisa-log.mjs', 'utf8');
     expect(logging.includes('RETENTION_DAYS')).toBe(true);
     expect(logging.includes('rmSync')).toBe(true);
-    // The sweep only touches directories this bot made.
-    expect(logging.includes('evisa-(bot|doc|shot|markup)-')).toBe(true);
+    // The sweep only touches directories this tool made, and it names every
+    // prefix it uses: one left out accumulates passport images for ever.
+    expect(logging.includes('^evisa-(')).toBe(true);
+    for (const prefix of [
+      'bot',
+      'doc',
+      'shot',
+      'step',
+      'slice',
+      'markup',
+      'ocr',
+    ]) {
+      expect(`${prefix}:${logging.includes(prefix)}`).toBe(`${prefix}:true`);
+    }
   });
 
   it('says nothing to an applicant about how their documents are handled', () => {

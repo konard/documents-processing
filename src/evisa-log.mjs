@@ -15,17 +15,37 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** True when values may be written; otherwise field names alone. */
 export function valuesAllowed() {
   return process.env.EVISA_BOT_DEBUG !== '0';
 }
 
-/** Where the log goes; one file, so an operator can find and delete it. */
+/**
+ * Where the log goes; one file, so an operator can find and delete it.
+ *
+ * Beside the application by default. The system's temporary directory is
+ * emptied on a schedule by macOS and lost with the container elsewhere, which
+ * takes the record of a run with it, and the log is what a defect is
+ * diagnosed from days later.
+ */
 export function logPath() {
-  return (
-    process.env.EVISA_BOT_LOG ?? path.join(os.tmpdir(), 'evisa-bot-debug.log')
+  if (process.env.EVISA_BOT_LOG) {
+    return process.env.EVISA_BOT_LOG;
+  }
+  const beside = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    'data'
   );
+  try {
+    fs.mkdirSync(beside, { recursive: true });
+    return path.join(beside, 'evisa-bot-debug.log');
+  } catch {
+    // A tree that cannot be written to still gets a log, in the old place.
+    return path.join(os.tmpdir(), 'evisa-bot-debug.log');
+  }
 }
 
 const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -97,6 +117,15 @@ export const RETENTION_DAYS = Number(process.env.EVISA_BOT_RETENTION_DAYS ?? 7);
  * system only empties its temp directory at boot. This sweep bounds that, and
  * touches nothing outside the directories this bot created.
  */
+/**
+ * The temporary directories this tool creates, by prefix.
+ *
+ * Each is somewhere a document, a capture or a rendering was written while
+ * something was being worked out, and each holds the applicant's own data.
+ */
+const SWEPT =
+  /^evisa-(bot|doc|docs|shot|step|slice|markup|ocr|fold|scans|archive|private)-/;
+
 export function sweepKeptFiles({
   days = RETENTION_DAYS,
   root = os.tmpdir(),
@@ -112,11 +141,11 @@ export function sweepKeptFiles({
   }
 
   for (const entry of entries) {
-    // Only the directories this bot made, so nothing else is ever touched.
-    if (
-      !entry.isDirectory() ||
-      !/^evisa-(bot|doc|shot|markup)-/.test(entry.name)
-    ) {
+    // Only the directories this tool made, so nothing else is ever touched.
+    // Every prefix it uses is listed: a working directory left behind holds
+    // a page of somebody's passport as surely as a kept document does, and
+    // one the sweep does not name accumulates for ever.
+    if (!entry.isDirectory() || !SWEPT.test(entry.name)) {
       continue;
     }
     const full = path.join(root, entry.name);

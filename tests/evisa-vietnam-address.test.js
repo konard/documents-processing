@@ -13,15 +13,30 @@ describe('the address in Viet Nam, off a booking', () => {
     const parsed = parseVietnamAddress(
       '25/7 Tran Phu, Vinh Hai Ward, Нячанг, Вьетнам'
     );
-    expect(parsed.addressInVietnam).toBe('25/7 Tran Phu');
+    // The whole temporary address, in English, as the site's example gives it.
+    expect(parsed.addressInVietnam).toBe(
+      '25/7 Tran Phu, Vinh Hai Ward, Nha Trang'
+    );
     expect(parsed.provinceInVietnam).toBe('KHANH HOA');
-    expect(parsed.wardInVietnam).toBe('PHUONG VINH HAI');
+    expect(parsed.wardInVietnam).toBe('VINH HAI');
   });
 
-  it('writes the ward the way the site lists it', () => {
-    expect(wardOf('Vinh Hai Ward')).toBe('PHUONG VINH HAI');
-    expect(wardOf('Phuong Tan Binh')).toBe('PHUONG TAN BINH');
+  it('takes the ward name bare, for matching against the site', () => {
+    expect(wardOf('Vinh Hai Ward')).toBe('VINH HAI');
+    expect(wardOf('Phuong Tan Binh')).toBe('TAN BINH');
     expect(wardOf('Tran Phu')).toBe(null);
+  });
+
+  it('places a merged ward on the city it was absorbed into', async () => {
+    const { matchWard } = await import('../src/evisa-vietnam-address.mjs');
+    // Viet Nam merged its wards: a booking may still name one the form has
+    // dropped, and the city's own ward is where it ended up.
+    const offered = ['NHA TRANG WARD', 'BAC NHA TRANG WARD', 'CAM RANH WARD'];
+    expect(matchWard('VAN THANH', offered, 'NHA TRANG')).toBe('NHA TRANG WARD');
+    // A ward still listed is matched by its own name.
+    expect(matchWard('CAM RANH', offered, 'NHA TRANG')).toBe('CAM RANH WARD');
+    // Nothing to place it on gives nothing, so no unfillable value is set.
+    expect(matchWard('VAN THANH', offered, null)).toBe(null);
   });
 
   it('knows a city by either language', () => {
@@ -33,7 +48,7 @@ describe('the address in Viet Nam, off a booking', () => {
 
   it('leaves the country and the city out of the street', () => {
     const parsed = parseVietnamAddress('12 Some Street, Da Nang, Vietnam');
-    expect(parsed.addressInVietnam).toBe('12 Some Street');
+    expect(parsed.addressInVietnam).toBe('12 Some Street, Da Nang');
     expect(parsed.provinceInVietnam).toBe('DA NANG City');
   });
 

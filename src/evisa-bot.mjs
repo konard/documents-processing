@@ -23,6 +23,8 @@ import {
   stripAddressNote,
 } from './evisa-home-address.mjs';
 import { PREARRIVAL_FIELDS as PREARRIVAL_ORDER } from './evisa-prearrival.mjs';
+import { canonicalBorderGate } from './evisa-data.mjs';
+import { BORDER_GATES } from './evisa-schema.mjs';
 
 /**
  * How long a chat may go quiet before the bot fills the form on its own.
@@ -1144,6 +1146,9 @@ const LABELLED_LINE = /^(\p{L}[\p{L} ]{0,30}?)\s*:\s*(.*)$/u;
 /** A line that says when the applicant flies or enters. */
 // "въезд" is often typed "вьезд", and the two are indistinguishable to a
 // reader, so both hard and soft signs are accepted.
+const GATE_WORDS =
+  /\b(?:border gate|landport|land port|seaport|sea port|airport|checkpoint|погранпереход|пункт пропуска|аэропорт|порт)\b/i;
+
 const ENTRY_WORDS =
   /билет|вылет|прил[её]т|в[ъь]езд|arriv|flight|entry|ticket|дата\s+вьезда/i;
 
@@ -1193,6 +1198,36 @@ export function dateInLine(line) {
   }
   const monthNumber = String(index + 1).padStart(2, '0');
   return `${dayWord.padStart(2, '0')}/${monthNumber}/${yearWord}`;
+}
+
+/**
+ * Takes a gate a line names as both the way in and the way out, which is
+ * what a single-entry visa means.
+ */
+function noteBorderGate(line, found) {
+  const gate = borderGateInLine(line);
+  if (gate) {
+    found.entryBorderGate ??= gate;
+    found.exitBorderGate ??= gate;
+  }
+}
+
+/**
+ * The border gate a line names, as the form's dropdown spells it.
+ *
+ * An applicant writes the gate the way the instruction page does, or the way
+ * a search engine gave it: "Bo Y International Border Gate" for what the form
+ * calls "Bo Y Landport". A line is only read as a gate when it resolves to
+ * exactly one of the site's own options.
+ */
+export function borderGateInLine(line) {
+  const text = String(line ?? '').trim();
+  // A gate names a place and its kind, so a line with neither is not one.
+  if (!GATE_WORDS.test(text) || text.length > 60) {
+    return null;
+  }
+  const resolved = canonicalBorderGate(stripAddressLabel(text));
+  return BORDER_GATES.includes(resolved) ? resolved : null;
 }
 
 /**
@@ -1302,6 +1337,7 @@ function parseLines(text, found, email) {
     if (entry) {
       found.entryDate ??= entry;
     }
+    noteBorderGate(line, found);
     line = parsePhones(line, found, inContact);
     line = line
       .replace(email ?? /$^/, ' ')

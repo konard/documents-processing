@@ -438,7 +438,13 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
   const caption = describeOutcome(result, outstanding, session.language);
   const sending = showStatus(ctx, 'upload_document');
   try {
-    await sendFormAndSections(ctx, chatId, result.screenshot, caption);
+    await sendFormAndSections(
+      ctx,
+      chatId,
+      result.screenshot,
+      caption,
+      browsers.get(chatId)?.page
+    );
   } finally {
     sending();
   }
@@ -458,11 +464,14 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
  * A capture that cannot be cut still goes, as the image itself: the applicant
  * seeing their form matters more than the form it arrives in.
  */
-async function sendFormAndSections(ctx, chatId, screenshot, caption) {
+async function sendFormAndSections(ctx, chatId, screenshot, caption, page) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-slice-'));
   try {
-    const { sliceImage } = await import('./evisa-slice.mjs');
-    const sections = await sliceImage(screenshot, dir, { trim: true });
+    const { sliceImage, sectionTops } = await import('./evisa-slice.mjs');
+    // The page says where its own parts begin, so each picture is one part of
+    // the form and carries that part's heading.
+    const tops = page ? await sectionTops(page, 2).catch(() => null) : null;
+    const sections = await sliceImage(screenshot, dir, { trim: true, tops });
     // The whole page as one picture, which is what the applicant keeps.
     await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
       caption,

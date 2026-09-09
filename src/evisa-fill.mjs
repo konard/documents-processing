@@ -374,6 +374,54 @@ export function readFilledFields(page) {
   }, FIELDS);
 }
 
+/** The options a select is offering, without disturbing the page. */
+export async function selectOptions(page, id) {
+  await page.locator(`#${id}`).click();
+  await page.waitForTimeout(1200);
+  const texts = await page.evaluate(() =>
+    [
+      ...document.querySelectorAll(
+        '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option-content'
+      ),
+    ].map((option) => option.innerText.trim())
+  );
+  await page.keyboard.press('Escape');
+  return texts;
+}
+
+/**
+ * Places the ward against the list the site is offering for its province.
+ *
+ * Viet Nam merged its wards, so a booking may still name one the form no
+ * longer lists; the city's own ward is where such a ward ended up. A ward
+ * that cannot be placed is dropped, since an unfillable value fails the
+ * field and leaves the applicant with an error to read.
+ */
+async function resolveWard(page, applicant) {
+  const wanted = applicant.wardInVietnam;
+  if (!wanted || !applicant.provinceInVietnam) {
+    return applicant;
+  }
+  try {
+    await fillSelect(
+      page,
+      FIELDS.provinceInVietnam.id,
+      applicant.provinceInVietnam
+    );
+    const options = await selectOptions(page, FIELDS.wardInVietnam.id);
+    if (!options.length) {
+      return applicant;
+    }
+    const { matchWard } = await import('./evisa-vietnam-address.mjs');
+    const placed = matchWard(wanted, options, applicant.townInVietnam);
+    return { ...applicant, wardInVietnam: placed ?? undefined };
+  } catch {
+    // A province that will not take, or a list that will not open, leaves
+    // the ward as it was for the ordinary attempt to report on.
+    return applicant;
+  }
+}
+
 export async function fillForm(page, applicant, { uploads = {} } = {}) {
   const filled = [];
   const typed = [];
@@ -391,9 +439,16 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
     }
   };
 
+  // The ward list belongs to the province and changes with it, and Viet Nam
+  // has merged wards, so a ward a booking still names may be gone. The value
+  // is placed against the list the site is actually offering.
+  const applicantToFill = await resolveWard(page, applicant);
+
   // What the page held before the uploads, so what the site puts there from
   // the passport can be told from what an earlier fill left.
   const before = await readFilledFields(page);
+
+  applicant = applicantToFill;
 
   for (const [key, meta] of Object.entries(UPLOADS)) {
     if (uploads[key]) {

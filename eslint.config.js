@@ -110,6 +110,7 @@ export default [
       'src/evisa-required.mjs',
       'src/evisa-session.mjs',
       'src/evisa-download.mjs',
+      'src/evisa-slice.mjs',
     ],
     languageOptions: {
       globals: {

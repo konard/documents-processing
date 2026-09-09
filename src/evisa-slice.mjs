@@ -107,6 +107,40 @@ function lastGapBefore(centres, limit, floor) {
 }
 
 /**
+ * Where the page's own sections begin, as row numbers in the capture.
+ *
+ * The form is written in numbered parts — the images, the personal details,
+ * the passport, the trip — and each heading is an `h3`. Cutting there gives
+ * the applicant one part of the form per picture, which is how they read it.
+ *
+ * The capture is taken at the page's own device pixel ratio, so a position in
+ * page pixels is scaled to match.
+ */
+export async function sectionTops(page, scale = 1) {
+  const found = await page.evaluate(() =>
+    [...document.querySelectorAll('h3')]
+      .filter((heading) => heading.offsetParent !== null)
+      .map((heading) => ({
+        top: heading.getBoundingClientRect().top + window.scrollY,
+        title: heading.innerText.trim(),
+      }))
+  );
+  // A little above each heading, so the heading is not flush with the edge.
+  return found
+    .map((at) => ({
+      top: Math.max(0, Math.round((at.top - 12) * scale)),
+      title: at.title,
+    }))
+    .sort((a, b) => a.top - b.top);
+}
+
+/** A heading cut to something a caption can carry whole. */
+function shortTitle(title) {
+  const text = String(title).replace(/\s+/g, ' ').trim();
+  return text.length > 64 ? `${text.slice(0, 63)}…` : text;
+}
+
+/**
  * The part of the page worth showing: from its first ink to its last.
  *
  * A capture opens on the site's banner and ends in its footer, neither of
@@ -133,7 +167,7 @@ export function contentBand(rows) {
 export async function sliceImage(
   imagePath,
   outputDir,
-  { quality = 82, trim = false } = {}
+  { quality = 82, trim = false, tops = null } = {}
 ) {
   const sharp = (await import('sharp')).default;
   fs.mkdirSync(outputDir, { recursive: true });
@@ -144,9 +178,18 @@ export async function sliceImage(
   // The site's banner and its footer carry nothing the applicant entered, so
   // they are left off when asked: what is worth checking is the form between.
   const band = trim ? contentBand(rows) : { top: 0, bottom: height };
-  const cuts = planCuts(band.bottom - band.top, width, gapCentres(rows)).map(
-    (cut) => cut + band.top
+  // The page's own sections when the caller measured them, and otherwise the
+  // blank bands between rows.
+  // A heading within a screenful of the top opens the first section rather
+  // than cutting a sliver off above it.
+  const marks = (tops ?? []).filter(
+    (at) => at.top > band.top + 400 && at.top < band.bottom - 40
   );
+  const cuts = marks.length
+    ? marks.map((at) => at.top)
+    : planCuts(band.bottom - band.top, width, gapCentres(rows)).map(
+        (cut) => cut + band.top
+      );
   const edges = [band.top, ...cuts, band.bottom];
 
   const sections = [];
@@ -165,7 +208,10 @@ export async function sliceImage(
       path: target,
       index: i + 1,
       of: edges.length - 1,
-      title: `${i + 1} of ${edges.length - 1}`,
+      title: shortTitle(
+        marks[i - 1]?.title ??
+          (i === 0 ? 'Photos and passport page' : `Part ${i + 1}`)
+      ),
       top,
       height: height2,
     });

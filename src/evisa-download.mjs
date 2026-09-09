@@ -58,6 +58,50 @@ export async function fillSearchCaptcha(page, code) {
 }
 
 /**
+ * The application's own details, read out of the dialog the site shows when
+ * it registers one.
+ *
+ * That dialog is the only place the electronic document code ever appears in
+ * the browser, and the code is what every later lookup is keyed on. Reading
+ * it here means the applicant is never asked to copy it out of a chat.
+ */
+export function readRegistration(lines = []) {
+  const details = {};
+  const text = lines.join('\n');
+  const after = (label) => {
+    // The site prints "Label:" and the value either after it or on the line
+    // below, depending on how the dialog wrapped.
+    const pattern = new RegExp(`${label}\\s*:?\\s*\\n?\\s*(.+)`, 'i');
+    return text.match(pattern)?.[1]?.trim() || null;
+  };
+  // The code is unmistakable on its own: E, a date, a country and digits.
+  const code = text.match(/\bE\d{6}[A-Z]{3}\d+\b/);
+  if (code) {
+    details.applicationNumber = code[0];
+  }
+  const email = after('Email');
+  if (email && /@/.test(email)) {
+    details.email = email.split(/\s/)[0];
+  }
+  const birth = after('Date of birth');
+  if (birth && /\d{2}\/\d{2}\/\d{4}/.test(birth)) {
+    details.dateOfBirth = birth.match(/\d{2}\/\d{2}\/\d{4}/)[0];
+  }
+  const passport = after('Passport');
+  if (passport && /\d/.test(passport)) {
+    details.passportNumber = passport.split(/\s/)[0];
+  }
+  return details;
+}
+
+/** Whether enough was read to look the application up again unaided. */
+export function canLookUp(details = {}) {
+  return Boolean(
+    details.applicationNumber && details.email && details.dateOfBirth
+  );
+}
+
+/**
  * The statuses the site reports, each mapped to what it means for the
  * applicant.
  *

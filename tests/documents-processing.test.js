@@ -62,6 +62,7 @@ describe('documents-processing commands', () => {
     'evisa-passport-worker.mjs',
     'evisa-slice.mjs',
     'evisa-download.mjs',
+    'evisa-documents.mjs',
     'evisa-prearrival.mjs',
   ]);
 

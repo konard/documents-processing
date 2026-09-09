@@ -697,10 +697,10 @@ function pressNextAndShow(ctx, chatId, label = 'Next') {
  * Sends the review page's captcha to the chat as a picture and asks for
  * its code. The picture is small, so it is enlarged to be read on a phone.
  */
-async function askCaptcha(ctx, chatId, caption) {
+async function askCaptcha(ctx, chatId, caption, page = null) {
   const session = sessions.get(chatId);
-  const page = await pageFor(chatId);
-  const image = await readCaptcha(page);
+  const reading = page ?? (await pageFor(chatId));
+  const image = await readCaptcha(reading);
   if (!image) {
     log(chatId, 'no captcha on the page');
     return false;
@@ -1028,6 +1028,28 @@ bot.command('documents', async (ctx) => {
 });
 
 /**
+ * A page of its own for looking applications up.
+ *
+ * The application form lives on the chat's own page, half filled and waiting
+ * on its applicant. Navigating that page to the search would throw the form
+ * away, so a lookup gets a second tab in the same browser, kept for as long
+ * as the lookups go on and closed with the browser.
+ */
+async function lookupPageFor(chatId) {
+  const held = browsers.get(chatId);
+  if (held?.lookup && !held.lookup.isClosed()) {
+    return held.lookup;
+  }
+  // Opening the form's page first gives the browser to put the tab in.
+  await pageFor(chatId);
+  const opened = browsers.get(chatId);
+  opened.lookup = await opened.browser.newPage();
+  logBrowserEvents(chatId, opened.lookup);
+  log(chatId, 'opened a second tab for the lookup');
+  return opened.lookup;
+}
+
+/**
  * Opens the site's search page on an application and asks for its captcha.
  *
  * The search needs the number, the email the application was filed with and
@@ -1037,7 +1059,7 @@ bot.command('documents', async (ctx) => {
 async function lookUpApplication(ctx, chatId, number) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
-  const page = await pageFor(chatId);
+  const page = await lookupPageFor(chatId);
   const { openSearch } = await import('./evisa-download.mjs');
   await openSearch(page, {
     applicationNumber: number,
@@ -1045,7 +1067,7 @@ async function lookUpApplication(ctx, chatId, number) {
     dateOfBirth: session.data?.dateOfBirth,
   });
   session.lookingUp = number;
-  if (!(await askCaptcha(ctx, chatId, strings.captchaAsk))) {
+  if (!(await askCaptcha(ctx, chatId, strings.captchaAsk, page))) {
     await ctx.reply(strings.documentsNoCaptcha);
   }
 }
@@ -1060,7 +1082,7 @@ async function lookUpApplication(ctx, chatId, number) {
 async function fetchDocuments(ctx, chatId, code) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
-  const page = await pageFor(chatId);
+  const page = await lookupPageFor(chatId);
   const { fillSearchCaptcha, pressSearch, downloadAll, meaningOf } =
     await import('./evisa-download.mjs');
   await fillSearchCaptcha(page, code);
@@ -1068,7 +1090,8 @@ async function fetchDocuments(ctx, chatId, code) {
   if (!result) {
     log(chatId, `search returned nothing${notice ? `: ${notice}` : ''}`);
     await ctx.reply(notice ? strings.siteSaid(notice) : strings.documentsNone);
-    await askCaptcha(ctx, chatId, strings.captchaAgain);
+    await refreshCaptcha(page);
+    await askCaptcha(ctx, chatId, strings.captchaAgain, page);
     return;
   }
   session.lookingUp = null;

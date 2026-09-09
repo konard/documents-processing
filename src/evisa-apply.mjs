@@ -14,6 +14,10 @@
 //   --dry-run          Resolve and validate the data; do not open a browser.
 //   --emit-lino        Print the resolved record as lino notation.
 //   --ocr              Read the passport MRZ to fill missing fields.
+//   --fill             Open the browser and fill the form after reading.
+//
+// Reading a passport and filling a form are separate jobs: --ocr reads and
+// reports, and --fill is what opens a browser.
 //   --keep-open        Leave the browser open (default; --no-keep-open closes).
 //
 // The form is filled but never submitted: the browser stays open so you can
@@ -29,6 +33,22 @@ import {
 } from './evisa-data.mjs';
 import { openForm, prepareDocument, fillAndCapture } from './evisa-session.mjs';
 import { lookupAddress, renderVerifiedAddress } from './evisa-geocode.mjs';
+
+/**
+ * The flags that carry no argument of their own.
+ *
+ * `--ocr` reads and stops: reading a passport and filling a form are separate
+ * jobs, and `--fill` is what asks for the browser.
+ */
+const SWITCHES = {
+  '--screenshot': { screenshot: true },
+  '--dry-run': { dryRun: true },
+  '--emit-lino': { emitLino: true },
+  '--ocr': { ocr: true, readOnly: true },
+  '--fill': { readOnly: false },
+  '--read-only': { readOnly: true },
+  '--no-keep-open': { keepOpen: false },
+};
 
 /** Parses the flags above into a plain options object. */
 export function parseArgs(argv) {
@@ -51,16 +71,8 @@ export function parseArgs(argv) {
       options.passport = argv[++i];
     } else if (arg === '--out' || arg === '-o') {
       options.out = argv[++i];
-    } else if (arg === '--screenshot') {
-      options.screenshot = true;
-    } else if (arg === '--dry-run') {
-      options.dryRun = true;
-    } else if (arg === '--emit-lino') {
-      options.emitLino = true;
-    } else if (arg === '--ocr') {
-      options.ocr = true;
-    } else if (arg === '--no-keep-open') {
-      options.keepOpen = false;
+    } else if (SWITCHES[arg]) {
+      Object.assign(options, SWITCHES[arg]);
     } else if (!arg.startsWith('-')) {
       options.inputs.push(arg);
     }
@@ -223,7 +235,11 @@ async function main() {
     console.log('--dry-run to keep iterating without opening a browser.');
   }
 
-  if (options.dryRun) {
+  // Reading a passport and filling a form are different jobs. A run given
+  // only --ocr wants the reading, and opening a browser on an empty form
+  // after it is a surprise, so the browser is opened only when there is
+  // something to put in it.
+  if (options.dryRun || options.readOnly) {
     return;
   }
 

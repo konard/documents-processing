@@ -13,6 +13,7 @@
 // is precisely the field the applicant is trying to verify.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 /** The tallest a section may be, as a multiple of the image's width. */
@@ -134,6 +135,35 @@ export async function sectionTops(page, scale = 1) {
     .sort((a, b) => a.top - b.top);
 }
 
+/**
+ * The band the form itself occupies, without the site's furniture.
+ *
+ * The banner at the top and the ministry's footer carry nothing the applicant
+ * entered and nothing to check. The form ends at its own buttons, which are
+ * worth keeping: pressing Next is the next thing that happens.
+ */
+export async function formBand(page, scale = 1) {
+  const band = await page.evaluate(() => {
+    const form = document.querySelector('form');
+    if (!form) {
+      return null;
+    }
+    const box = form.getBoundingClientRect();
+    const buttons = [...document.querySelectorAll('button')]
+      .filter((button) => button.offsetParent !== null)
+      .map((button) => button.getBoundingClientRect().bottom + window.scrollY);
+    const foot = Math.max(box.bottom + window.scrollY, ...buttons);
+    return { top: box.top + window.scrollY, bottom: foot };
+  });
+  if (!band) {
+    return null;
+  }
+  return {
+    top: Math.max(0, Math.round((band.top - 16) * scale)),
+    bottom: Math.round((band.bottom + 24) * scale),
+  };
+}
+
 /** A heading cut to something a caption can carry whole. */
 function shortTitle(title) {
   const text = String(title).replace(/\s+/g, ' ').trim();
@@ -167,7 +197,7 @@ export function contentBand(rows) {
 export async function sliceImage(
   imagePath,
   outputDir,
-  { quality = 82, trim = false, tops = null } = {}
+  { quality = 82, trim = false, tops = null, band: given = null } = {}
 ) {
   const sharp = (await import('sharp')).default;
   fs.mkdirSync(outputDir, { recursive: true });
@@ -177,7 +207,13 @@ export async function sliceImage(
   const rows = await blankRows(imagePath);
   // The site's banner and its footer carry nothing the applicant entered, so
   // they are left off when asked: what is worth checking is the form between.
-  const band = trim ? contentBand(rows) : { top: 0, bottom: height };
+  // The form's own band when the caller measured it, so the site's banner
+  // and footer are left off; otherwise the ink on the page.
+  const band = given
+    ? { top: given.top, bottom: Math.min(given.bottom, height) }
+    : trim
+      ? contentBand(rows)
+      : { top: 0, bottom: height };
   // The page's own sections when the caller measured them, and otherwise the
   // blank bands between rows.
   // A heading within a screenful of the top opens the first section rather
@@ -241,4 +277,61 @@ export async function sectionsToPdf(sections, outputPath) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, await pdf.save({ useObjectStreams: false }));
   return outputPath;
+}
+
+/**
+ * Sends the page as a PDF to keep and as pictures to read.
+ *
+ * The PDF is the record: one page per section, so a page is never a field
+ * split down the middle and a reader opens on a screenful. The pictures are
+ * the same sections, which the applicant checks by scrolling the chat without
+ * downloading anything.
+ *
+ * A capture that cannot be cut still goes, as the image itself: the applicant
+ * seeing their form matters more than the form it arrives in.
+ */
+export async function sendFormAndSections({
+  ctx,
+  chatId,
+  screenshot,
+  caption,
+  page,
+  log,
+  InputFile,
+}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-slice-'));
+  try {
+    const { sliceImage, sectionTops, formBand } =
+      await import('./evisa-slice.mjs');
+    // The page says where its own parts begin and where the form itself
+    // starts and ends, so each picture is one part of the form, and the
+    // site's banner and footer are left off.
+    const tops = page ? await sectionTops(page, 2).catch(() => null) : null;
+    const band = page ? await formBand(page, 2).catch(() => null) : null;
+    const sections = await sliceImage(screenshot, dir, {
+      trim: true,
+      tops,
+      band,
+    });
+    // The sections first, in order, so the form unrolls down the chat as the
+    // applicant reads it; the whole page follows as the file they keep, with
+    // the outcome under it.
+    for (const section of sections) {
+      await ctx.replyWithPhoto(
+        new InputFile(section.path, `section-${section.index}.jpg`),
+        { caption: section.title }
+      );
+    }
+    await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
+      caption,
+    });
+    log(chatId, `sent ${sections.length} sections, then the whole page`);
+  } catch (error) {
+    log(chatId, `could not cut the page into sections: ${error.message}`);
+    await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
+      caption,
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }

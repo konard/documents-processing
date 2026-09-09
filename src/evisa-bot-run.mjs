@@ -54,6 +54,7 @@ import {
 } from './evisa-session.mjs';
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
+import { sendFormAndSections } from './evisa-slice.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import {
@@ -447,60 +448,20 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
   const caption = describeOutcome(result, outstanding, session.language);
   const sending = showStatus(ctx, 'upload_document');
   try {
-    await sendFormAndSections(
+    await sendFormAndSections({
       ctx,
       chatId,
-      result.screenshot,
+      screenshot: result.screenshot,
       caption,
-      browsers.get(chatId)?.page
-    );
+      page: browsers.get(chatId)?.page,
+      log,
+      InputFile,
+    });
   } finally {
     sending();
   }
   if (summary) {
     await ctx.reply(summary, { parse_mode: 'HTML' });
-  }
-}
-
-/**
- * Sends the page as a PDF to keep and as pictures to read.
- *
- * The PDF is the record: one page per section, so a page is never a field
- * split down the middle and a reader opens on a screenful. The pictures are
- * the same sections, which the applicant checks by scrolling the chat without
- * downloading anything.
- *
- * A capture that cannot be cut still goes, as the image itself: the applicant
- * seeing their form matters more than the form it arrives in.
- */
-async function sendFormAndSections(ctx, chatId, screenshot, caption, page) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-slice-'));
-  try {
-    const { sliceImage, sectionTops } = await import('./evisa-slice.mjs');
-    // The page says where its own parts begin, so each picture is one part of
-    // the form and carries that part's heading.
-    const tops = page ? await sectionTops(page, 2).catch(() => null) : null;
-    const sections = await sliceImage(screenshot, dir, { trim: true, tops });
-    // The whole page as one picture, which is what the applicant keeps.
-    await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
-      caption,
-    });
-    // Then a section at a time, in order, so the form unrolls down the chat
-    // as the applicant reads it.
-    for (const section of sections) {
-      await ctx.replyWithPhoto(
-        new InputFile(section.path, `section-${section.index}.jpg`),
-        { caption: section.title }
-      );
-    }
-    log(chatId, `sent the form and ${sections.length} sections`);
-  } catch (error) {
-    log(chatId, `could not cut the page into sections: ${error.message}`);
-    await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
-      caption,
-    });
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -610,7 +571,7 @@ function armIdleFill(ctx, chatId) {
   const stop = showStatus(ctx, 'typing');
   const timer = setTimeout(() => {
     disarmIdleFill(chatId);
-    fillNow(ctx, chatId).catch((error) =>
+    fillNow(ctx, chatId, 'quiet timer').catch((error) =>
       log(chatId, `filling failed: ${error.message}`)
     );
   }, IDLE_FILL_MS);
@@ -623,12 +584,22 @@ function armIdleFill(ctx, chatId) {
  * The failure is logged whole, and the browser is left as it is: the form
  * with whatever got onto it is worth more to the applicant than a fresh one.
  */
-async function fillNow(ctx, chatId) {
+async function fillNow(ctx, chatId, reason = 'fill') {
   disarmIdleFill(chatId);
   const session = sessions.get(chatId);
-  // One fill at a time on a chat's page: a second asked for while one runs
-  // waits its turn, since two would type over each other.
+  // One fill at a time on a chat's page: two would type over each other. A
+  // fill already waiting its turn is the fill this one would be, since both
+  // read the same data at the moment they run. Asking again while one is
+  // queued joins that one, so three messages arriving together fill once.
+  if (session.fillQueued) {
+    log(chatId, `${reason}: a fill is already waiting; joining it`);
+    return session.fillChain;
+  }
+  session.fillQueued = true;
+  log(chatId, `${reason}: fill queued`);
   const turn = (session.fillChain ?? Promise.resolve()).then(async () => {
+    session.fillQueued = false;
+    log(chatId, `${reason}: fill starting`);
     try {
       await fillAndShow(ctx, chatId);
     } catch (error) {
@@ -1047,7 +1018,7 @@ function confirm(ctx, chatId) {
   if (stage === 'form') {
     if (formIsStale(session)) {
       log(chatId, 'confirmation received; filling now');
-      fillNow(ctx, chatId).catch(failing('filling'));
+      fillNow(ctx, chatId, 'confirmation').catch(failing('filling'));
       return;
     }
     log(chatId, 'confirmation received; sending the form for review');

@@ -31,6 +31,21 @@ describe('nothing fills or sends the form on its own', () => {
     expect(runner.includes('tellWhatIsStuck')).toBe(true);
   });
 
+  it('fills once when several messages arrive together', () => {
+    // Three messages arriving while a slow fill runs each armed a timer, and
+    // each timer queued another fill behind the first: three forms sent for
+    // one set of documents. A request made while one is queued joins it.
+    expect(runner.includes('session.fillQueued')).toBe(true);
+    const joins = runner.slice(runner.indexOf('if (session.fillQueued)'));
+    expect(joins.slice(0, 200).includes('return session.fillChain')).toBe(true);
+  });
+
+  it('names what asked for each fill, so a stray one can be traced', () => {
+    for (const reason of ['quiet timer', 'confirmation', '/fill']) {
+      expect(`${reason}:${runner.includes(reason)}`).toBe(`${reason}:true`);
+    }
+  });
+
   it('lets a correction unstick the form', () => {
     // Whatever the applicant sends next is worth filling and showing again.
     const cleared = runner.match(/session\.lastFill = null/g) ?? [];

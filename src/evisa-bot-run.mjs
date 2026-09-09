@@ -496,6 +496,14 @@ function logFill(chatId, result) {
       `, corrected ${result.corrected?.length ?? 0}` +
       `, set again ${result.refilled?.length ?? 0}`
   );
+  if (result.refilled?.length) {
+    // Which fields the site emptied after they were written: the same names
+    // recurring point at a control that rebuilds itself.
+    log(
+      chatId,
+      `emptied by the site, set again: ${result.refilled.join(', ')}`
+    );
+  }
   for (const failure of result.failures) {
     log(
       chatId,

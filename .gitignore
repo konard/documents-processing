@@ -147,6 +147,9 @@ reports/
 # templates there are tracked. Copy them and fill in locally.
 # What the bot remembers between runs: chat ids, the language each chose and
 # the applications registered for them. All of it is personal.
+# Every message of every conversation, both sides, and the files sent with
+# them. This is the applicant's passport, address and telephone number.
+data/transcripts/
 data/chats.lino
 data/chats.lino.writing
 data/match-checks-data.json

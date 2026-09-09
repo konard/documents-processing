@@ -55,6 +55,7 @@ import {
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
 import { sendFormAndSections } from './evisa-slice.mjs';
+import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import {
@@ -897,6 +898,9 @@ async function verifyAddress(chatId, session, field) {
 
 const bot = new Bot(token);
 
+// Every message of every conversation, both sides, written beside the log.
+const transcript = recordConversations(bot, STORE_DIR, valuesAllowed());
+
 bot.command('start', async (ctx) => {
   const chatId = ctx.chat.id;
   log(chatId, `/start from language_code=${ctx.from?.language_code ?? '?'}`);
@@ -1185,6 +1189,18 @@ async function receiveDocument(ctx) {
   }
   const kb = Math.round(buffer.length / 1024);
   log(chatId, `document received: ${extension}, ${kb} KB`);
+  // Kept beside the transcript under its own name, so the picture that
+  // caused a misreading can be read again in a later session.
+  const kept = transcript.keepFile(
+    chatId,
+    buffer,
+    `${ctx.message.document?.file_name ?? 'photo'}${
+      ctx.message.document?.file_name ? '' : extension
+    }`
+  );
+  if (kept) {
+    log(chatId, `document kept for the transcript at ${kept}`);
+  }
   if (ctx.message.photo && !session.warnedAboutPhotos) {
     // Telegram shrinks a photo and strips what the camera wrote; the site
     // then doubts the portrait. Worth saying, and worth saying once: the
@@ -1425,6 +1441,16 @@ announce();
 // Kept documents are swept on startup and daily after that, so a machine that
 // stays up for weeks does not accumulate everything it was ever sent.
 const swept = sweepKeptFiles();
+// Transcripts are swept on the same terms: they hold the same personal data.
+const sweptTranscripts = sweepTranscripts(
+  path.join(STORE_DIR, 'transcripts'),
+  RETENTION_DAYS
+);
+if (sweptTranscripts) {
+  console.log(
+    `Transcripts older than ${RETENTION_DAYS} days removed: ${sweptTranscripts}`
+  );
+}
 console.log(
   `Kept documents older than ${RETENTION_DAYS} days removed: ${swept}`
 );

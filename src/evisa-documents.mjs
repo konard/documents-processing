@@ -288,3 +288,21 @@ export function createDocuments({
     tookLookupCaptcha,
   };
 }
+
+/**
+ * Says which fields will not take their value, once.
+ *
+ * A field the site refuses stays refused however many times it is written, so
+ * the form is not filled or sent again over it: the applicant is told which
+ * field and what was tried, and nothing else happens until they answer.
+ */
+export async function tellWhatIsStuck({ ctx, session, strings, result }) {
+  if (session.toldWhatIsStuck) {
+    return;
+  }
+  session.toldWhatIsStuck = true;
+  const stuck = result.failures.map((failure) => failure.field);
+  await ctx
+    .reply(stuck.length ? strings.fieldStuck(stuck) : strings.nothingChanged)
+    .catch(() => {});
+}

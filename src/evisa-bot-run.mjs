@@ -53,7 +53,7 @@ import {
   advanceAndCapture,
 } from './evisa-session.mjs';
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
-import { createDocuments } from './evisa-documents.mjs';
+import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import {
@@ -415,7 +415,16 @@ async function fillPage(ctx, chatId, page, dir) {
       }
     }
     session.filledThrough = received;
-    return { result, summary };
+    // What this fill actually put on the page. A fill that writes the same
+    // values as the one before it has nothing new to show, and repeating a
+    // form the applicant has already seen looks like a loop to them.
+    const wrote = JSON.stringify({
+      values: applicant,
+      failed: result.failures.map((failure) => failure.field).sort(),
+    });
+    const repeat = wrote === session.lastFill;
+    session.lastFill = wrote;
+    return { result, summary, repeat };
   } finally {
     session.filling = false;
     busy();
@@ -543,8 +552,20 @@ async function fillAndShow(ctx, chatId) {
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
   try {
-    const { result, summary } = await fillPage(ctx, chatId, page, dir);
+    const { result, summary, repeat } = await fillPage(ctx, chatId, page, dir);
     logFill(chatId, result);
+    if (repeat) {
+      // The same values, with the same fields refusing them: the applicant
+      // has this form already and a correction is what moves it on.
+      log(chatId, 'the fill changed nothing; the form is not sent again');
+      await tellWhatIsStuck({
+        ctx,
+        session,
+        strings: MESSAGES[session.language],
+        result,
+      });
+      return;
+    }
 
     // Ask the page itself what is still required, so a change on their side
     // surfaces as a question to the applicant.
@@ -627,9 +648,6 @@ async function fillNow(ctx, chatId) {
   session.fillChain = turn.catch(() => {});
   await turn;
 }
-
-/** How many times an empty review page is worth answering with a refill. */
-const EMPTY_REVIEW_TRIES = 2;
 
 /** True when something has arrived since the last fill, or nothing was filled. */
 function formIsStale(session) {
@@ -817,31 +835,12 @@ async function followStep(ctx, chatId, step) {
 async function refillAfterEmptyReview(ctx, chatId) {
   const session = sessions.get(chatId);
   // The site draws the review from data it fetches, and that fetch fails now
-  // and then. Trying again is worth doing once; trying for ever fills the
-  // form over and over and never tells the applicant why.
-  session.emptyReviews = (session.emptyReviews ?? 0) + 1;
-  if (session.emptyReviews > EMPTY_REVIEW_TRIES) {
-    log(
-      chatId,
-      `the review page came up empty ${session.emptyReviews} times; giving up`
-    );
-    await ctx
-      .reply(MESSAGES[session.language].reviewKeepsFailing)
-      .catch(() => {});
-    return;
-  }
-  log(
-    chatId,
-    `the review page came up empty (${session.emptyReviews}); filling again`
-  );
-  const page = await pageFor(chatId);
-  await reopenForm(page);
-  session.uploaded = {};
-  session.reported = {};
-  session.filledThrough = undefined;
+  // and then. Filling the form again on its behalf is a guess at what the
+  // applicant wants; the form as they left it is still in the browser, and
+  // saying so lets them decide.
+  log(chatId, 'the review page came up empty; waiting for the applicant');
   session.stage = 'form';
-  session.captchaEntered = false;
-  await fillNow(ctx, chatId);
+  await ctx.reply(MESSAGES[session.language].reviewEmpty).catch(() => {});
 }
 
 /**
@@ -1292,6 +1291,8 @@ async function receiveDocument(ctx) {
         });
       }
       session.received = (session.received ?? 0) + 1;
+      session.toldWhatIsStuck = false;
+      session.lastFill = null;
     },
     // Kept while debugging, under the system temp directory. What eventually
     // removes them is the sweep below, which runs daily: a container's volume
@@ -1399,6 +1400,10 @@ async function receiveText(ctx) {
     delete session.disputed?.[key];
   }
   session.received = (session.received ?? 0) + 1;
+  // A correction is what unsticks a form: the next fill is worth showing,
+  // and worth explaining again if it is still refused.
+  session.toldWhatIsStuck = false;
+  session.lastFill = null;
 
   for (const field of ADDRESS_FIELDS) {
     if (parsed[field]) {

@@ -296,14 +296,27 @@ export function createDocuments({
  * the form is not filled or sent again over it: the applicant is told which
  * field and what was tried, and nothing else happens until they answer.
  */
-export async function tellWhatIsStuck({ ctx, session, strings, result }) {
+export async function tellWhatIsStuck({
+  ctx,
+  session,
+  strings,
+  result,
+  // What a field is called to the applicant. Its name in the code means
+  // nothing to them, and a list of forty of them means less than nothing.
+  labelFor = (field) => field,
+  most = 6,
+}) {
   if (session.toldWhatIsStuck) {
     return;
   }
   session.toldWhatIsStuck = true;
-  const stuck = result.failures.map((failure) => failure.field);
+  const stuck = result.failures.map((failure) => labelFor(failure.field));
+  const named = stuck.slice(0, most);
+  const rest = stuck.length - named.length;
   await ctx
-    .reply(stuck.length ? strings.fieldStuck(stuck) : strings.nothingChanged)
+    .reply(
+      stuck.length ? strings.fieldStuck(named, rest) : strings.nothingChanged
+    )
     .catch(() => {});
 }
 

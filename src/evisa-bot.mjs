@@ -129,7 +129,7 @@ export const FIELD_LABELS = {
 };
 
 /** The label for a field in a list of values. */
-function labelFor(key, language) {
+export function labelFor(key, language) {
   const labels = FIELD_LABELS[language] ?? FIELD_LABELS.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
   return labels[key] ?? prompts[key] ?? key;

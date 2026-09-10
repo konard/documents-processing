@@ -23,9 +23,15 @@
 export function createBatcher({
   quietMs,
   fill,
+  fillTimeoutMs = 10 * 60 * 1000,
   log = () => {},
   now = () => Date.now(),
-  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  wait = (ms) =>
+    new Promise((resolve) => {
+      // Unreferenced: a chat waiting out its window must not keep a process
+      // alive that has nothing else to do.
+      setTimeout(resolve, ms).unref?.();
+    }),
 }) {
   /** What is in flight for each chat. */
   const chats = new Map();
@@ -76,7 +82,20 @@ export function createBatcher({
       state.filling = true;
       const before = state.touchedAt;
       try {
-        await fill(state.ctx, chatId);
+        // A browser that stops answering must not leave the chat waiting for
+        // ever: a fill has a deadline, and the runner goes on past it.
+        let late = null;
+        await Promise.race([
+          fill(state.ctx, chatId),
+          new Promise((resolve) => {
+            late = setTimeout(() => {
+              log(chatId, 'the fill took too long; giving up on it');
+              resolve();
+            }, fillTimeoutMs);
+            late.unref?.();
+          }),
+        ]);
+        clearTimeout(late);
       } catch (error) {
         log(chatId, `filling failed: ${error.message}`);
       } finally {

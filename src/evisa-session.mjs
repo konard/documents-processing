@@ -20,7 +20,11 @@ import {
   readDialog,
 } from './evisa-fill.mjs';
 import { FIELDS } from './evisa-schema.mjs';
-import { giveBackTheFront, takeTheFrontBack } from './evisa-window.mjs';
+import {
+  giveBackTheFront,
+  takeTheFrontBack,
+  whatIsInFront,
+} from './evisa-window.mjs';
 
 /**
  * Opens a browser on the application form, past the dialog that gates it.
@@ -34,6 +38,9 @@ export async function openForm({
   debugPort = 0,
 } = {}) {
   const { chromium } = await import('playwright');
+  // Asked before the browser exists, since afterwards the answer is always
+  // the browser itself.
+  const wasInFront = headless ? null : await whatIsInFront();
   // A window that takes the screen the moment it opens interrupts whatever
   // the applicant was doing, and the form is not worth looking at until it is
   // filled. It opens behind, and `bringToFront` raises it when it is ready.
@@ -63,10 +70,10 @@ export async function openForm({
   });
   if (!headless) {
     // The flag above is not enough on a Mac, where launching an application
-    // makes it the active one whatever its windows do. Handing the front back
-    // to whatever the applicant was in puts the window behind without closing
-    // or moving it, and costs nothing where the command is not there.
-    await giveBackTheFront();
+    // makes it the active one whatever its windows do. The window is left
+    // visible — a hidden one draws nothing and cannot be photographed — and
+    // the front goes back to whatever the applicant was in.
+    await giveBackTheFront(wasInFront);
   }
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await acceptNoteModal(page);

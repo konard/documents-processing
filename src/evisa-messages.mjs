@@ -95,13 +95,12 @@ export const MESSAGES = {
     stopped:
       'Stopped. Nothing more is filled or sent, and the browser is closed. ' +
       'Say /visa to begin an application again.',
-    alreadyFilling: 'Still filling. Next is not pressed without your word.',
+    alreadyFilling: 'Still filling. Nothing is sent without your word.',
     needed: 'Still needed:',
     thenAgain: 'Once you send it, I fill the form again and show it.',
     ready:
-      'Check the form. If everything is right, say "send" and I press Next: ' +
-      'the site then shows the application for review. If not, send the ' +
-      'correction.',
+      'Check the form. If everything is right, say "send" and the site will ' +
+      'lay the application out for a last look. If not, send the correction.',
     stages: {
       form: 'the application form',
       review: 'review of the application',
@@ -120,25 +119,27 @@ export const MESSAGES = {
       'The application is registered; the rest is in the browser window: ' +
       'Confirm in the dialog, then payment. I press nothing there.',
     stepMoved: (stage) =>
-      `Pressed Next, and the site accepted the page. Now at: ${stage}. ` +
+      `The site accepted the application. Now at: ${stage}. ` +
       'This is the whole page.',
-    stepKept: 'Pressed Next, but the site kept the page.',
+    stepKept: 'The site kept the page, so something on it needs changing.',
     reviewEmpty:
-      'Pressed Next, and the site opened the review page, but empty: no ' +
+      'The site opened the review page, but empty: no ' +
       'application and no code on it. That is a failure on its side. Your ' +
-      'form is still in the browser as you left it — say "send" to try Next ' +
+      'form is still in the browser as you left it — say "send" to try ' +
       'again, or send a correction first.',
     stepMessages: (n) =>
       `${n} ${n === 1 ? 'message' : 'messages'} on it. Send the corrections.`,
     siteSaid: (text) => `The site said: "${text}".`,
     stepFailed: (why) =>
-      `Could not press Next: ${why}. The browser is left open as it is.`,
+      `The application could not be sent on: ${why}. The browser is left ` +
+      'open as it is.',
     captchaAsk:
-      'At the bottom the site asks for the code in this picture. Type it ' +
-      'here as it is, and I press Next: that sends the application on to ' +
-      'payment.',
+      'This is the application as it will be filed. Look it over, and if ' +
+      'everything is right, send me the code from this picture: the ' +
+      'application then goes in, and the browser window moves on to payment.',
     captchaAgain:
-      'The site did not take the code. Here is a new picture; type its code.',
+      'The site did not take that code. Here is a new picture; send the code ' +
+      'from it.',
     readAsPassportPage:
       'This looks like a passport data page, so I used it as one. I could ' +
       'not read the machine line at the bottom of it, so send the details ' +
@@ -194,10 +195,10 @@ export const MESSAGES = {
         unknown: `The site says: ${status}.`,
       })[meaning],
     captchaEntered: (seconds) =>
-      `Typed the code. Pressing Next in ${seconds} seconds, which sends the ` +
-      'application in. Say "stop" to cancel, or "send" to skip the wait.',
+      `Typed the code. Sending the application in ${seconds} seconds. Say ` +
+      '"stop" to cancel, or "send" to skip the wait.',
     sendCountdown: (seconds) =>
-      `Pressing Next in ${seconds} seconds. Say "stop" to cancel, or "send" ` +
+      `Sending in ${seconds} seconds. Say "stop" to cancel, or "send" ` +
       'to skip the wait.',
     pastForm:
       'The application has gone past the form, and I cannot change it from ' +
@@ -295,13 +296,12 @@ export const MESSAGES = {
     stopped:
       'Остановил. Больше ничего не заполняю и не отправляю, браузер закрыт. ' +
       'Чтобы начать заново, напишите /visa.',
-    alreadyFilling: 'Ещё заполняю. «Next» без вашего слова не нажму.',
+    alreadyFilling: 'Ещё заполняю. Без вашего слова ничего не отправлю.',
     needed: 'Ещё нужно:',
     thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',
     ready:
-      'Проверьте анкету. Если всё верно, напишите «отправляй», и я нажму ' +
-      '«Next»: сайт покажет анкету на проверку. Если нет, пришлите ' +
-      'исправление.',
+      'Проверьте анкету. Если всё верно, напишите «отправляй» — сайт ' +
+      'покажет её на последнюю проверку. Если нет, пришлите исправление.',
     stages: {
       form: 'анкета',
       review: 'проверка анкеты',
@@ -319,21 +319,23 @@ export const MESSAGES = {
       'Заявление зарегистрировано, дальше в окне браузера: «Confirm» в ' +
       'окне сайта, потом оплата. Там я ничего не нажимаю.',
     stepMoved: (stage) =>
-      `Нажал «Next», сайт принял страницу. Шаг: ${stage}. Вот вся страница.`,
-    stepKept: 'Нажал «Next», но сайт оставил страницу.',
+      `Сайт принял анкету. Шаг: ${stage}. Вот вся страница.`,
+    stepKept: 'Сайт оставил страницу — значит, на ней нужно что-то поправить.',
     reviewEmpty:
-      'Нажал «Next», сайт открыл страницу проверки, но пустую: ни анкеты, ' +
+      'Сайт открыл страницу проверки, но пустую: ни анкеты, ' +
       'ни кода на ней. Это сбой на его стороне. Ваша анкета в браузере ' +
       'осталась как была — напишите «отправляй», чтобы попробовать ещё раз, ' +
       'или сначала пришлите исправление.',
     stepMessages: (n) => `Замечаний на ней: ${n}. Пришлите исправления.`,
     siteSaid: (text) => `Сайт ответил: «${text}».`,
     stepFailed: (why) =>
-      `Нажать «Next» не вышло: ${why}. Браузер оставлен как есть.`,
+      `Отправить анкету дальше не вышло: ${why}. Браузер оставлен как есть.`,
     captchaAsk:
-      'Внизу сайт просит код с этой картинки. Напишите его сюда как есть, и ' +
-      'я нажму «Next»: это отправит анкету дальше, к оплате.',
-    captchaAgain: 'Сайт не принял код. Вот новая картинка, напишите код с неё.',
+      'Это анкета в том виде, в каком она уйдёт. Проверьте её, и если всё ' +
+      'верно, пришлите код с этой картинки: анкета отправится, а окно ' +
+      'браузера перейдёт к оплате.',
+    captchaAgain:
+      'Сайт не принял этот код. Вот новая картинка — пришлите код с неё.',
     readAsPassportPage:
       'Похоже на страницу паспорта с данными — так её и использую. Машинную ' +
       'строку внизу прочитать не удалось, поэтому пришлите то, что неверно, ' +
@@ -387,11 +389,10 @@ export const MESSAGES = {
         unknown: `Сайт пишет: ${status}.`,
       })[meaning],
     captchaEntered: (seconds) =>
-      `Вписал код. Нажму «Next» через ${seconds} секунд, это отправит ` +
-      'заявление. Напишите «стой», чтобы отменить, или «отправляй», чтобы ' +
-      'не ждать.',
+      `Вписал код. Отправлю анкету через ${seconds} секунд. Напишите ` +
+      '«стой», чтобы отменить, или «отправляй», чтобы не ждать.',
     sendCountdown: (seconds) =>
-      `Нажму «Next» через ${seconds} секунд. Напишите «стой», чтобы ` +
+      `Отправлю через ${seconds} секунд. Напишите «стой», чтобы ` +
       'отменить, или «отправляй», чтобы не ждать.',
     pastForm:
       'Анкета уже ушла дальше, и из чата я её не изменю. Исправьте в ' +

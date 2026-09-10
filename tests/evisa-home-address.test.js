@@ -597,9 +597,7 @@ describe('what the bot says after Next, and what it hears', () => {
   it('describes the page after Next: the stage reached, or the page kept', () => {
     expect(
       describeStep({ moved: true, stage: 'review', errors: [] }, 'ru')
-    ).toBe(
-      'Нажал «Next», сайт принял страницу. Шаг: проверка анкеты. Вот вся страница.'
-    );
+    ).toBe('Сайт принял анкету. Шаг: проверка анкеты. Вот вся страница.');
     expect(
       describeStep(
         {
@@ -612,7 +610,7 @@ describe('what the bot says after Next, and what it hears', () => {
       )
     ).toBe(
       [
-        'Pressed Next, but the site kept the page.',
+        'The site kept the page, so something on it needs changing.',
         '2 messages on it. Send the corrections.',
         '',
         '• Please enter First name',
@@ -631,7 +629,8 @@ describe('what the bot says after Next, and what it hears', () => {
         'ru'
       )
     ).toBe(
-      'Нажал «Next», но сайт оставил страницу.\nСайт ответил: «Notification Captcha invalid».'
+      'Сайт оставил страницу — значит, на ней нужно что-то поправить.\n' +
+        'Сайт ответил: «Notification Captcha invalid».'
     );
   });
 

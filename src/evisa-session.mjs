@@ -236,16 +236,32 @@ export async function reopenForm(page) {
  * two readings of the page, a moment apart, that agree.
  */
 export async function settleForm(page, { timeout = 15000 } = {}) {
+  // The field just typed into is still focused, and the form checks a field
+  // when it is left, not while it is being used. A capture taken with the
+  // last field still held shows it outlined red against a value the site has
+  // no complaint about — the ward, most often, being the last one set. So the
+  // page is let go of first, and then the check is waited for below.
+  await page.evaluate(() => document.activeElement?.blur?.()).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout }).catch(() => {});
   // The uploaded portrait and passport page are drawn from data the site
   // fetches back, and a capture taken before they arrive shows empty frames
   // where the applicant is checking their own pictures.
+  //
+  // Only the pictures that are actually shown are waited for. The page keeps
+  // two hidden images with no source of their own, which are loaded as far as
+  // the browser is concerned and will never have a width: waiting on every
+  // image meant waiting out the whole timeout, every time, on a page that had
+  // nothing left to draw.
   await page
     .waitForFunction(
       () =>
-        [...document.images].every(
-          (image) => image.complete && image.naturalWidth > 0
-        ),
+        [...document.images]
+          .filter(
+            (image) =>
+              image.offsetParent !== null &&
+              image.getBoundingClientRect().width > 0
+          )
+          .every((image) => image.complete && image.naturalWidth > 0),
       undefined,
       { timeout }
     )
@@ -325,9 +341,18 @@ export async function captureForm(page, outputPath) {
 }
 
 /**
- * Stops anything from following the window while the page is captured.
+ * Takes the site's own chrome off the page while it is captured.
  *
- * Returns what puts it back, so the applicant's own browser is left as it
+ * The navigation bar and the step bar follow the window, so a capture of the
+ * whole page draws them again at every scroll position and they land in the
+ * middle of whichever part was being cut — the occupation part, most often.
+ *
+ * Hiding them is what takes them out of the capture. A sticky element that is
+ * only made static keeps its place in the flow and is still drawn, which puts
+ * it somewhere else on the page. Both bars are chrome, and every one of the
+ * form's fields sits below them, so nothing worth checking goes with them.
+ *
+ * Returns what puts them back, so the applicant's own browser is left as it
  * was: they are looking at this page too.
  */
 async function holdStillForCapture(page) {
@@ -335,13 +360,24 @@ async function holdStillForCapture(page) {
   await page
     .addStyleTag({
       content: `
-        [class*="sticky"], [class*="fixed"], header, nav {
-          position: static !important;
-        }
+        .navbar, .step-custom { display: none !important; }
       `,
       // Named, so exactly this rule is the one taken away again.
       id: marker,
     })
+    .catch(() => {});
+  // Taking the bars away shortens the page above whatever is being measured,
+  // so everything below them moves up. A measurement taken before the browser
+  // has laid the page out again belongs to the page as it was, and cuts the
+  // wrong band out of the page as it is — which is how the navigation came to
+  // sit inside a section. Waited out here, so measuring and capturing agree.
+  await page
+    .evaluate(
+      () =>
+        new Promise((done) => {
+          requestAnimationFrame(() => requestAnimationFrame(done));
+        })
+    )
     .catch(() => {});
   return async () => {
     await page
@@ -444,10 +480,28 @@ export async function captureSection(page, title, outputPath) {
       }
       const top = headings[at].getBoundingClientRect().top + window.scrollY;
       const next = headings[at + 1];
-      const bottom = next
-        ? next.getBoundingClientRect().top + window.scrollY
+      if (next) {
+        return {
+          top: Math.max(0, top - 16),
+          bottom: next.getBoundingClientRect().top + window.scrollY,
+        };
+      }
+      // The last part runs to the end of the document, which takes in the
+      // site's footer: its address, its hotline, its links. None of that is
+      // the applicant's to check. The part ends under the buttons that close
+      // the form, so the declaration and Next are shown and nothing after.
+      const footer = document.querySelector(
+        'footer, .footer, [class*="footer"]'
+      );
+      const buttons = [...document.querySelectorAll('button')]
+        .filter((button) => button.offsetParent !== null)
+        .map((button) => button.getBoundingClientRect().bottom + window.scrollY)
+        .filter((edge) => edge > top);
+      const end = footer
+        ? footer.getBoundingClientRect().top + window.scrollY
         : document.documentElement.scrollHeight;
-      return { top: Math.max(0, top - 16), bottom };
+      const under = buttons.length ? Math.max(...buttons) + 24 : end;
+      return { top: Math.max(0, top - 16), bottom: Math.min(end, under) };
     }, title);
     if (!box) {
       return null;
@@ -518,10 +572,13 @@ export async function fillBySection(
     const part = filling.get(at);
     if (part) {
       take(await fillForm(page, part.fields));
-      // Only a part that was written to needs settling; one merely being
-      // shown is already as settled as the part before it left it.
-      await settleForm(page, { timeout: 8000 });
     }
+    // Every part is settled before it is captured, whether or not this fill
+    // wrote to it. A part with nothing to fill is not already still: the part
+    // above it was just typed into, and the form is still re-laying itself out
+    // underneath — captured then, it came out with its fields not yet drawn
+    // and the site's bars caught partway through moving.
+    await settleForm(page, { timeout: 8000 });
     await report(at, title, result, onSection, capture);
   }
   // Anything the page had no place for is attempted last, so nothing is

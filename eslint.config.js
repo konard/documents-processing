@@ -122,6 +122,7 @@ export default [
         MouseEvent: 'readonly',
         requestAnimationFrame: 'readonly',
         getComputedStyle: 'readonly',
+        location: 'readonly',
       },
     },
   },

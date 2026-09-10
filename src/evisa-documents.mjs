@@ -66,12 +66,30 @@ async function fetchDocuments(ctx, chatId, code, deps) {
     pageFor,
     logBrowserEvents,
   });
-  const { fillSearchCaptcha, pressSearch, downloadAll, meaningOf } =
-    await import('./evisa-download.mjs');
+  const {
+    fillSearchCaptcha,
+    pressSearch,
+    downloadAll,
+    meaningOf,
+    describeSearchPage,
+  } = await import('./evisa-download.mjs');
   await fillSearchCaptcha(page, code);
   const { result, notice } = await pressSearch(page);
   if (!result) {
-    log(chatId, `search returned nothing${notice ? `: ${notice}` : ''}`);
+    // Nothing read is either a search that never ran or one whose result was
+    // not recognised, and from the outside they look alike. The page itself
+    // says which: the buttons that fetch the documents are only there when
+    // an application was found.
+    const showing = await describeSearchPage(page).catch(() => null);
+    log(
+      chatId,
+      `search returned nothing${notice ? `: ${notice}` : ''}${
+        showing
+          ? `; the page shows buttons [${showing.buttons.join(', ')}] and ` +
+            `labels [${showing.labels.join(' | ')}]`
+          : ''
+      }`
+    );
     await ctx.reply(notice ? strings.siteSaid(notice) : strings.documentsNone);
     await refreshCaptcha(page);
     await deps.askCaptcha(ctx, chatId, strings.captchaAgain, page);

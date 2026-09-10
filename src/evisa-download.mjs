@@ -138,33 +138,57 @@ export function meaningOf(status) {
  */
 export function readResult(page) {
   return page.evaluate(() => {
-    const text = (node) => node?.textContent?.trim() ?? null;
-    // The result is a grid of labels and values under its own heading.
-    const labels = [
-      ...document.querySelectorAll(
-        'label, .ant-descriptions-item-label, td, div'
-      ),
-    ];
-    const find = (wanted) => {
-      const label = labels.find((node) =>
-        node.textContent?.trim().toLowerCase().startsWith(wanted)
-      );
-      if (!label) {
-        return null;
+    /** A label as it reads: lower case, no colon, single spaces. */
+    const asLabel = (node) =>
+      (node.textContent ?? '')
+        .replace(/\s+/g, ' ')
+        .replace(/:\s*$/, '')
+        .trim()
+        .toLowerCase();
+
+    // The smallest elements holding a label and nothing else. A wrapper
+    // holding the label and its value together, or the page's own banner
+    // — "Check application status" — is not one of them, so a label is
+    // matched whole where it used to be matched by how it began.
+    const labels = [...document.querySelectorAll('*')].filter(
+      (node) => node.children.length === 0 && asLabel(node)
+    );
+
+    /** What sits beside a label: the value the page shows against it. */
+    const valueBeside = (label) => {
+      // Outwards from the label, looking to the right of it at each step,
+      // since the page lays a result out in columns and how deeply the
+      // value is wrapped is the page's own business.
+      let node = label;
+      for (let up = 0; node && up < 4; up += 1) {
+        let beside = node.nextElementSibling;
+        while (beside) {
+          const said = (beside.textContent ?? '').replace(/\s+/g, ' ').trim();
+          if (said) {
+            return said;
+          }
+          beside = beside.nextElementSibling;
+        }
+        node = node.parentElement;
       }
-      const value =
-        label.nextElementSibling ??
-        label.parentElement?.querySelector('.ant-descriptions-item-content');
-      return text(value);
+      return null;
     };
-    const status = find('application status');
+
+    const find = (...wanted) => {
+      const label = labels.find((node) => wanted.includes(asLabel(node)));
+      return label ? valueBeside(label) : null;
+    };
+
+    // The status is what says a result is there at all. Named in full, so
+    // the "Check application status" heading above the form is not it.
+    const status = find('application status', 'status');
     if (!status) {
       return null;
     }
     return {
-      fullName: find('full name'),
-      applicationNumber: find('app no'),
-      passportNumber: find('passport'),
+      fullName: find('full name', 'fullname', 'name'),
+      applicationNumber: find('app no.', 'app no', 'e-visa app no.'),
+      passportNumber: find('passport', 'passport no.', 'passport number'),
       status,
     };
   });
@@ -207,6 +231,28 @@ export async function pressSearch(page) {
     )
     .catch(() => {});
   return { result: await readResult(page), notice: await readNotice(page) };
+}
+
+/**
+ * What the search page is showing, for the log when nothing was read off it.
+ *
+ * A search that finds an application and one the page never ran look alike
+ * from the outside: no result either way. This says which — whether the
+ * buttons that fetch the documents are there, and what the page has where a
+ * result would be.
+ */
+export function describeSearchPage(page) {
+  return page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('button')]
+      .map((button) => button.innerText.trim())
+      .filter(Boolean);
+    const labels = [...document.querySelectorAll('*')]
+      .filter((node) => node.children.length === 0)
+      .map((node) => (node.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .filter((said) => /status|app no|full name|passport/i.test(said))
+      .slice(0, 8);
+    return { buttons, labels, url: location.href.slice(0, 120) };
+  });
 }
 
 /** The buttons the result offers, by what each one fetches. */

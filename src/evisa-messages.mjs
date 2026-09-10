@@ -25,6 +25,9 @@ export const MESSAGES = {
       'Photos, PDFs and forwarded messages all work, in any order.',
     readFromPassport: 'read from your passport photo',
     summary: 'What I put on the form:',
+    // The name the filled page is sent under. A client draws a file's name
+    // above its caption, so it is the first thing read.
+    formFile: 'FORM.png',
     sections: {
       applicant: 'Applicant',
       passport: 'Passport',
@@ -216,6 +219,9 @@ export const MESSAGES = {
       'Подойдут фото, PDF и пересланные сообщения, в любом порядке.',
     readFromPassport: 'прочитаю с фото паспорта',
     summary: 'Что я вписал в анкету:',
+    // Имя файла с заполненной анкетой: клиент показывает его над подписью,
+    // поэтому его читают первым.
+    formFile: 'АНКЕТА.png',
     sections: {
       applicant: 'Заявитель',
       passport: 'Паспорт',

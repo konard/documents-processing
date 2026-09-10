@@ -596,6 +596,7 @@ async function fillAndShow(ctx, chatId, round = 1) {
       result,
       summary,
       caption: describeOutcome(result, outstanding, session.language),
+      fileName: (MESSAGES[session.language] ?? MESSAGES.en).formFile,
       log,
       InputFile,
     });

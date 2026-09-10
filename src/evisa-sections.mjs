@@ -197,55 +197,55 @@ export async function sendSection({
 }
 
 /**
- * What Telegram allows in the caption under a file, in characters, counted
- * after the markup is parsed. A caption past it is refused outright, so
- * nothing arrives at all; it is not trimmed for you.
+ * What Telegram allows in a message, in characters, counted after the markup
+ * is parsed. Four times what a caption under a file holds, which is why
+ * everything is said in a message of its own and the file carries none.
+ *
+ * A message past it is refused outright, so nothing arrives at all; it is
+ * not trimmed for you.
  */
-const CAPTION_LIMIT = 1024;
+const MESSAGE_LIMIT = 4096;
 
-/** The caption's length as Telegram counts it: the text, without the tags. */
+/** The length as Telegram counts it: the text, without the tags. */
 const asShown = (text) => text.replace(/<[^>]+>/g, '').length;
 
 /**
- * Splits what is to be said into the caption and what will not fit.
+ * Cuts what is to be said into messages that Telegram will take.
  *
- * The caption is filled as far as it goes and the break is made at a blank
- * line, so a section of the form is never cut in half. Everything fitting
- * means nothing is left over, and one message carries the lot.
+ * Almost always one. A form long enough to pass four thousand characters is
+ * cut at a blank line, so a section of the form is never split in half, and
+ * a single block longer than a whole message is passed along as it is: it
+ * would be refused, and being told what was said beats being told nothing.
  */
-export function splitForCaption(text, limit = CAPTION_LIMIT) {
+export function splitForMessage(text, limit = MESSAGE_LIMIT) {
   if (asShown(text) <= limit) {
-    return { caption: text, rest: null };
+    return [text];
   }
-  const blocks = text.split('\n\n');
-  const kept = [];
-  let over = 0;
-  while (over < blocks.length) {
-    const next = [...kept, blocks[over]].join('\n\n');
-    if (asShown(next) > limit) {
-      break;
+  const parts = [];
+  let held = [];
+  for (const block of text.split('\n\n')) {
+    const next = [...held, block];
+    if (held.length && asShown(next.join('\n\n')) > limit) {
+      parts.push(held.join('\n\n'));
+      held = [block];
+    } else {
+      held = next;
     }
-    kept.push(blocks[over]);
-    over += 1;
   }
-  // Nothing at all fits, which a caption of one very long block would mean.
-  if (!kept.length) {
-    return { caption: null, rest: text };
+  if (held.length) {
+    parts.push(held.join('\n\n'));
   }
-  return {
-    caption: kept.join('\n\n'),
-    rest: blocks.slice(over).join('\n\n') || null,
-  };
+  return parts;
 }
 
 /**
- * Sends the filled form with everything there is to say about it.
+ * Sends the filled form, then everything there is to say about it.
  *
- * One message whenever it fits: the page, and under it what went on it and
- * what to do next. Telegram allows a thousand characters under a file, and a
- * short form fits inside that; a long one does not, and the rest follows as
- * a second message, since a caption past the limit is refused outright and
- * nothing would arrive at all.
+ * The file carries no caption. Its name says what it is — АНКЕТА.png, or
+ * FORM.png — and a client draws that name for itself; a caption under it
+ * only holds the first thousand characters of what has to be said, and the
+ * rest follows anyway. So it is all said once, in the message after the
+ * file: how many fields went on, what each of them is, and what to do next.
  */
 export async function sendOutcome({
   ctx,
@@ -255,13 +255,10 @@ export async function sendOutcome({
   caption,
   log,
   InputFile,
+  // What the file is called in the chat, in the applicant's own language.
+  fileName = 'FORM.png',
 }) {
-  // What the applicant reads under the page: the outcome, then the values.
-  // As much of it as a caption holds goes under the page itself, so a short
-  // form is one message and a long one is the page and one message, never
-  // three.
-  const whole = [caption, summary].filter(Boolean).join('\n\n');
-  const { caption: under, rest } = splitForCaption(whole);
+  const said = [caption, summary].filter(Boolean).join('\n\n');
 
   // No status of its own here. Telegram shows one action per chat, so a
   // second loop beside the fill's overwrites it every three seconds, and
@@ -269,24 +266,31 @@ export async function sendOutcome({
   // The fill's own status covers the upload, which is part of the fill.
   await Promise.race([
     ctx
-      .replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
-        caption: under,
-        parse_mode: 'HTML',
-      })
+      .replyWithDocument(new InputFile(result.screenshot, fileName))
       .catch((error) => log(chatId, `the page did not send: ${error.message}`)),
     new Promise((resolve) => {
       const late = setTimeout(resolve, 120_000);
       late.unref?.();
     }),
   ]);
-  if (rest) {
+  if (!said) {
+    return;
+  }
+  // All of it in one message. A message holds four thousand characters where
+  // a caption holds one thousand, so what took two now takes one — and a
+  // form long enough to pass even that is cut at a blank line, so a section
+  // is never split in half.
+  const parts = splitForMessage(said);
+  if (parts.length > 1) {
     log(
       chatId,
-      `the summary is ${asShown.length} characters, past the ${CAPTION_LIMIT} ` +
-        'a caption holds; sent as a second message'
+      `what there is to say is ${asShown(said)} characters, past the ` +
+        `${MESSAGE_LIMIT} a message holds; sent in ${parts.length}`
     );
+  }
+  for (const part of parts) {
     await ctx
-      .reply(rest, { parse_mode: 'HTML' })
+      .reply(part, { parse_mode: 'HTML' })
       .catch((error) =>
         log(chatId, `the summary did not send: ${error.message}`)
       );

@@ -171,25 +171,42 @@ describe('what the chat is sent', () => {
     expect(body.includes('ctx.reply(')).toBe(false);
   });
 
-  it('fills the caption before it sends anything as a second message', () => {
-    const { splitForCaption } = sectionsModule;
-    // Everything fitting is one message.
-    expect(splitForCaption('one\n\ntwo').rest).toBe(null);
-    // What does not fit breaks at a blank line, so no part is cut in half.
-    const long = ['head', 'a'.repeat(600), 'b'.repeat(600), 'tail'].join(
-      '\n\n'
-    );
-    const split = splitForCaption(long);
-    expect(split.caption.includes('a'.repeat(600))).toBe(true);
-    expect(split.caption.includes('b'.repeat(600))).toBe(false);
-    expect(split.rest.startsWith('b'.repeat(600))).toBe(true);
+  it('says everything in one message, where the limit is four times larger', () => {
+    const { splitForMessage } = sectionsModule;
+    // A caption holds a thousand characters; a message holds four thousand,
+    // which a whole form is well inside.
+    expect(splitForMessage('one\n\ntwo')).toEqual(['one\n\ntwo']);
+    expect(splitForMessage('x'.repeat(4000)).length).toBe(1);
   });
 
-  it('counts a caption the way Telegram counts it, without the markup', () => {
+  it('cuts at a blank line when even a message will not hold it', () => {
+    const { splitForMessage } = sectionsModule;
+    const long = ['a'.repeat(3000), 'b'.repeat(3000)].join('\n\n');
+    const parts = splitForMessage(long);
+    expect(parts.length).toBe(2);
+    // Neither block is split down the middle.
+    expect(parts[0]).toBe('a'.repeat(3000));
+    expect(parts[1]).toBe('b'.repeat(3000));
+  });
+
+  it('counts the text the way Telegram counts it, without the markup', () => {
     // The limit is on the text as shown; tags are free. Counting them would
-    // send less than fits.
-    const { splitForCaption } = sectionsModule;
-    const tagged = `<b>${'x'.repeat(1000)}</b>`;
-    expect(splitForCaption(tagged).rest).toBe(null);
+    // split what would have fitted.
+    const { splitForMessage } = sectionsModule;
+    expect(splitForMessage(`<b>${'x'.repeat(4000)}</b>`).length).toBe(1);
+  });
+
+  it('sends the page with no caption, named in the applicant´s language', () => {
+    // The file's name is drawn above it by the client and says what it is,
+    // so a caption under it would only repeat the first thousand characters
+    // of what the message after it says in full.
+    const send = sections.slice(
+      sections.indexOf('export async function sendOutcome')
+    );
+    const body = send.slice(0, send.indexOf('\n}\n'));
+    expect(body.includes('new InputFile(result.screenshot, fileName)')).toBe(
+      true
+    );
+    expect(body.includes('caption:')).toBe(false);
   });
 });

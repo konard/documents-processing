@@ -571,6 +571,12 @@ export async function fillBySection(
   // and a part that skipped its turn reads as one that went wrong.
   const filling = new Map(parts.map((part) => [part.at, part]));
   const shown = await presentSections(page);
+  // The declarations are ticked before any part is shown. They sit inside the
+  // parts about the trip and about its expenses, so ticking them afterwards
+  // meant those parts were photographed with their boxes still empty: the
+  // applicant was sent a form that was not the form on the screen.
+  result.declared = await tickDeclarations(page);
+  await settleForm(page, { timeout: 8000 });
   for (const { at, title } of shown) {
     const part = filling.get(at);
     if (part) {
@@ -593,7 +599,16 @@ export async function fillBySection(
     }
   }
 
-  result.declared = await tickDeclarations(page);
+  // Ticked again, in case filling a part put a declaration back: the site
+  // rebuilds a control now and then, and a box that came unticked must not
+  // reach the applicant as ticked in their picture and empty on the form.
+  const again = await tickDeclarations(page);
+  if (again.ticked.length) {
+    result.declared = {
+      ...result.declared,
+      ticked: [...result.declared.ticked, ...again.ticked],
+    };
+  }
   return result;
 }
 

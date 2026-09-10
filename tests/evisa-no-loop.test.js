@@ -57,14 +57,12 @@ describe('nothing fills or sends the form on its own', () => {
   });
 
   it('reads documents at the same time, and fills after all of them', () => {
-    // Two passports sent together took as long as both readings end to end,
-    // and each reading opened a window of its own.
-    const turns = readFileSync('src/evisa-turns.mjs', 'utf8');
-    expect(turns.includes('function alongside')).toBe(true);
-    expect(turns.includes('function settled')).toBe(true);
-    // The timer waits on every reading started, not just the message queue.
-    const timer = runner.slice(runner.indexOf('function armIdleFill'));
-    expect(timer.slice(0, 900).includes('await settled(chatId)')).toBe(true);
+    // Forwarded documents land in the same second. Each is read at once, and
+    // the fill waits for the quiet window with no reading left running.
+    const batch = readFileSync('src/evisa-batch.mjs', 'utf8');
+    expect(batch.includes('state.reading.size')).toBe(true);
+    // A reading registers with the batcher, so the window waits for it.
+    expect(runner.includes('batch.reading(ctx.chat.id')).toBe(true);
   });
 
   it('lets a correction unstick the form', () => {

@@ -56,7 +56,7 @@ import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
 import { sendFormAndSections } from './evisa-slice.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
-import { createTurns } from './evisa-turns.mjs';
+import { createFillBatcher } from './evisa-batch.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import {
@@ -93,9 +93,34 @@ const STORE_DIR =
 const store = await openStore(STORE_DIR);
 
 const sessions = createSessionStore();
-const { inTurn, alongside, settled } = createTurns(sessions);
+/**
+ * Runs a chat's work one piece at a time, in the order it arrived, so a
+ * correction never lands before the value it corrects.
+ */
+const inTurn = (chatId, work) => {
+  const session = sessions.get(chatId);
+  const turn = (session.queue ?? Promise.resolve()).then(work, work);
+  session.queue = turn.catch(() => {});
+  return turn;
+};
+
 const browsers = new Map();
 const timers = new Map();
+
+/**
+ * One fill for everything an applicant sends, however they send it.
+ *
+ * Forwarded documents land in the same second. Each is read at once, and one
+ * fill follows the quiet window, carrying all of them.
+ */
+const { batch, armIdleFill, disarmIdleFill } = createFillBatcher({
+  quietMs: IDLE_FILL_MS,
+  log,
+  timers,
+  showStatus,
+  fill: (ctx, chatId) => fillNow(ctx, chatId, 'quiet window'),
+});
+
 // Chats counting down to Next, each with the function that ends the count.
 const countdowns = new Map();
 
@@ -268,6 +293,8 @@ async function endChat(chatId) {
   // The watch holds a timer of its own, which outlives the session it
   // belongs to unless it is stopped first.
   stopWatchingPayment(chatId);
+  batch.stop(chatId);
+  batch.forget(chatId);
   sessions.clear(chatId);
   disarmIdleFill(chatId);
   settleCountdown(chatId, 'stop');
@@ -281,6 +308,7 @@ async function endChat(chatId) {
  * new one opens on first use.
  */
 async function restartChat(chatId) {
+  batch.stop(chatId);
   disarmIdleFill(chatId);
   settleCountdown(chatId, 'stop');
   sessions.clear(chatId);
@@ -550,46 +578,6 @@ async function fillAndShow(ctx, chatId) {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-}
-
-/** Stops a chat's quiet timer and the status shown while it runs. */
-function disarmIdleFill(chatId) {
-  const armed = timers.get(chatId);
-  if (armed) {
-    clearTimeout(armed.timer);
-    armed.stop();
-    timers.delete(chatId);
-  }
-}
-
-/**
- * Restarts the quiet timer that fills the form when the applicant pauses.
- *
- * The chat shows "typing" through the quiet window as well: the fill that
- * follows is already decided, and a status that stops for most of a minute
- * looks like a bot that has stopped answering.
- */
-function armIdleFill(ctx, chatId) {
-  disarmIdleFill(chatId);
-  const stop = showStatus(ctx, 'typing');
-  const timer = setTimeout(async () => {
-    disarmIdleFill(chatId);
-    // Everything that has arrived is read first. A passport takes the better
-    // part of a minute to read, and filling before that finished would put a
-    // form on the screen without the passport on it.
-    await settled(chatId);
-    sessions.get(chatId).reading = [];
-    // Something that arrived while that reading ran has opened a window of
-    // its own; this one has nothing left to do.
-    if (timers.has(chatId)) {
-      log(chatId, 'quiet timer: a newer message is still waiting');
-      return;
-    }
-    await fillNow(ctx, chatId, 'quiet timer').catch((error) =>
-      log(chatId, `filling failed: ${error.message}`)
-    );
-  }, IDLE_FILL_MS);
-  timers.set(chatId, { timer, stop });
 }
 
 /**
@@ -1168,7 +1156,7 @@ bot.on(['message:photo', 'message:document'], (ctx) => {
   armIdleFill(ctx, ctx.chat.id);
   // Documents are read at the same time, each on its own worker, and what
   // each reading writes into the session is put there in turn.
-  return alongside(ctx.chat.id, () => receiveDocument(ctx));
+  return batch.reading(ctx.chat.id, () => receiveDocument(ctx));
 });
 
 async function receiveDocument(ctx) {

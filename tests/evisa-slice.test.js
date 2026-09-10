@@ -144,3 +144,31 @@ describe('a step that stalls', () => {
     );
   });
 });
+
+describe('naming a section in the applicant language', () => {
+  it('gives the Russian name for the site English heading', async () => {
+    const { sectionName } = await import('../src/evisa-bot.mjs');
+    // The site writes its headings in English whatever language it shows.
+    expect(sectionName('1. PERSONAL INFORMATION', 'ru')).toBe(
+      '1. Личные данные'
+    );
+    expect(sectionName('5. OCCUPATION', 'ru')).toBe('5. Работа');
+  });
+
+  it('matches a heading that was cut short', async () => {
+    const { sectionName } = await import('../src/evisa-bot.mjs');
+    expect(sectionName('7. ACCOMPANY CHILD(REN) UNDER 14 …', 'ru')).toBe(
+      '7. Дети в том же паспорте'
+    );
+  });
+
+  it('leaves a heading alone in English', async () => {
+    const { sectionName } = await import('../src/evisa-bot.mjs');
+    expect(sectionName('5. OCCUPATION', 'en')).toBe('5. OCCUPATION');
+  });
+
+  it('passes through a heading it does not know', async () => {
+    const { sectionName } = await import('../src/evisa-bot.mjs');
+    expect(sectionName('9. SOMETHING NEW', 'ru')).toBe('9. SOMETHING NEW');
+  });
+});

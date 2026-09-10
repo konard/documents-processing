@@ -81,6 +81,10 @@ export function createBatcher({
       }
       state.filling = true;
       const before = state.touchedAt;
+      // What the fill is about to be told to do. A message landing while it
+      // runs is checked against this, so a correction reaches the same fill
+      // when it still can.
+      state.fillingSince = now();
       try {
         // A browser that stops answering must not leave the chat waiting for
         // ever: a fill has a deadline, and the runner goes on past it.
@@ -185,16 +189,23 @@ export function createFillBatcher({ quietMs, log, timers, showStatus, fill }) {
     quietMs,
     log,
     fill: async (ctx, chatId) => {
-      disarmIdleFill(chatId);
-      await fill(ctx, chatId);
+      // The status goes up now, and not before: while the window is open the
+      // applicant is still sending, and a bot that appears to be typing the
+      // whole time tells them nothing about when it started. Two moments,
+      // plainly separate — their turn, then its turn.
+      if (!timers.has(chatId)) {
+        timers.set(chatId, { stop: showStatus(ctx, 'typing') });
+      }
+      try {
+        await fill(ctx, chatId);
+      } finally {
+        disarmIdleFill(chatId);
+      }
     },
   });
 
-  /** Takes in something that arrived, and shows that the bot is working. */
+  /** Takes in something that arrived. */
   const armIdleFill = (ctx, chatId) => {
-    if (!timers.has(chatId)) {
-      timers.set(chatId, { stop: showStatus(ctx, 'typing') });
-    }
     batch.arrived(chatId, ctx);
   };
 

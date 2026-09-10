@@ -80,6 +80,11 @@ export const FIELD_SECTIONS = {
   addressInVietnam: 6,
   provinceInVietnam: 6,
   wardInVietnam: 6,
+  // Not a field on the form: the town the address is in, which is what places
+  // a ward the site no longer lists. It belongs with the ward, since the two
+  // are needed in the same breath — filled apart, the ward has nothing to be
+  // placed against and is dropped.
+  townInVietnam: 6,
   entryBorderGate: 6,
   exitBorderGate: 6,
   contactsAgencyInVietnam: 6,

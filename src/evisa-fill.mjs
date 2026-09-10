@@ -414,7 +414,13 @@ async function resolveWard(page, applicant) {
     }
     const { matchWard } = await import('./evisa-vietnam-address.mjs');
     const placed = matchWard(wanted, options, applicant.townInVietnam);
-    return { ...applicant, wardInVietnam: placed ?? undefined };
+    if (!placed) {
+      // Dropping it silently left a required field empty and erroring while
+      // the fill reported nothing wrong. The value is kept, so the ordinary
+      // attempt fails on it and the applicant is told which ward it was.
+      return applicant;
+    }
+    return { ...applicant, wardInVietnam: placed };
   } catch {
     // A province that will not take, or a list that will not open, leaves
     // the ward as it was for the ordinary attempt to report on.

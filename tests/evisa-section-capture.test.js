@@ -111,6 +111,19 @@ describe('a part is captured as itself', () => {
     );
   });
 
+  it('ticks the declarations before any part is shown', () => {
+    // Two of them sit inside the parts about the trip and its expenses, so
+    // ticking them after the walk meant those parts were photographed with
+    // their boxes still empty: a picture of a form that was not the form.
+    const fill = session.slice(
+      session.indexOf('export async function fillBySection')
+    );
+    const body = fill.slice(0, fill.indexOf('\n}\n'));
+    const ticked = body.indexOf('result.declared = await tickDeclarations');
+    const walk = body.indexOf('for (const { at, title } of shown)');
+    expect(ticked > 0 && ticked < walk).toBe(true);
+  });
+
   it('shows each part once, the pictures included', () => {
     // The pictures are uploaded before the parts are walked, and the part
     // they sit in has no number of its own, so it is numbered by its place:

@@ -24,7 +24,15 @@ export function registerVisaCommands(bot, deps) {
     // that stalled, or one already sent, is not something to add to: the
     // applicant said "visa" and means a new one.
     restartChat = async () => {},
+    stopFilling = async () => {},
   } = deps;
+
+  // Stopping is a command of its own. Reached through the text handler it
+  // arrived after the quiet window had been opened, so asking the bot to
+  // stop was also asking it to wait and then fill.
+  for (const name of ['stop', 'cancel']) {
+    bot.command(name, (ctx) => stopFilling(ctx, ctx.chat.id));
+  }
 
   bot.command('visa', async (ctx) => {
     const chatId = ctx.chat.id;

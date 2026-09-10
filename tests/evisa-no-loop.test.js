@@ -113,3 +113,31 @@ describe('the language the applicant chose', () => {
     expect(session.languageChosen).toBe(undefined);
   });
 });
+
+describe('asking the bot to stop', () => {
+  it('is a command, not a word caught among the rest', () => {
+    // Reached through the text handler, "/stop" arrived after the quiet
+    // window had already been opened for it — so asking the bot to stop was
+    // also asking it to wait twenty seconds and then fill.
+    const commands = readFileSync('src/evisa-commands.mjs', 'utf8');
+    expect(commands.includes("for (const name of ['stop', 'cancel'])")).toBe(
+      true
+    );
+    expect(commands.includes('bot.command(name, (ctx) => stopFilling(')).toBe(
+      true
+    );
+  });
+
+  it('does not open the quiet window on its way past', () => {
+    // A word that means stopping is not a reason to start filling.
+    const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    const handler = runner.slice(runner.indexOf("bot.on('message:text'"));
+    const body = handler.slice(0, handler.indexOf('});'));
+    expect(body.includes('if (!isCancellation(ctx.message.text))')).toBe(true);
+  });
+
+  it('is offered in the menu, so it can be found without being known', () => {
+    const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    expect(runner.includes("command: 'stop'")).toBe(true);
+  });
+});

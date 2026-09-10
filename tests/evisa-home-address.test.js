@@ -21,6 +21,7 @@ import {
   dateInLine,
   describeSummary,
   describeOutcome,
+  describeTail,
   isConfirmation,
   isCancellation,
   IDLE_FILL_MS,
@@ -516,6 +517,8 @@ describe('what the bot says about a form', () => {
       corrected: [{ field: 'phone', was: '+7999111223', now: '+79991112233' }],
       failures: [],
     };
+    // What to do next is not here: it closes the summary that follows, under
+    // the values it refers to, where it cannot be scrolled off the screen.
     expect(describeOutcome(result, [], 'ru')).toBe(
       [
         'Заполнено полей: 41.',
@@ -523,8 +526,6 @@ describe('what the bot says about a form', () => {
         '',
         'Исправил то, что сайт распознал иначе:',
         '• телефон: "+7999111223" → "+79991112233"',
-        '',
-        'Проверьте анкету. Если всё верно, напишите «отправляй», и я нажму «Next»: сайт покажет анкету на проверку. Если нет, пришлите исправление.',
       ].join('\n')
     );
     const missing = [{ name: 'phone' }];
@@ -561,14 +562,28 @@ describe('what the bot says about a form', () => {
         missing: [],
       },
     };
-    expect(describeOutcome(result, [], 'ru')).toContain(
-      'Поставил галочки под анкетой: достоверность сведений, соблюдение законов Вьетнама при въезде.'
+    // They close the summary, not the caption: the caption sits above forty
+    // lines of values and would carry them off the top of the screen.
+    const tail = describeTail(result, [], 'ru');
+    expect(tail).toContain(
+      'достоверность сведений, соблюдение законов Вьетнама при въезде'
     );
+    expect(describeOutcome(result, [], 'ru')).not.toContain(
+      'достоверность сведений'
+    );
+    // Said as compulsory, so the applicant does not read it as a choice the
+    // bot made for them: the site will not go on until all four are ticked.
+    expect(tail).toContain('обязательные');
+    expect(describeTail(result, [], 'en')).toContain('compulsory');
+    // And what to do next comes after them, so it is the last thing read.
+    expect(
+      tail.indexOf('обязательные') < tail.indexOf('Проверьте анкету')
+    ).toBe(true);
     const again = {
       ...result,
       declared: { ticked: [], already: ['truthful'] },
     };
-    expect(describeOutcome(again, [], 'en')).not.toContain('Ticked');
+    expect(describeTail(again, [], 'en')).not.toContain('compulsory');
   });
 });
 

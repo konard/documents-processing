@@ -111,6 +111,25 @@ describe('a part is captured as itself', () => {
     );
   });
 
+  it('shows each part once, the pictures included', () => {
+    // The pictures are uploaded before the parts are walked, and the part
+    // they sit in has no number of its own, so it is numbered by its place:
+    // zero, the same as the uploads. Reporting it in both places sent the
+    // applicant the same picture twice. Only the walk reports.
+    const fill = session.slice(
+      session.indexOf('export async function fillBySection')
+    );
+    const body = fill.slice(0, fill.indexOf('\n}\n'));
+    const uploading = body.slice(
+      body.indexOf('if (uploads'),
+      body.indexOf('const filling =')
+    );
+    expect(uploading.includes('report(')).toBe(false);
+    // And the walk still reports every part it finds.
+    const walk = body.slice(body.indexOf('for (const { at, title } of shown)'));
+    expect(walk.includes('await report(at, title')).toBe(true);
+  });
+
   it('ends the last part under the buttons, not under the footer', () => {
     // The footer is the site´s address and hotline: none of it is the
     // applicant´s to check.

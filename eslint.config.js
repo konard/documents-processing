@@ -119,6 +119,8 @@ export default [
         window: 'readonly',
         Event: 'readonly',
         MouseEvent: 'readonly',
+        requestAnimationFrame: 'readonly',
+        getComputedStyle: 'readonly',
       },
     },
   },

@@ -237,3 +237,70 @@ export async function sendOutcome({
       );
   }
 }
+
+/**
+ * The form's own section headings, in the applicant's language.
+ *
+ * The site writes them in English whatever language it is showing, so a
+ * Russian conversation was getting English captions on every picture.
+ */
+export const SECTION_NAMES = {
+  ru: {
+    "FOREIGNER'S IMAGES": 'Фотографии',
+    '1. PERSONAL INFORMATION': '1. Личные данные',
+    '2. REQUESTED INFORMATION': '2. О какой визе просите',
+    '3. PASSPORT INFORMATION': '3. Паспорт',
+    '4. CONTACT INFORMATION': '4. Контакты',
+    '5. OCCUPATION': '5. Работа',
+    '6. INFORMATION ABOUT THE TRIP': '6. Поездка',
+    '7. ACCOMPANY CHILD(REN)': '7. Дети в том же паспорте',
+    "8. TRIP'S EXPENSES, INSURANCE": '8. Расходы и страховка',
+    'Photos and passport page': 'Фотографии и страница паспорта',
+  },
+};
+
+/**
+ * A heading reduced to what it says, so two spellings of it match.
+ *
+ * The site writes "Foreigner's images" where the table said
+ * "FOREIGNER'S IMAGES", and types the apostrophe of "TRIP’S" as U+2019 while
+ * a keyboard writes U+0027. Matched as written, both fell through to English.
+ */
+function headingKey(title) {
+  return String(title ?? '')
+    .replace(/[‘’]/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** A section heading as the applicant reads it. */
+export function sectionName(title, language) {
+  const named = SECTION_NAMES[language];
+  if (!named) {
+    return title;
+  }
+  const text = String(title ?? '').trim();
+  const wanted = headingKey(text);
+  const entries = Object.entries(named);
+  const same = entries.find(([key]) => headingKey(key) === wanted);
+  if (same) {
+    return same[1];
+  }
+  // A heading the site has reworded, or one cut short, is matched on the
+  // number it opens with.
+  const numbered = text.match(/^\d+\./);
+  if (numbered) {
+    const found = entries.find(([key]) => key.startsWith(numbered[0]));
+    if (found) {
+      return found[1];
+    }
+  }
+  // A heading with no number of its own, worded differently from the table:
+  // the images at the top of the form are the only one, and they are what a
+  // heading naming a picture is.
+  if (/image|photo/i.test(wanted)) {
+    return named["FOREIGNER'S IMAGES"] ?? text;
+  }
+  return text;
+}

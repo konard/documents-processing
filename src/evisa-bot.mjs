@@ -775,50 +775,8 @@ const ARRIVAL_LABELS = {
   },
 };
 
-/**
- * The form's own section headings, in the applicant's language.
- *
- * The site writes them in English whatever language it is showing, so a
- * Russian conversation was getting English captions on every picture.
- */
-const SECTION_NAMES = {
-  ru: {
-    "FOREIGNER'S IMAGES": 'Фотографии',
-    '1. PERSONAL INFORMATION': '1. Личные данные',
-    '2. REQUESTED INFORMATION': '2. О какой визе просите',
-    '3. PASSPORT INFORMATION': '3. Паспорт',
-    '4. CONTACT INFORMATION': '4. Контакты',
-    '5. OCCUPATION': '5. Работа',
-    '6. INFORMATION ABOUT THE TRIP': '6. Поездка',
-    '7. ACCOMPANY CHILD(REN)': '7. Дети в том же паспорте',
-    "8. TRIP'S EXPENSES, INSURANCE": '8. Расходы и страховка',
-    'Photos and passport page': 'Фотографии и страница паспорта',
-  },
-};
-
-/** A section heading as the applicant reads it. */
-export function sectionName(title, language) {
-  const named = SECTION_NAMES[language];
-  if (!named) {
-    return title;
-  }
-  const text = String(title ?? '').trim();
-  if (named[text]) {
-    return named[text];
-  }
-  // A heading the site has reworded, or one cut short, is matched on the
-  // number it opens with.
-  const numbered = text.match(/^\d+\./);
-  if (numbered) {
-    const found = Object.entries(named).find(([key]) =>
-      key.startsWith(numbered[0])
-    );
-    if (found) {
-      return found[1];
-    }
-  }
-  return text;
-}
+// The parts of the form are named where the parts themselves are defined.
+export { sectionName } from './evisa-sections.mjs';
 
 /** Fields where a hyphen the site refuses is worth remarking on. */
 const HYPHEN_NOTED = ['surname', 'givenName', 'emergencyName'];

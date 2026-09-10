@@ -63,3 +63,31 @@ describe('a ward the site no longer lists', () => {
     expect(unplaced.slice(0, 400).includes('return applicant')).toBe(true);
   });
 });
+
+describe('a dropdown reads its own list', () => {
+  it('scopes the options to the select that was asked', () => {
+    // Ant Design keeps one dropdown per select and leaves the last one in the
+    // document while it fades. Reading every visible dropdown gave the ward
+    // whichever list belonged to the field filled before it.
+    const options = fill.slice(
+      fill.indexOf('export async function selectOptions')
+    );
+    const body = options.slice(0, options.indexOf('\n}\n'));
+    expect(body.includes('`${id}_list`')).toBe(true);
+    expect(body.includes("closest('.ant-select-dropdown')")).toBe(true);
+    // And no longer sweeps the whole document for anything visible.
+    expect(
+      body.includes('.ant-select-dropdown:not(.ant-select-dropdown-hidden)')
+    ).toBe(false);
+  });
+
+  it('refuses a ward list that is really the province list', () => {
+    // Filing a province as a ward is worse than filing none: the site takes
+    // it, so nothing fails and nobody is told.
+    const resolve = fill.slice(fill.indexOf('async function resolveWard'));
+    const body = resolve.slice(0, resolve.indexOf('\n}\n'));
+    const guard = body.indexOf('same(option, applicant.provinceInVietnam)');
+    const match = body.indexOf('matchWard(');
+    expect(guard > 0 && guard < match).toBe(true);
+  });
+});

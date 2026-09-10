@@ -1060,8 +1060,19 @@ export function createSessionStore() {
     ids() {
       return [...sessions.keys()];
     },
+    /**
+     * Forgets an application, and keeps what is not part of one.
+     *
+     * The language is the applicant's own choice, made once and good for the
+     * whole conversation: starting another application is no reason to
+     * answer them in a language they did not ask for.
+     */
     clear(chatId) {
+      const kept = sessions.get(chatId)?.language;
       sessions.delete(chatId);
+      if (kept) {
+        this.get(chatId).language = kept;
+      }
     },
     get size() {
       return sessions.size;

@@ -73,3 +73,43 @@ describe('nothing fills or sends the form on its own', () => {
     expect(untold.length >= 2).toBe(true);
   });
 });
+
+describe('the language the applicant chose', () => {
+  it('outlives an application, since starting another is not a change of language', async () => {
+    // /visa begins a new application and clears the session with it. The
+    // language is not part of an application: it is the applicant's own
+    // choice, made once, and answering them in English after they picked
+    // Russian is the bot forgetting something it was told.
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    const sessions = createSessionStore();
+    const session = sessions.get(1);
+    session.language = 'ru';
+    session.languageChosen = true;
+    session.data = { surname: 'TRAVELLER' };
+
+    sessions.clear(1);
+    const after = sessions.get(1);
+    expect(after.language).toBe('ru');
+    // And the application itself is gone, which is what clearing is for.
+    expect(after.data).toEqual({});
+  });
+
+  it('is read back from the store when a session has none of its own', async () => {
+    // A restart of the bot empties memory; the store is where the choice
+    // lives, so the first message after one is still answered in it.
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    const { rememberedLanguage } = await import('../src/evisa-commands.mjs');
+    const session = createSessionStore().get(2);
+    expect(session.language).toBe('en');
+    expect(rememberedLanguage(session, () => 'ru')).toBe('ru');
+    expect(session.languageChosen).toBe(true);
+  });
+
+  it('leaves a chat that never chose one to the default', async () => {
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    const { rememberedLanguage } = await import('../src/evisa-commands.mjs');
+    const session = createSessionStore().get(3);
+    expect(rememberedLanguage(session, () => null)).toBe('en');
+    expect(session.languageChosen).toBe(undefined);
+  });
+});

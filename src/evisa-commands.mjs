@@ -18,6 +18,8 @@ export function registerVisaCommands(bot, deps) {
     describeChecklist,
     describeDeclaration,
     MESSAGES,
+    // What language to answer in, which outlives a session and the bot.
+    speakTheirLanguage = (chatId) => sessions.get(chatId).language,
     // Asking for a visa starts one, whatever went before. An application
     // that stalled, or one already sent, is not something to add to: the
     // applicant said "visa" and means a new one.
@@ -30,6 +32,7 @@ export function registerVisaCommands(bot, deps) {
     await restartChat(chatId);
     touch(chatId);
     const session = sessions.get(chatId);
+    session.language = speakTheirLanguage(chatId);
     // The checklist goes out at once. Opening a browser takes seconds, and
     // making the applicant wait on it before they are told what to send buys
     // nothing: they can be reading the list while the page loads behind it.
@@ -76,4 +79,23 @@ export function registerVisaCommands(bot, deps) {
       parse_mode: 'HTML',
     });
   });
+}
+
+/**
+ * The language a chat is answered in, read back when a session has none.
+ *
+ * A choice the applicant made outlives both the session and the bot, since
+ * it is kept in the store and not in memory. So a new application, or a
+ * restart of either, must not answer them in a language they never asked
+ * for. Returns the language, and marks it as chosen when it came from there.
+ */
+export function rememberedLanguage(session, read) {
+  if (!session.languageChosen) {
+    const remembered = read();
+    if (remembered) {
+      session.language = remembered;
+      session.languageChosen = true;
+    }
+  }
+  return session.language;
 }

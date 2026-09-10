@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync } from 'node:fs';
 import { sectionName } from '../src/evisa-bot.mjs';
+import * as sectionsModule from '../src/evisa-sections.mjs';
 
 const session = readFileSync('src/evisa-session.mjs', 'utf8');
 
@@ -152,5 +153,43 @@ describe('a part is captured as itself', () => {
     const body = capture.slice(0, capture.indexOf('\n}\n'));
     expect(body.includes('footer')).toBe(true);
     expect(body.includes("querySelectorAll('button')")).toBe(true);
+  });
+});
+
+describe('what the chat is sent', () => {
+  const sections = readFileSync('src/evisa-sections.mjs', 'utf8');
+
+  it('puts a part´s name above its picture, in one message', () => {
+    // The API draws a caption under a photo unless it is told otherwise, and
+    // the applicant needs to know what they are looking at before they look.
+    const send = sections.slice(
+      sections.indexOf('export async function sendSection')
+    );
+    const body = send.slice(0, send.indexOf('\n}\n'));
+    expect(body.includes('show_caption_above_media: true')).toBe(true);
+    // One message: the name is the picture's caption, not a message before it.
+    expect(body.includes('ctx.reply(')).toBe(false);
+  });
+
+  it('fills the caption before it sends anything as a second message', () => {
+    const { splitForCaption } = sectionsModule;
+    // Everything fitting is one message.
+    expect(splitForCaption('one\n\ntwo').rest).toBe(null);
+    // What does not fit breaks at a blank line, so no part is cut in half.
+    const long = ['head', 'a'.repeat(600), 'b'.repeat(600), 'tail'].join(
+      '\n\n'
+    );
+    const split = splitForCaption(long);
+    expect(split.caption.includes('a'.repeat(600))).toBe(true);
+    expect(split.caption.includes('b'.repeat(600))).toBe(false);
+    expect(split.rest.startsWith('b'.repeat(600))).toBe(true);
+  });
+
+  it('counts a caption the way Telegram counts it, without the markup', () => {
+    // The limit is on the text as shown; tags are free. Counting them would
+    // send less than fits.
+    const { splitForCaption } = sectionsModule;
+    const tagged = `<b>${'x'.repeat(1000)}</b>`;
+    expect(splitForCaption(tagged).rest).toBe(null);
   });
 });

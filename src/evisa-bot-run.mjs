@@ -492,7 +492,11 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
     sending();
   }
   if (summary) {
-    await ctx.reply(summary, { parse_mode: 'HTML' });
+    await ctx
+      .reply(summary, { parse_mode: 'HTML' })
+      .catch((error) =>
+        log(chatId, `the summary did not send: ${error.message}`)
+      );
   }
 }
 
@@ -897,7 +901,15 @@ async function verifyAddress(chatId, session, field) {
   log(chatId, `${field} not confirmed by the map${nearest}`);
 }
 
-const bot = new Bot(token);
+/**
+ * How long one call to Telegram may take. An upload that stalls never
+ * completes on its own, leaving the applicant with no message and no error.
+ */
+const CALL_TIMEOUT_MS = 90_000;
+
+const bot = new Bot(token, {
+  client: { timeoutSeconds: CALL_TIMEOUT_MS / 1000 },
+});
 
 // Every message of every conversation, both sides, written beside the log.
 const transcript = recordConversations(bot, STORE_DIR, valuesAllowed());

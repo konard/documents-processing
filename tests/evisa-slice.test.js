@@ -128,3 +128,19 @@ describe('binding the sections into a PDF', () => {
     }
   });
 });
+
+describe('a step that stalls', () => {
+  it('yields its fallback when the step stalls', async () => {
+    const { withDeadline } = await import('../src/evisa-slice.mjs');
+    expect(await withDeadline(new Promise(() => {}), 40, 'left behind')).toBe(
+      'left behind'
+    );
+  });
+
+  it('passes a finished step straight through', async () => {
+    const { withDeadline } = await import('../src/evisa-slice.mjs');
+    expect(await withDeadline(Promise.resolve('sent'), 200, 'late')).toBe(
+      'sent'
+    );
+  });
+});

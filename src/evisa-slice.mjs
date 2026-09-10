@@ -280,16 +280,28 @@ export async function sectionsToPdf(sections, outputPath) {
 }
 
 /**
- * Sends the page as a PDF to keep and as pictures to read.
+ * Gives a promise a deadline.
  *
- * The PDF is the record: one page per section, so a page is never a field
- * split down the middle and a reader opens on a screenful. The pictures are
- * the same sections, which the applicant checks by scrolling the chat without
- * downloading anything.
- *
- * A capture that cannot be cut still goes, as the image itself: the applicant
- * seeing their form matters more than the form it arrives in.
+ * Reading a page and sending a file are both calls out to something else —
+ * a browser, an upload — and either can stall without ever failing. A step
+ * that has not finished in its time gives way to `whenLate`.
  */
+export function withDeadline(work, ms, whenLate) {
+  let timer = null;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(whenLate), ms);
+  });
+  // The timer is cleared whichever way the race ends, so a step that
+  // finished in time does not hold the process open waiting for its deadline.
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+/** How long the page is given to say where its sections are. */
+const MEASURE_MS = 20_000;
+
+/** How long one upload is given before it is left behind. */
+const SEND_MS = 120_000;
+
 export async function sendFormAndSections({
   ctx,
   chatId,
@@ -306,8 +318,22 @@ export async function sendFormAndSections({
     // The page says where its own parts begin and where the form itself
     // starts and ends, so each picture is one part of the form, and the
     // site's banner and footer are left off.
-    const tops = page ? await sectionTops(page, 2).catch(() => null) : null;
-    const band = page ? await formBand(page, 2).catch(() => null) : null;
+    // A browser that has stopped answering must not hold the form back: the
+    // measurements are worth twenty seconds, and the page is sent either way.
+    const tops = page
+      ? await withDeadline(
+          sectionTops(page, 2).catch(() => null),
+          MEASURE_MS,
+          null
+        )
+      : null;
+    const band = page
+      ? await withDeadline(
+          formBand(page, 2).catch(() => null),
+          MEASURE_MS,
+          null
+        )
+      : null;
     const sections = await sliceImage(screenshot, dir, {
       trim: true,
       tops,
@@ -316,16 +342,43 @@ export async function sendFormAndSections({
     // The sections first, in order, so the form unrolls down the chat as the
     // applicant reads it; the whole page follows as the file they keep, with
     // the outcome under it.
+    let sent = 0;
     for (const section of sections) {
-      await ctx.replyWithPhoto(
-        new InputFile(section.path, `section-${section.index}.jpg`),
-        { caption: section.title }
+      // One picture that will not upload must not cost the applicant the
+      // rest of their form.
+      const done = await withDeadline(
+        ctx
+          .replyWithPhoto(
+            new InputFile(section.path, `section-${section.index}.jpg`),
+            { caption: section.title }
+          )
+          .then(() => true)
+          .catch((error) => {
+            log(
+              chatId,
+              `section ${section.index} did not send: ${error.message}`
+            );
+            return false;
+          }),
+        SEND_MS,
+        false
       );
+      if (done) {
+        sent += 1;
+      } else {
+        log(chatId, `section ${section.index} timed out; going on`);
+      }
     }
-    await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {
-      caption,
-    });
-    log(chatId, `sent ${sections.length} sections, then the whole page`);
+    await withDeadline(
+      ctx
+        .replyWithDocument(new InputFile(screenshot, 'form.png'), { caption })
+        .catch((error) =>
+          log(chatId, `the page did not send: ${error.message}`)
+        ),
+      SEND_MS,
+      null
+    );
+    log(chatId, `sent ${sent} of ${sections.length} sections, then the page`);
   } catch (error) {
     log(chatId, `could not cut the page into sections: ${error.message}`);
     await ctx.replyWithDocument(new InputFile(screenshot, 'form.png'), {

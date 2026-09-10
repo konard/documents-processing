@@ -134,3 +134,35 @@ describe('one fill for everything an applicant sends', () => {
     expect(seen).toEqual(['last']);
   });
 });
+
+describe('nothing waits for ever', () => {
+  it('gives up on a fill that never returns', async () => {
+    // A browser that stops answering left the applicant waiting with no
+    // message and no error, for hours.
+    const batch = createBatcher({
+      quietMs: 30,
+      fillTimeoutMs: 80,
+      fill: () => new Promise(() => {}),
+    });
+    batch.arrived('c', {});
+    await after(300);
+    expect(batch.busy('c')).toBe(false);
+  });
+
+  it('fills again for the next batch after giving up on one', async () => {
+    let tries = 0;
+    const batch = createBatcher({
+      quietMs: 30,
+      fillTimeoutMs: 80,
+      fill: () => {
+        tries += 1;
+        return tries === 1 ? new Promise(() => {}) : Promise.resolve();
+      },
+    });
+    batch.arrived('c', {});
+    await after(250);
+    batch.arrived('c', {});
+    await after(250);
+    expect(tries).toBe(2);
+  });
+});

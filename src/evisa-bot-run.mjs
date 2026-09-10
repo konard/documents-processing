@@ -91,7 +91,7 @@ import {
 import { createFillBatcher } from './evisa-batch.mjs';
 import { onShutdown } from './evisa-shutdown.mjs';
 import { showStatus as raiseStatus, trackStatuses } from './evisa-status.mjs';
-import { registerVisaCommands } from './evisa-commands.mjs';
+import { registerVisaCommands, rememberedLanguage } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import { verifyAddress } from './evisa-geocode.mjs';
@@ -980,14 +980,13 @@ bot.command('start', async (ctx) => {
   log(chatId, `/start from language_code=${ctx.from?.language_code ?? '?'}`);
   await restartChat(chatId);
   const session = sessions.get(chatId);
-  // Telegram's own language is the default, so most applicants are never
-  // asked; the buttons are there for anyone it gets wrong.
-  // A language the applicant chose before outlives both the session and the
-  // bot; Telegram's guess is only the fallback for a chat never seen.
-  const remembered = store.read(chatId, 'language');
-  session.language =
-    remembered ?? detectLanguage(null, ctx.from?.language_code);
-  session.languageChosen = Boolean(remembered);
+  // A choice made before wins. Telegram's own guess is the fallback for a
+  // chat never seen, so most applicants are never asked, and the buttons are
+  // there for anyone it gets wrong.
+  rememberedLanguage(session, () => store.read(chatId, 'language'));
+  if (!session.languageChosen) {
+    session.language = detectLanguage(null, ctx.from?.language_code);
+  }
   touch(chatId);
   await ctx.reply(MESSAGES[session.language].menu, {
     reply_markup: LANGUAGE_BUTTONS,
@@ -1112,6 +1111,10 @@ registerVisaCommands(bot, {
   describeDeclaration,
   MESSAGES,
   restartChat,
+  speakTheirLanguage: (chatId) =>
+    rememberedLanguage(sessions.get(chatId), () =>
+      store.read(chatId, 'language')
+    ),
 });
 
 bot.command('reset', async (ctx) => {

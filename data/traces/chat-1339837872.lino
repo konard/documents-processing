@@ -727,3 +727,57 @@ step form
   moment filled
   filled 0
   failed 39
+step form
+  at '2026-09-10T19:38:38.770Z'
+  moment opened
+state start
+  at '2026-09-10T19:38:38.771Z'
+  basic_anhMat ""
+  basic_anhHoChieu ""
+  basic_ttcnHo ""
+  basic_ttcnDemVaTen ""
+  basic_ttcnNgayThangNamSinhStr ""
+  basic_ttcnGioiTinh ""
+  basic_ttcnMaQt ""
+  basic_ttcnCccd ""
+  basic_ttcnEmail ""
+  basic_ttcnTonGiao ""
+  basic_ttcnNoiSinh ""
+  basic_ttcnConfirmEmail ""
+  basic_nddnTtdtTuNgayStr ""
+  basic_nddnTtdtDenNgayStr ""
+  basic_hcSo ""
+  basic_hcNoiCap ""
+  basic_hcLoai ""
+  basic_hcNgayCapStr ""
+  basic_hcGiaTriDenStr ""
+  basic_ttllDcThuongTru ""
+  basic_ttllDcLienHe ""
+  basic_ttllSdt ""
+  basic_ttllLlHoTen ""
+  basic_ttllLlNoiOHienTai ""
+  basic_ttllLlSdt ""
+  basic_ttllLlQuanHe ""
+  basic_nnNgheNghiep ""
+  basic_nnNgheNghiepHienTai ""
+  basic_nnTenCtyCq ""
+  basic_nnChucVu ""
+  basic_nnDiaChi ""
+  basic_nnSdt ""
+  basic_ttcdMucDich ""
+  basic_ttcdThoiGianNcStr ""
+  basic_ttcdSoNgayTamTru ""
+  basic_ttcdSdt ""
+  basic_ttcdDcTamTru ""
+  basic_ttcdTinhTp ""
+  basic_ttcdPhuongXa ""
+  basic_ttcdNcCuaKhau ""
+  basic_ttcdXcCuaKhau ""
+  basic_ttcdCqTcCamDoan off
+  basic_kpbhDuTinh ""
+  basic_kpbhMuaBaoHiem ""
+  basic_kpbhNguoiDamBao ""
+step form
+  at '2026-09-10T19:39:50.867Z'
+  moment 'handed over'
+  why 'page.screenshot: Timeout 30000ms exceeded.'

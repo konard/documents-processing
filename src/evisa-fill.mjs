@@ -378,12 +378,20 @@ export function readFilledFields(page) {
 export async function selectOptions(page, id) {
   await page.locator(`#${id}`).click();
   await page.waitForTimeout(1200);
-  const texts = await page.evaluate(() =>
-    [
-      ...document.querySelectorAll(
-        '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option-content'
-      ),
-    ].map((option) => option.innerText.trim())
+  // Scoped to this select's own panel. Ant Design keeps one dropdown per
+  // select and leaves the last one in the document while it fades, so reading
+  // every visible dropdown read whichever field was filled before this one:
+  // the ward was offered the province's list, and took KHANH HOA — an option
+  // the site accepts, so nothing failed and a province was filed as a ward.
+  const texts = await page.evaluate(
+    (listId) =>
+      [
+        ...(document
+          .getElementById(listId)
+          ?.closest('.ant-select-dropdown')
+          ?.querySelectorAll('.ant-select-item-option-content') ?? []),
+      ].map((option) => option.innerText.trim()),
+    `${id}_list`
   );
   await page.keyboard.press('Escape');
   return texts;
@@ -410,6 +418,15 @@ async function resolveWard(page, applicant) {
     );
     const options = await selectOptions(page, FIELDS.wardInVietnam.id);
     if (!options.length) {
+      return applicant;
+    }
+    // A list that is really the province's own, read while its dropdown was
+    // still on screen. Filing a province as a ward is worse than filing no
+    // ward at all, since the site accepts it and nobody is told.
+    const same = (a, b) =>
+      String(a).toUpperCase().replace(/\s+/g, ' ').trim() ===
+      String(b).toUpperCase().replace(/\s+/g, ' ').trim();
+    if (options.some((option) => same(option, applicant.provinceInVietnam))) {
       return applicant;
     }
     const { matchWard } = await import('./evisa-vietnam-address.mjs');

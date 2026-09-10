@@ -46,6 +46,27 @@ describe('nothing fills or sends the form on its own', () => {
     }
   });
 
+  it('opens the quiet window when a message lands, not when it is read', () => {
+    // A passport takes the better part of a minute to read. Arming the window
+    // only after that let the window of the message before it run out, and the
+    // form was filled while later messages were still being read.
+    const handlers = runner.slice(runner.indexOf("bot.on(['message:photo'"));
+    expect(
+      handlers.slice(0, 600).includes('armIdleFill(ctx, ctx.chat.id)')
+    ).toBe(true);
+  });
+
+  it('reads documents at the same time, and fills after all of them', () => {
+    // Two passports sent together took as long as both readings end to end,
+    // and each reading opened a window of its own.
+    const turns = readFileSync('src/evisa-turns.mjs', 'utf8');
+    expect(turns.includes('function alongside')).toBe(true);
+    expect(turns.includes('function settled')).toBe(true);
+    // The timer waits on every reading started, not just the message queue.
+    const timer = runner.slice(runner.indexOf('function armIdleFill'));
+    expect(timer.slice(0, 900).includes('await settled(chatId)')).toBe(true);
+  });
+
   it('lets a correction unstick the form', () => {
     // Whatever the applicant sends next is worth filling and showing again.
     const cleared = runner.match(/session\.lastFill = null/g) ?? [];

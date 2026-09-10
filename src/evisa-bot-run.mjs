@@ -56,6 +56,7 @@ import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
 import { sendFormAndSections } from './evisa-slice.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
+import { createTurns } from './evisa-turns.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import {
@@ -92,6 +93,7 @@ const STORE_DIR =
 const store = await openStore(STORE_DIR);
 
 const sessions = createSessionStore();
+const { inTurn, alongside, settled } = createTurns(sessions);
 const browsers = new Map();
 const timers = new Map();
 // Chats counting down to Next, each with the function that ends the count.
@@ -570,9 +572,20 @@ function disarmIdleFill(chatId) {
 function armIdleFill(ctx, chatId) {
   disarmIdleFill(chatId);
   const stop = showStatus(ctx, 'typing');
-  const timer = setTimeout(() => {
+  const timer = setTimeout(async () => {
     disarmIdleFill(chatId);
-    fillNow(ctx, chatId, 'quiet timer').catch((error) =>
+    // Everything that has arrived is read first. A passport takes the better
+    // part of a minute to read, and filling before that finished would put a
+    // form on the screen without the passport on it.
+    await settled(chatId);
+    sessions.get(chatId).reading = [];
+    // Something that arrived while that reading ran has opened a window of
+    // its own; this one has nothing left to do.
+    if (timers.has(chatId)) {
+      log(chatId, 'quiet timer: a newer message is still waiting');
+      return;
+    }
+    await fillNow(ctx, chatId, 'quiet timer').catch((error) =>
       log(chatId, `filling failed: ${error.message}`)
     );
   }, IDLE_FILL_MS);
@@ -1083,21 +1096,6 @@ bot.command('documents', async (ctx) => {
   await lookUpApplication(ctx, chatId, number);
 });
 
-/**
- * Runs a chat's messages one at a time, in the order they arrived.
- *
- * Two photos sent together would otherwise be read at once and write their
- * fields over each other; a "стой" sent while a photo is being read must
- * take effect after the reading, not before the timer it is meant to stop
- * has even been set.
- */
-function inTurn(chatId, work) {
-  const session = sessions.get(chatId);
-  const turn = (session.queue ?? Promise.resolve()).then(work, work);
-  session.queue = turn.catch(() => {});
-  return turn;
-}
-
 /** Downloads a file Telegram holds, without letting the token into an error. */
 async function downloadFile(ctx) {
   const file = await ctx.getFile();
@@ -1164,9 +1162,14 @@ function keepPortrait(chatId, session, read, local, extension) {
   );
 }
 
-bot.on(['message:photo', 'message:document'], (ctx) =>
-  inTurn(ctx.chat.id, () => receiveDocument(ctx))
-);
+bot.on(['message:photo', 'message:document'], (ctx) => {
+  // The window opens when a message lands: a passport that takes a minute to
+  // read must not let the window of the message before it run out.
+  armIdleFill(ctx, ctx.chat.id);
+  // Documents are read at the same time, each on its own worker, and what
+  // each reading writes into the session is put there in turn.
+  return alongside(ctx.chat.id, () => receiveDocument(ctx));
+});
 
 async function receiveDocument(ctx) {
   const chatId = ctx.chat.id;
@@ -1257,29 +1260,33 @@ async function receiveDocument(ctx) {
         `read from the document: ${describeFields(read?.data ?? {})}`
       );
 
-      if (read && Object.keys(read.data).length) {
-        keepPassport(session, read, extension);
-      } else {
-        // No zone read means the picture is something else, and which
-        // something matters: a booking screenshot in the portrait upload is
-        // what made the site answer "no face detected".
-        await sortUnreadableImage({
-          ctx,
-          chatId,
-          session,
-          read,
-          local,
-          extension,
-          log,
-          shown,
-          keepPortrait,
-          keepForUpload,
-          strings: MESSAGES[session.language],
-        });
-      }
-      session.received = (session.received ?? 0) + 1;
-      session.toldWhatIsStuck = false;
-      session.lastFill = null;
+      // Two readings finishing together must not write over each other, so
+      // what each puts into the session goes in in turn.
+      await inTurn(chatId, async () => {
+        if (read && Object.keys(read.data).length) {
+          keepPassport(session, read, extension);
+        } else {
+          // No zone read means the picture is something else, and which
+          // something matters: a booking screenshot in the portrait upload is
+          // what made the site answer "no face detected".
+          await sortUnreadableImage({
+            ctx,
+            chatId,
+            session,
+            read,
+            local,
+            extension,
+            log,
+            shown,
+            keepPortrait,
+            keepForUpload,
+            strings: MESSAGES[session.language],
+          });
+        }
+        session.received = (session.received ?? 0) + 1;
+        session.toldWhatIsStuck = false;
+        session.lastFill = null;
+      });
     },
     // Kept while debugging, under the system temp directory. What eventually
     // removes them is the sweep below, which runs daily: a container's volume
@@ -1305,7 +1312,10 @@ async function refuseIfPastForm(ctx, session) {
   return true;
 }
 
-bot.on('message:text', (ctx) => inTurn(ctx.chat.id, () => receiveText(ctx)));
+bot.on('message:text', (ctx) => {
+  armIdleFill(ctx, ctx.chat.id);
+  return inTurn(ctx.chat.id, () => receiveText(ctx));
+});
 
 /**
  * Keeps the chat in the language its applicant reads.

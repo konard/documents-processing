@@ -12,12 +12,24 @@
 // and what it became, so a run reads as a sequence of edits and can be
 // replayed against a fresh form.
 //
-// The file is links notation, one document per chat:
+// The file is links notation written the indented way, one document per
+// chat. Indentation is what the notation nests by, so the parens fall away
+// and a record reads close to the JSON it describes:
 //
-//   (step form (at 2026-09-10T16:38:45.000Z) (moment opened))
-//   (field basic_ttcnHo (was "") (now PLACEHOLDER) (by bot))
-//   (field basic_ttcdPhuongXa (was "") (now 'NHA TRANG WARD') (by bot))
-//   (step review (at 2026-09-10T16:41:02.000Z) (moment reached))
+//   step form
+//     at "2026-09-10T16:38:45.000Z"
+//     moment opened
+//   field basic_ttcnHo
+//     was ""
+//     now PLACEHOLDER
+//     by bot
+//   field basic_ttcdPhuongXa
+//     was ""
+//     now "NHA TRANG WARD"
+//     by bot
+//   step review
+//     at "2026-09-10T16:41:02.000Z"
+//     moment reached
 //
 // It holds the applicant's own details, so it is kept and swept on the same
 // terms as the transcripts and the documents.
@@ -101,18 +113,41 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
   const fileFor = (chatId) => path.join(directory, `chat-${chatId}.lino`);
 
   /**
-   * A bare word, which is what a link's leaves are.
+   * A value written so the notation carries it whole.
    *
-   * The value goes in as it is: the formatter quotes whatever needs quoting,
-   * and quoting it here as well would put the quotes inside the string.
+   * A bare word stands as it is; anything with a space, a colon or a quote in
+   * it is quoted, and an empty value is written as a pair of quotes so the
+   * line still has two halves. A timestamp needs this: its colons would
+   * otherwise end the word early.
    */
-  const word = (id) => new notation.Link(String(id ?? ''), []);
+  const value = (text) => {
+    const body = String(text ?? '');
+    if (!body) {
+      return '""';
+    }
+    return /^[\w./@+-]+$/.test(body)
+      ? body
+      : `"${body.replace(/["\\]/g, '\\$&')}"`;
+  };
 
-  /** A link of other links, which is what a group is. */
-  const group = (...parts) => new notation.Link(null, parts);
-
-  /** A `(name value)` pair, the shape every fact in the record takes. */
-  const pair = (name, value) => group(word(name), word(value));
+  /**
+   * One record, written indented: a heading, then a line per fact under it.
+   *
+   * Indentation is what the notation uses for nesting, so the parens fall
+   * away and what is left reads like the thing it describes:
+   *
+   *   field basic_ttcdPhuongXa
+   *     was ""
+   *     now "NHA TRANG WARD"
+   *     by bot
+   */
+  const record = (heading, facts) =>
+    [
+      heading,
+      ...facts
+        .filter(([, said]) => said !== undefined)
+        .map(([name, said]) => `  ${name} ${value(said)}`),
+    ].join('\n');
 
   /** Whether there is anywhere to write and anything to write with. */
   const writing = () => enabled && Boolean(notation);
@@ -123,9 +158,7 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
       return;
     }
     try {
-      // The links are built here, inside the guard: building them needs the
-      // notation module, so a run without one must not reach that far.
-      fs.appendFileSync(fileFor(chatId), `${notation.formatLinks(build())}\n`);
+      fs.appendFileSync(fileFor(chatId), `${build().join('\n')}\n`);
     } catch {
       // A record that cannot be written must never stop an application.
     }
@@ -138,13 +171,11 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
      */
     step(chatId, step, { moment = 'reached', detail = {} } = {}) {
       put(chatId, () => [
-        group(
-          word('step'),
-          word(step),
-          pair('at', new Date().toISOString()),
-          pair('moment', moment),
-          ...Object.entries(detail).map(([key, value]) => pair(key, value))
-        ),
+        record(`step ${value(step)}`, [
+          ['at', new Date().toISOString()],
+          ['moment', moment],
+          ...Object.entries(detail),
+        ]),
       ]);
     },
 
@@ -165,13 +196,11 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
           : value;
       put(chatId, () =>
         changes.map(({ id, was, now }) =>
-          group(
-            word('field'),
-            word(id),
-            pair('was', hidden(id, was)),
-            pair('now', hidden(id, now)),
-            pair('by', by)
-          )
+          record(`field ${value(id)}`, [
+            ['was', hidden(id, was)],
+            ['now', hidden(id, now)],
+            ['by', by],
+          ])
         )
       );
     },
@@ -183,12 +212,10 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
         return;
       }
       put(chatId, () => [
-        group(
-          word('state'),
-          word(moment),
-          pair('at', new Date().toISOString()),
-          ...entries.map(([id, value]) => pair(id, value))
-        ),
+        record(`state ${value(moment)}`, [
+          ['at', new Date().toISOString()],
+          ...entries,
+        ]),
       ]);
     },
 

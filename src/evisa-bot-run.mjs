@@ -318,7 +318,6 @@ async function pageFor(chatId) {
     log(chatId, `${what}; the chat is told`);
     const session = sessions.get(chatId);
     session.uploaded = {};
-    session.reported = {};
     session.stage = 'form';
     session.captchaEntered = false;
     session.filledThrough = undefined;
@@ -486,13 +485,6 @@ async function fillPage(ctx, chatId, page, dir) {
       }
     }
     await keepMarkup(chatId, page, 'filled-form');
-    // Explained once the page shows it: a fill that failed before the
-    // screenshot leaves these to be explained with the next one.
-    for (const [key, value] of Object.entries(applicant)) {
-      if (value) {
-        session.reported[key] = value;
-      }
-    }
     session.filledThrough = received;
     // What this fill actually put on the page. A fill that writes the same
     // values as the one before it has nothing new to show, and repeating a
@@ -619,7 +611,6 @@ async function fillAndShow(ctx, chatId, round = 1) {
       { ...applicant, ...result.placed },
       session.data,
       session.language,
-      session.reported,
       session.disputed ?? {},
       { asked: tail, fill: result }
     );

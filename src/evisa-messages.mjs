@@ -47,8 +47,6 @@ export const MESSAGES = {
     assumedNote:
       'Starred values were not given, so I chose them. If any is wrong, ' +
       'send the value you want.',
-    changedMark: '<b>(new)</b>',
-    changedNote: 'What is marked (new) changed since the last form.',
     hyphenNote: (printed) =>
       `(the passport has ${printed}; the site takes no hyphen, so a space)`,
     disputedNote: (candidates) =>
@@ -245,8 +243,6 @@ export const MESSAGES = {
     assumedNote:
       'Со звёздочкой — то, что вы не указывали и я подставил сам. Если ' +
       'что-то не так, пришлите нужное значение.',
-    changedMark: '<b>(новое)</b>',
-    changedNote: 'Помеченное «(новое)» изменилось с прошлой анкеты.',
     hyphenNote: (printed) =>
       `(в паспорте ${printed}; дефис сайт не принимает, заменён пробелом)`,
     disputedNote: (candidates) =>

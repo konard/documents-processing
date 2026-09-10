@@ -594,10 +594,7 @@ function escapeHtml(value) {
  * visa's first day from the entry date, is marked with where it came from
  * instead, since calling it assumed would say their answer was ignored.
  * Everything on the form is listed, every time. The applicant is being asked
- * to check this form, and they cannot check what they cannot see: a list of
- * only what changed since the last one left them holding a form of forty
- * values with nothing said about any of them. What is new since the form
- * before is marked, so a correction is easy to find among the rest.
+ * to check this form, and they cannot check what they cannot see.
  */
 /**
  * Where a value came from, as far as the fill can tell: the site read it off
@@ -627,7 +624,6 @@ export function describeSummary(
   applicant,
   supplied,
   language,
-  reported = {},
   disputed = {},
   { asked = null, fill = {} } = {}
 ) {
@@ -635,13 +631,7 @@ export function describeSummary(
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
   // On the form and worth naming: every value the applicant can check.
   const onForm = (key) => Boolean(applicant[key] && prompts[key]);
-  // New since the form before. On the first form everything is new, so
-  // nothing is marked: a mark against every line says nothing.
-  const anyBefore = Object.keys(reported).length > 0;
-  const changed = (key) =>
-    anyBefore && onForm(key) && reported[key] !== applicant[key];
   let assumedAny = false;
-  let changedAny = false;
 
   const sourceFor = (key) => whoReadIt(key, fill, strings);
 
@@ -675,19 +665,13 @@ export function describeSummary(
     `• ${labelFor(key, language)}: ${strings.disputedNote(
       disputed[key].map((value) => `<b>${escapeHtml(value)}</b>`)
     )}`;
-  /** A mark on a value that is new since the form before this one. */
-  const newFor = (key) => {
-    const isNew = changed(key);
-    changedAny = changedAny || isNew;
-    return isNew ? ` ${strings.changedMark}` : '';
-  };
   const blocks = SECTIONS.map(([section, keys]) => {
     const lines = keys
       .filter((key) => onForm(key) || (disputed[key] && !applicant[key]))
       .map((key) =>
         disputed[key] && !applicant[key]
           ? disputedLine(key)
-          : `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}${sourceFor(key)}${newFor(key)}`
+          : `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}${sourceFor(key)}`
       );
     if (!lines.length) {
       return null;
@@ -702,9 +686,6 @@ export function describeSummary(
   const parts = [strings.summary, '', shown.join('\n\n')];
   if (assumedAny) {
     parts.push('', strings.assumedNote);
-  }
-  if (changedAny) {
-    parts.push('', strings.changedNote);
   }
   // What the applicant is being asked to do goes last, under everything it
   // refers to. Above forty lines of values it is scrolled off the screen, and
@@ -1046,10 +1027,8 @@ export function createSessionStore() {
         sessions.set(chatId, {
           data: {},
           uploads: {},
-          // What has been put on the page and told to the applicant, so
-          // neither is repeated on the next fill.
+          // What has been put on the page, so it is not uploaded again.
           uploaded: {},
-          reported: {},
           language: 'en',
           lastActivity: Date.now(),
         });

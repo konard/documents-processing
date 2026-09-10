@@ -480,12 +480,14 @@ describe('what the bot says about a form', () => {
           'что-то не так, пришлите нужное значение.',
       ].join('\n')
     );
-    // Said again on the next form, all of it: the applicant is asked to check
-    // that form, and they cannot check what they cannot see. Nothing changed
-    // between the two, so nothing is marked as new.
-    const again = describeSummary(applicant, supplied, 'ru', applicant);
+    // Said again on the next form, all of it: the applicant is asked to
+    // check that form, and they cannot check what they cannot see. The list
+    // describes the form and nothing else — not which values the bot has
+    // touched since the last one, which is a matter for the bot alone.
+    const again = describeSummary(applicant, supplied, 'ru');
     expect(again).toContain('• фамилия: DOE');
     expect(again).not.toContain('новое');
+    expect(again).not.toContain('изменил');
     const english = describeSummary({ surname: 'DOE' }, supplied, 'en');
     expect(english).toBe(
       'What I put on the form:\n\n<b>Applicant</b>\n• surname: DOE'

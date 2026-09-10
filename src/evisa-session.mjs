@@ -357,6 +357,13 @@ export async function captureForm(page, outputPath) {
  */
 async function holdStillForCapture(page) {
   const marker = 'evisa-hold-still';
+  // The pointer rests wherever the fill last clicked, and the site paints a
+  // hovered select's border in the same red it uses for an error:
+  //   .ant-select:not(.ant-select-disabled):hover .ant-select-selector
+  //     { border-color: rgb(215, 26, 33) }
+  // So the ward came out ringed in red on a form the site had no complaint
+  // about. Moved off the form before the picture is taken.
+  await page.mouse.move(2, 2).catch(() => {});
   await page
     .addStyleTag({
       content: `

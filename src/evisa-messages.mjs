@@ -33,6 +33,12 @@ export const MESSAGES = {
       trip: 'Trip',
     },
     assumedMark: '(assumed)',
+    // Where a value came from, when the site read the passport too. The
+    // applicant is asked to check these against the passport itself, so it
+    // has to be plain which reading each value is.
+    agreedMark: '— the site read the same from the passport',
+    siteOnlyMark: '— the site read this from the passport; I had nothing',
+    overruledMark: (was) => `— the site read "${was}"; I put mine`,
     assumedNote:
       'What is marked "(assumed)" was not given, so I chose it. If any of ' +
       'it is wrong, send the value you want.',
@@ -63,8 +69,9 @@ export const MESSAGES = {
       'form itself.',
     failed: (field, why) => `Could not fill ${field}: ${why}`,
     fillFailed: (why) =>
-      `Filling stopped: ${why}. The browser is left open with the form as ` +
-      'far as it got.',
+      `Filling stopped: ${why}. The browser window is now in front of you, ` +
+      'with the form as far as it got — nothing is closed and nothing is ' +
+      'lost. Carry on in it by hand, or send a correction and I fill again.',
     browserGone:
       'Filling stopped: the browser closed, most likely because the bot was ' +
       'restarted. Send /start, then the documents and details again.',
@@ -217,6 +224,11 @@ export const MESSAGES = {
       trip: 'Поездка',
     },
     assumedMark: '(по умолчанию)',
+    // Откуда значение, когда сайт тоже прочитал паспорт. Заявитель сверяет
+    // это с самим паспортом, поэтому должно быть видно, чьё это чтение.
+    agreedMark: '— сайт прочитал с паспорта так же',
+    siteOnlyMark: '— это сайт прочитал с паспорта, у меня своего не было',
+    overruledMark: (was) => `— сайт прочитал «${was}», поставил своё`,
     assumedNote:
       'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Если ' +
       'что-то не так, пришлите нужное значение.',
@@ -249,8 +261,10 @@ export const MESSAGES = {
       'Вы подтверждаете это от своего имени, поэтому прочитайте их на самой анкете.',
     failed: (field, why) => `Не удалось заполнить ${field}: ${why}`,
     fillFailed: (why) =>
-      `Заполнение прервалось: ${why}. Браузер оставлен открытым с формой в ` +
-      'том виде, до которого дошло.',
+      `Заполнение прервалось: ${why}. Окно браузера поднято перед вами, ` +
+      'форма в нём в том виде, до которого дошло — ничего не закрыто и ' +
+      'ничего не потеряно. Можно продолжить в нём руками, либо пришлите ' +
+      'исправление, и я заполню заново.',
     browserGone:
       'Заполнение прервалось: браузер закрылся, скорее всего из-за ' +
       'перезапуска бота. Пришлите /start, затем документы и данные заново.',

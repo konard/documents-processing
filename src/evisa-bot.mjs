@@ -603,13 +603,35 @@ export function describeSummary(
   language,
   reported = {},
   disputed = {},
-  asked = null
+  { asked = null, fill = {} } = {}
 ) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
   const fresh = (key) =>
     applicant[key] && prompts[key] && reported[key] !== applicant[key];
   let assumedAny = false;
+
+  // Where the value came from, as far as the fill can tell: the site read it
+  // off the passport and agreed with us, or read it differently and was
+  // overruled, or read it when we had nothing of our own.
+  const agreed = new Set(fill.agreed ?? []);
+  const siteOnly = new Set(fill.siteOnly ?? []);
+  const overruled = new Map(
+    (fill.corrected ?? []).map((change) => [change.field, change.was])
+  );
+
+  const sourceFor = (key) => {
+    if (overruled.has(key)) {
+      return ` ${strings.overruledMark(escapeHtml(overruled.get(key)))}`;
+    }
+    if (agreed.has(key)) {
+      return ` ${strings.agreedMark}`;
+    }
+    if (siteOnly.has(key)) {
+      return ` ${strings.siteOnlyMark}`;
+    }
+    return '';
+  };
 
   const markFor = (key) => {
     if (supplied[key]) {
@@ -647,7 +669,7 @@ export function describeSummary(
       .map((key) =>
         disputed[key] && !applicant[key]
           ? disputedLine(key)
-          : `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}`
+          : `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}${sourceFor(key)}`
       );
     if (!lines.length) {
       return null;
@@ -655,8 +677,11 @@ export function describeSummary(
     return [`<b>${strings.sections[section]}</b>`, ...lines].join('\n');
   });
   const shown = blocks.filter(Boolean);
+  // The list holds what is new. A fill that changed nothing has an empty
+  // list and still has to say what to do next, so the request stands on its
+  // own: a form with no word about it leaves the applicant waiting.
   if (!shown.length) {
-    return null;
+    return asked || null;
   }
   const parts = [strings.summary, '', shown.join('\n\n')];
   if (assumedAny) {

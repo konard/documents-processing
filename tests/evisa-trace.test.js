@@ -7,6 +7,7 @@ import {
   changesBetween,
   sweepTraces,
   readTrace,
+  escapeValue,
   STEPS,
 } from '../src/evisa-trace.mjs';
 import { prepareStore } from '../src/evisa-store.mjs';
@@ -139,5 +140,61 @@ describe('the record of a run', () => {
     expect(STEPS[0]).toBe('form');
     expect(STEPS[STEPS.length - 1]).toBe('paid');
     expect(STEPS.includes('payment')).toBe(true);
+  });
+});
+
+describe('a value written into the record', () => {
+  /** The value as the parser reads it back out of a record. */
+  const roundTrip = (raw) => {
+    const line = `field x\n  now ${escapeValue(raw, notation)}\n  by bot`;
+    const dig = (link) =>
+      link.values?.length ? link.values.map(dig).flat() : [link.id];
+    return new notation.Parser().parse(line).map(dig)[1]?.pop();
+  };
+
+  it('comes back as itself, whatever is in it', () => {
+    // Every shape a real value has taken: a ward with spaces, an address
+    // with commas and a slash, a timestamp whose colons would end the word,
+    // a name in Cyrillic, a telephone number with spaces and dashes.
+    for (const value of [
+      '',
+      'PLACEHOLDER',
+      'NHA TRANG WARD',
+      '2026-09-10T16:38:45.000Z',
+      '18/4 [REDACTED], Loc Tho Ward, Nha Trang',
+      'traveller@example.com',
+      '+7 925 [REDACTED]',
+      'МОСКВА/USSR',
+      'building#4',
+    ]) {
+      expect(`${value}:${roundTrip(value)}`).toBe(`${value}:${value}`);
+    }
+  });
+
+  it('survives a quote of either kind, and of both at once', () => {
+    // The notation escapes a quote by doubling it, and reads back only that.
+    for (const value of ['say "hi"', "O'Brien (Ward), Nha Trang 12:30"]) {
+      expect(roundTrip(value)).toBe(value);
+    }
+    const both = 'both \' and "';
+    expect(escapeValue(both, notation).includes("''")).toBe(true);
+    expect(roundTrip(both)).toBe(both);
+  });
+
+  it('quotes a value that opens with a hash, which is a comment unquoted', () => {
+    // Left bare, the parser reads the rest of the line as a comment and the
+    // value goes missing without a word.
+    expect(escapeValue('#hashfirst', notation).startsWith("'")).toBe(true);
+    expect(roundTrip('#hashfirst')).toBe('#hashfirst');
+  });
+
+  it('writes an empty value as a pair of quotes, so the line keeps both halves', () => {
+    expect(escapeValue('', notation)).toBe('""');
+    expect(escapeValue(null, notation)).toBe('""');
+    expect(escapeValue(undefined, notation)).toBe('""');
+  });
+
+  it('still writes something when the notation is not there to ask', () => {
+    expect(escapeValue('NHA TRANG WARD', null)).toBe('"NHA TRANG WARD"');
   });
 });

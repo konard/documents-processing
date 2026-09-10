@@ -157,8 +157,7 @@ const countdowns = new Map();
 
 /**
  * With `EVISA_BOT_HEADED=1` each chat's browser is a visible window, so an
- * operator sitting at the machine can watch a fill and, when it fails, carry
- * on by hand in the same window: a fill that fails leaves its browser open.
+ * operator can watch a fill and finish it by hand when it fails.
  */
 const HEADED = process.env.EVISA_BOT_HEADED === '1';
 
@@ -374,6 +373,12 @@ async function restartChat(chatId) {
   log(chatId, 'starting again; the browser and its form are closed');
   await endChat(chatId);
 }
+
+/** The language a chat is answered in, read back from the store when new. */
+const speakTheirLanguage = (chatId) =>
+  rememberedLanguage(sessions.get(chatId), () =>
+    store.read(chatId, 'language')
+  );
 
 /** Notes that a chat is in use, so the sweep leaves its browser alone. */
 function touch(chatId) {
@@ -913,6 +918,16 @@ async function refillAfterEmptyReview(ctx, chatId) {
  * the application laid out for review and a Back button, and nothing is
  * sent yet.
  */
+/** The captcha's code, typed in, then the countdown to sending. */
+async function typeTheCaptcha(ctx, chatId, code) {
+  const session = sessions.get(chatId);
+  await fillCaptcha(await pageFor(chatId), code);
+  session.captchaEntered = true;
+  log(chatId, 'captcha code typed in');
+  const said = MESSAGES[session.language].captchaEntered;
+  await sendAfterCountdown(ctx, chatId, said(SEND_COUNTDOWN_MS / 1000));
+}
+
 async function sendForm(ctx, chatId) {
   const step = await pressNextAndShow(ctx, chatId);
   await followStep(ctx, chatId, step);
@@ -941,24 +956,6 @@ async function sendAfterCountdown(ctx, chatId, announcement) {
   await followStep(ctx, chatId, step);
 }
 
-/**
- * The captcha's code, typed into the review page; then the countdown to
- * the Next that sends the application on.
- */
-async function enterCaptcha(ctx, chatId, code) {
-  const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
-  const page = await pageFor(chatId);
-  await fillCaptcha(page, code);
-  session.captchaEntered = true;
-  log(chatId, 'captcha code typed in');
-  await sendAfterCountdown(
-    ctx,
-    chatId,
-    strings.captchaEntered(SEND_COUNTDOWN_MS / 1000)
-  );
-}
-
 /** How long one call to Telegram may take; an upload can stall for ever. */
 const CALL_TIMEOUT_MS = 90_000;
 
@@ -983,7 +980,7 @@ bot.command('start', async (ctx) => {
   // A choice made before wins. Telegram's own guess is the fallback for a
   // chat never seen, so most applicants are never asked, and the buttons are
   // there for anyone it gets wrong.
-  rememberedLanguage(session, () => store.read(chatId, 'language'));
+  speakTheirLanguage(chatId);
   if (!session.languageChosen) {
     session.language = detectLanguage(null, ctx.from?.language_code);
   }
@@ -1111,10 +1108,8 @@ registerVisaCommands(bot, {
   describeDeclaration,
   MESSAGES,
   restartChat,
-  speakTheirLanguage: (chatId) =>
-    rememberedLanguage(sessions.get(chatId), () =>
-      store.read(chatId, 'language')
-    ),
+  stopFilling: (ctx, chatId) => inTurn(chatId, () => stopFilling(ctx, chatId)),
+  speakTheirLanguage,
 });
 
 bot.command('reset', async (ctx) => {
@@ -1300,9 +1295,8 @@ async function receiveDocument(ctx) {
 }
 
 /**
- * Details sent after the site took the form cannot reach it: the page has
- * moved on. The chat is told, and the countdown, if one runs, is stopped,
- * since a message with details in it is not a word to send.
+ * Details sent after the site took the form cannot reach it. The chat is
+ * told, and a countdown is stopped: details are not a word to send.
  */
 async function refuseIfPastForm(ctx, session) {
   if ((session.stage ?? 'form') === 'form') {
@@ -1315,7 +1309,9 @@ async function refuseIfPastForm(ctx, session) {
 }
 
 bot.on('message:text', (ctx) => {
-  armIdleFill(ctx, ctx.chat.id);
+  if (!isCancellation(ctx.message.text)) {
+    armIdleFill(ctx, ctx.chat.id);
+  }
   return inTurn(ctx.chat.id, () => receiveText(ctx));
 });
 
@@ -1368,7 +1364,7 @@ async function receiveText(ctx) {
     } else {
       log(chatId, 'captcha code received');
     }
-    enterCaptcha(ctx, chatId, ctx.message.text).catch((error) =>
+    typeTheCaptcha(ctx, chatId, ctx.message.text).catch((error) =>
       log(chatId, `the captcha step failed: ${error.message}`)
     );
     return;
@@ -1485,6 +1481,7 @@ async function startPolling(attempt = 1) {
       { command: 'visa', description: 'apply for an e-visa' },
       { command: 'arrival', description: 'the pre-arrival declaration' },
       { command: 'documents', description: 'fetch a filed application' },
+      { command: 'stop', description: 'stop, and close the browser window' },
     ]);
     await bot.start();
   } catch (error) {

@@ -527,7 +527,20 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
     await attempt(key, () => fillField(page, field, value));
   }
 
-  return { filled, typed, failures, extracted, corrected, agreed, siteOnly };
+  return {
+    filled,
+    typed,
+    failures,
+    extracted,
+    corrected,
+    agreed,
+    siteOnly,
+    // What the fill made of the values it was given. A ward the site no
+    // longer lists is put in the one that replaced it, and the applicant is
+    // shown the form with that on it: they have to be told the same, or the
+    // list under the picture disagrees with the picture.
+    placed: applicant,
+  };
 }
 
 /**

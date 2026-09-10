@@ -91,3 +91,30 @@ describe('a dropdown reads its own list', () => {
     expect(guard > 0 && guard < match).toBe(true);
   });
 });
+
+describe('what the list under the form says', () => {
+  it('reports the ward that went on the form, not the one asked for', () => {
+    // The site no longer lists Loc Tho, so the fill puts the application in
+    // the ward that replaced it. The picture showed NHA TRANG WARD and the
+    // list under it said LOC THO, which reads as the bot having ignored the
+    // form it had just filled.
+    const fill = readFileSync('src/evisa-fill.mjs', 'utf8');
+    const form = fill.slice(fill.indexOf('export async function fillForm'));
+    const body = form.slice(0, form.indexOf('\n}\n'));
+    // The fill says what it made of the values it was given.
+    expect(body.includes('placed: applicant')).toBe(true);
+
+    const session = readFileSync('src/evisa-session.mjs', 'utf8');
+    const bySection = session.slice(
+      session.indexOf('export async function fillBySection')
+    );
+    // And a fill done part by part gathers them across all of its parts.
+    expect(
+      bySection.includes('Object.assign(result.placed, from.placed ?? {})')
+    ).toBe(true);
+
+    const run = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    // And the list is written from them.
+    expect(run.includes('{ ...applicant, ...result.placed }')).toBe(true);
+  });
+});

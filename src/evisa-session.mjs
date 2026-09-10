@@ -623,11 +623,20 @@ export async function fillBySection(
   const placement = await readFieldSections(page, FIELDS);
   const parts = groupBySection(applicant, placement);
 
-  const result = { filled: [], typed: [], failures: [], sections: [] };
+  const result = {
+    filled: [],
+    typed: [],
+    failures: [],
+    sections: [],
+    placed: {},
+  };
   const take = (from) => {
     result.filled.push(...from.filled);
     result.typed.push(...from.typed);
     result.failures.push(...from.failures);
+    // What the fill made of a value it was given, so the list the applicant
+    // reads says what went on the form and not what was asked for.
+    Object.assign(result.placed, from.placed ?? {});
   };
 
   // The pictures go up first, being at the top of the form. They are not

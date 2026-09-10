@@ -610,12 +610,12 @@ async function fillAndShow(ctx, chatId, round = 1) {
     await showBrowser(page);
     const tail = describeTail(result, outstanding, session.language);
     const summary = describeSummary(
-      applicant,
+      // What went on the form, which is what the applicant is checking.
+      { ...applicant, ...result.placed },
       session.data,
       session.language,
       session.reported,
       session.disputed ?? {},
-      // What the site itself read, so each line can say whose reading it is.
       { asked: tail, fill: result }
     );
     await sendOutcome({

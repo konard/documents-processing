@@ -213,7 +213,6 @@ export async function sendOutcome({
   caption,
   log,
   InputFile,
-  showStatus,
 }) {
   // What the applicant reads under the page: the outcome, then the values.
   const whole = [caption, summary].filter(Boolean).join('\n\n');
@@ -223,25 +222,22 @@ export async function sendOutcome({
   const under = fits ? whole : caption;
   const rest = fits ? null : summary;
 
-  const sending = showStatus(ctx, 'upload_document');
-  try {
-    await Promise.race([
-      ctx
-        .replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
-          caption: under,
-          parse_mode: 'HTML',
-        })
-        .catch((error) =>
-          log(chatId, `the page did not send: ${error.message}`)
-        ),
-      new Promise((resolve) => {
-        const late = setTimeout(resolve, 120_000);
-        late.unref?.();
-      }),
-    ]);
-  } finally {
-    sending();
-  }
+  // No status of its own here. Telegram shows one action per chat, so a
+  // second loop beside the fill's overwrites it every three seconds, and
+  // when this one stops the chat is left blank until the other's next tick.
+  // The fill's own status covers the upload, which is part of the fill.
+  await Promise.race([
+    ctx
+      .replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
+        caption: under,
+        parse_mode: 'HTML',
+      })
+      .catch((error) => log(chatId, `the page did not send: ${error.message}`)),
+    new Promise((resolve) => {
+      const late = setTimeout(resolve, 120_000);
+      late.unref?.();
+    }),
+  ]);
   if (rest) {
     log(
       chatId,

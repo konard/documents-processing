@@ -83,6 +83,7 @@ import {
   recordStep,
 } from './evisa-trace.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
+import { showStatus as raiseStatus } from './evisa-status.mjs';
 import { registerVisaCommands } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
@@ -128,6 +129,9 @@ const inTurn = (chatId, work) => {
 };
 
 const browsers = new Map();
+
+/** The chat's status line, with this run's log. */
+const showStatus = (ctx, action) => raiseStatus(ctx, action, log);
 
 /**
  * One fill for everything an applicant sends, however they send it.
@@ -384,39 +388,6 @@ function keepForUpload(source, name) {
 }
 
 /**
- * Shows a status in the chat until the returned function is called.
- *
- * Telegram clears a chat action after five seconds, and again whenever the
- * bot sends a message, so it is renewed every three for as long as the work
- * runs. A status says the bot is busy without adding a message the applicant
- * then has to scroll past. The first failure to send it is logged, since a
- * status that silently stops looks like a bot that has.
- */
-function showStatus(ctx, action) {
-  let stopped = false;
-  let failed = false;
-  const send = async () => {
-    try {
-      await ctx.replyWithChatAction(action);
-    } catch (error) {
-      if (!failed) {
-        failed = true;
-        log(ctx.chat.id, `chat action "${action}" failed: ${error.message}`);
-      }
-    }
-  };
-  (async () => {
-    while (!stopped) {
-      await send();
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-    }
-  })();
-  return () => {
-    stopped = true;
-  };
-}
-
-/**
  * Fills the form with the chat's data and captures the page into `dir`.
  * Returns the fill's result with the summary that explains it: what went on
  * the form, grouped by section, or null when nothing new did.
@@ -627,7 +598,6 @@ async function fillAndShow(ctx, chatId, round = 1) {
       caption: describeOutcome(result, outstanding, session.language),
       log,
       InputFile,
-      showStatus,
     });
   } finally {
     busy();

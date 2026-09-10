@@ -101,8 +101,9 @@ describe('what the list under the form says', () => {
     const fill = readFileSync('src/evisa-fill.mjs', 'utf8');
     const form = fill.slice(fill.indexOf('export async function fillForm'));
     const body = form.slice(0, form.indexOf('\n}\n'));
-    // The fill says what it made of the values it was given.
-    expect(body.includes('placed: applicant')).toBe(true);
+    // The fill reads the form back off the page, so what the applicant is
+    // told is the form itself and not what the fill meant to write.
+    expect(body.includes('placed: await readFilledFields(page)')).toBe(true);
 
     const session = readFileSync('src/evisa-session.mjs', 'utf8');
     const bySection = session.slice(

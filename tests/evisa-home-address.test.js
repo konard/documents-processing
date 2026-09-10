@@ -471,17 +471,21 @@ describe('what the bot says about a form', () => {
         '',
         '<b>Контакты</b>',
         '• телефон: +79991112233',
-        '• контактный адрес (по умолчанию): Tula, ul. Mira, 1 &lt;flat 2&gt;',
+        '• контактный адрес *: Tula, ul. Mira, 1 &lt;flat 2&gt;',
         '',
         '<b>Поездка</b>',
-        '• цель поездки (по умолчанию): Tourist',
+        '• цель поездки *: Tourist',
         '',
-        'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Если ' +
+        'Со звёздочкой — то, что вы не указывали и я подставил сам. Если ' +
           'что-то не так, пришлите нужное значение.',
       ].join('\n')
     );
-    // Said once: the next form of the conversation repeats none of it.
-    expect(describeSummary(applicant, supplied, 'ru', applicant)).toBe(null);
+    // Said again on the next form, all of it: the applicant is asked to check
+    // that form, and they cannot check what they cannot see. Nothing changed
+    // between the two, so nothing is marked as new.
+    const again = describeSummary(applicant, supplied, 'ru', applicant);
+    expect(again).toContain('• фамилия: DOE');
+    expect(again).not.toContain('новое');
     const english = describeSummary({ surname: 'DOE' }, supplied, 'en');
     expect(english).toBe(
       'What I put on the form:\n\n<b>Applicant</b>\n• surname: DOE'
@@ -503,8 +507,8 @@ describe('what the bot says about a form', () => {
     expect(summary).toContain(
       '• виза по (90 дней, максимум для электронной визы): 14/12/2026'
     );
-    expect(summary).toContain('• цель поездки (по умолчанию): Tourist');
-    expect(summary).toContain('Помеченное «(по умолчанию)»');
+    expect(summary).toContain('• цель поездки *: Tourist');
+    expect(summary).toContain('Со звёздочкой —');
     // Nothing assumed: no note about assumptions either.
     const given = { surname: 'DOE' };
     expect(describeSummary(given, given, 'en')).not.toContain('assumed');
@@ -573,8 +577,10 @@ describe('what the bot says about a form', () => {
     );
     // Said as compulsory, so the applicant does not read it as a choice the
     // bot made for them: the site will not go on until all four are ticked.
-    expect(tail).toContain('обязательные');
-    expect(describeTail(result, [], 'en')).toContain('compulsory');
+    expect(tail.toLowerCase()).toContain('обязательные');
+    expect(describeTail(result, [], 'en').toLowerCase()).toContain(
+      'compulsory'
+    );
     // And what to do next comes after them, so it is the last thing read.
     expect(
       tail.indexOf('обязательные') < tail.indexOf('Проверьте анкету')

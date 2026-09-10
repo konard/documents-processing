@@ -32,16 +32,18 @@ export const MESSAGES = {
       emergency: 'Emergency contact',
       trip: 'Trip',
     },
-    assumedMark: '(assumed)',
+    assumedMark: '*',
     // Where a value came from, when the site read the passport too. The
     // applicant is asked to check these against the passport itself, so it
     // has to be plain which reading each value is.
-    agreedMark: '— the site read the same from the passport',
-    siteOnlyMark: '— the site read this from the passport; I had nothing',
-    overruledMark: (was) => `— the site read "${was}"; I put mine`,
+    agreedMark: ' ✓site',
+    siteOnlyMark: ' (from the site)',
+    overruledMark: (was) => ` (site read "${was}")`,
     assumedNote:
-      'What is marked "(assumed)" was not given, so I chose it. If any of ' +
-      'it is wrong, send the value you want.',
+      'Starred values were not given, so I chose them. If any is wrong, ' +
+      'send the value you want.',
+    changedMark: '<b>(new)</b>',
+    changedNote: 'What is marked (new) changed since the last form.',
     hyphenNote: (printed) =>
       `(the passport has ${printed}; the site takes no hyphen, so a space)`,
     disputedNote: (candidates) =>
@@ -63,10 +65,8 @@ export const MESSAGES = {
       instructionsRead: 'that the instructions were read',
     },
     declared: (names) =>
-      'The four declarations under the form are compulsory — the site keeps ' +
-      'Next disabled until every one is ticked. All are ticked: ' +
-      `${names.join(', ')}. They are made in your name, so read them on the ` +
-      'form itself.',
+      'The declarations under the form are compulsory (the site will not go ' +
+      `on without them); all are ticked — ${names.join(', ')}. In your name.`,
     failed: (field, why) => `Could not fill ${field}: ${why}`,
     fillFailed: (why) =>
       `Filling stopped: ${why}. The browser window is now in front of you, ` +
@@ -223,15 +223,17 @@ export const MESSAGES = {
       emergency: 'Экстренный контакт',
       trip: 'Поездка',
     },
-    assumedMark: '(по умолчанию)',
+    assumedMark: '*',
     // Откуда значение, когда сайт тоже прочитал паспорт. Заявитель сверяет
     // это с самим паспортом, поэтому должно быть видно, чьё это чтение.
-    agreedMark: '— сайт прочитал с паспорта так же',
-    siteOnlyMark: '— это сайт прочитал с паспорта, у меня своего не было',
-    overruledMark: (was) => `— сайт прочитал «${was}», поставил своё`,
+    agreedMark: ' ✓сайт',
+    siteOnlyMark: ' (это с сайта)',
+    overruledMark: (was) => ` (сайт читал «${was}»)`,
     assumedNote:
-      'Помеченное «(по умолчанию)» вы не указывали, я подставил сам. Если ' +
+      'Со звёздочкой — то, что вы не указывали и я подставил сам. Если ' +
       'что-то не так, пришлите нужное значение.',
+    changedMark: '<b>(новое)</b>',
+    changedNote: 'Помеченное «(новое)» изменилось с прошлой анкеты.',
     hyphenNote: (printed) =>
       `(в паспорте ${printed}; дефис сайт не принимает, заменён пробелом)`,
     disputedNote: (candidates) =>
@@ -256,9 +258,8 @@ export const MESSAGES = {
     // so they are not a choice the bot made on the applicant's behalf. They
     // are still statements in the applicant's name, so each one is named.
     declared: (names) =>
-      'Под анкетой четыре обязательные галочки — без них сайт не пропускает ' +
-      `дальше, кнопка «Next» остаётся неактивной. Отметил все: ${names.join(', ')}. ` +
-      'Вы подтверждаете это от своего имени, поэтому прочитайте их на самой анкете.',
+      `Обязательные галочки под анкетой (без них сайт не пропускает ` +
+      `дальше), отметил все — ${names.join(', ')}. Это от вашего имени.`,
     failed: (field, why) => `Не удалось заполнить ${field}: ${why}`,
     fillFailed: (why) =>
       `Заполнение прервалось: ${why}. Окно браузера поднято перед вами, ` +

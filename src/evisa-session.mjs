@@ -361,17 +361,65 @@ async function holdStillForCapture(page) {
   // hovered select's border in the same red it uses for an error:
   //   .ant-select:not(.ant-select-disabled):hover .ant-select-selector
   //     { border-color: rgb(215, 26, 33) }
-  // So the ward came out ringed in red on a form the site had no complaint
-  // about. Moved off the form before the picture is taken.
-  await page.mouse.move(2, 2).catch(() => {});
+  // So a field came out ringed in red on a form the site had no complaint
+  // about, and the applicant read it as an error and sent the value again.
+  //
+  // So before the picture: let go of the field, take the pointer off the
+  // form, and overrule the rule. The first two are what a person would do;
+  // the third is what makes it certain, since a pointer moved by a script
+  // does not always leave the element it was over, and a window that never
+  // had the pointer keeps whatever it was hovering when it lost it.
   await page
-    .addStyleTag({
-      content: `
-        .navbar, .step-custom { display: none !important; }
-      `,
-      // Named, so exactly this rule is the one taken away again.
-      id: marker,
+    .evaluate(() => {
+      document.activeElement?.blur?.();
+      // Something outside the form to hold the focus, so nothing on it is
+      // drawn as the field being worked in.
+      document.body.setAttribute('tabindex', '-1');
+      document.body.focus({ preventScroll: true });
+      // And told to let go of the pointer: the events a real mouse would
+      // send on its way out, so anything listening for them settles too.
+      for (const element of document.querySelectorAll(':hover')) {
+        for (const type of ['mouseout', 'mouseleave']) {
+          element.dispatchEvent(
+            new MouseEvent(type, { bubbles: type === 'mouseout' })
+          );
+        }
+      }
     })
+    .catch(() => {});
+  await page.mouse.move(2, 2).catch(() => {});
+  // Injected by hand. Playwright's own `addStyleTag` drops the `id` it is
+  // given, so the rule could never be found again to take away: every
+  // capture left another copy on the page, and the one rule that mattered
+  // was never there when the picture was taken.
+  await page
+    .evaluate((id) => {
+      document.getElementById(id)?.remove();
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = `
+        /* The site fades a border over 0.3s, so a field let go of a moment
+           ago is still caught halfway back from its hover colour. Nothing
+           animates while the picture is being taken. */
+        *, *::before, *::after {
+          transition: none !important;
+          animation: none !important;
+        }
+        .navbar, .step-custom { display: none !important; }
+        .ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+        .ant-input:hover,
+        .ant-picker:hover {
+          border-color: #d9d9d9 !important;
+        }
+        .ant-form-item-has-error .ant-select:not(.ant-select-disabled):hover
+          .ant-select-selector,
+        .ant-form-item-has-error .ant-input:hover,
+        .ant-form-item-has-error .ant-picker:hover {
+          border-color: #ff4d4f !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }, marker)
     .catch(() => {});
   // Taking the bars away shortens the page above whatever is being measured,
   // so everything below them moves up. A measurement taken before the browser

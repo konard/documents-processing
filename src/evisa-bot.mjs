@@ -593,10 +593,36 @@ function escapeHtml(value) {
  * from one they did give, the contact address from the permanent one or the
  * visa's first day from the entry date, is marked with where it came from
  * instead, since calling it assumed would say their answer was ignored.
- * Only what has not been said already is listed: the second form of a
- * conversation carries the same defaults as the first, and reading them
- * twice tells the applicant nothing.
+ * Everything on the form is listed, every time. The applicant is being asked
+ * to check this form, and they cannot check what they cannot see: a list of
+ * only what changed since the last one left them holding a form of forty
+ * values with nothing said about any of them. What is new since the form
+ * before is marked, so a correction is easy to find among the rest.
  */
+/**
+ * Where a value came from, as far as the fill can tell: the site read it off
+ * the passport and agreed with us, or read it differently and was overruled,
+ * or read it when we had nothing of our own.
+ *
+ * The applicant is asked to check these against the passport itself, so it
+ * has to be plain whose reading each one is.
+ */
+function whoReadIt(key, fill, strings) {
+  const overruled = (fill.corrected ?? []).find(
+    (change) => change.field === key
+  );
+  if (overruled) {
+    return ` ${strings.overruledMark(escapeHtml(overruled.was))}`;
+  }
+  if ((fill.agreed ?? []).includes(key)) {
+    return ` ${strings.agreedMark}`;
+  }
+  if ((fill.siteOnly ?? []).includes(key)) {
+    return ` ${strings.siteOnlyMark}`;
+  }
+  return '';
+}
+
 export function describeSummary(
   applicant,
   supplied,
@@ -607,31 +633,17 @@ export function describeSummary(
 ) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const prompts = FIELD_PROMPTS[language] ?? FIELD_PROMPTS.en;
-  const fresh = (key) =>
-    applicant[key] && prompts[key] && reported[key] !== applicant[key];
+  // On the form and worth naming: every value the applicant can check.
+  const onForm = (key) => Boolean(applicant[key] && prompts[key]);
+  // New since the form before. On the first form everything is new, so
+  // nothing is marked: a mark against every line says nothing.
+  const anyBefore = Object.keys(reported).length > 0;
+  const changed = (key) =>
+    anyBefore && onForm(key) && reported[key] !== applicant[key];
   let assumedAny = false;
+  let changedAny = false;
 
-  // Where the value came from, as far as the fill can tell: the site read it
-  // off the passport and agreed with us, or read it differently and was
-  // overruled, or read it when we had nothing of our own.
-  const agreed = new Set(fill.agreed ?? []);
-  const siteOnly = new Set(fill.siteOnly ?? []);
-  const overruled = new Map(
-    (fill.corrected ?? []).map((change) => [change.field, change.was])
-  );
-
-  const sourceFor = (key) => {
-    if (overruled.has(key)) {
-      return ` ${strings.overruledMark(escapeHtml(overruled.get(key)))}`;
-    }
-    if (agreed.has(key)) {
-      return ` ${strings.agreedMark}`;
-    }
-    if (siteOnly.has(key)) {
-      return ` ${strings.siteOnlyMark}`;
-    }
-    return '';
-  };
+  const sourceFor = (key) => whoReadIt(key, fill, strings);
 
   const markFor = (key) => {
     if (supplied[key]) {
@@ -663,13 +675,19 @@ export function describeSummary(
     `• ${labelFor(key, language)}: ${strings.disputedNote(
       disputed[key].map((value) => `<b>${escapeHtml(value)}</b>`)
     )}`;
+  /** A mark on a value that is new since the form before this one. */
+  const newFor = (key) => {
+    const isNew = changed(key);
+    changedAny = changedAny || isNew;
+    return isNew ? ` ${strings.changedMark}` : '';
+  };
   const blocks = SECTIONS.map(([section, keys]) => {
     const lines = keys
-      .filter((key) => fresh(key) || (disputed[key] && !applicant[key]))
+      .filter((key) => onForm(key) || (disputed[key] && !applicant[key]))
       .map((key) =>
         disputed[key] && !applicant[key]
           ? disputedLine(key)
-          : `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}${sourceFor(key)}`
+          : `• ${labelFor(key, language)}${markFor(key)}: ${escapeHtml(applicant[key])}${noteFor(key)}${sourceFor(key)}${newFor(key)}`
       );
     if (!lines.length) {
       return null;
@@ -677,15 +695,16 @@ export function describeSummary(
     return [`<b>${strings.sections[section]}</b>`, ...lines].join('\n');
   });
   const shown = blocks.filter(Boolean);
-  // The list holds what is new. A fill that changed nothing has an empty
-  // list and still has to say what to do next, so the request stands on its
-  // own: a form with no word about it leaves the applicant waiting.
+  // A form with nothing on it at all still has to say what to do next.
   if (!shown.length) {
     return asked || null;
   }
   const parts = [strings.summary, '', shown.join('\n\n')];
   if (assumedAny) {
     parts.push('', strings.assumedNote);
+  }
+  if (changedAny) {
+    parts.push('', strings.changedNote);
   }
   // What the applicant is being asked to do goes last, under everything it
   // refers to. Above forty lines of values it is scrolled off the screen, and

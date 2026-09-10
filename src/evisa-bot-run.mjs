@@ -33,6 +33,7 @@ import {
   sectionName,
   describeDeclaration,
   describeSummary,
+  describeTail,
   describeOutcome,
   describeStep,
   isConfirmation,
@@ -423,13 +424,6 @@ async function fillPage(ctx, chatId, page, dir) {
   try {
     const applicant = normalizeApplicant(session.data);
     log(chatId, `filling with: ${describeFields(applicant)}`);
-    const summary = describeSummary(
-      applicant,
-      session.data,
-      session.language,
-      session.reported,
-      session.disputed ?? {}
-    );
     session.filling = true;
 
     const uploads = {};
@@ -480,7 +474,10 @@ async function fillPage(ctx, chatId, page, dir) {
     });
     const repeat = wrote === session.lastFill;
     session.lastFill = wrote;
-    return { result, summary, repeat };
+    // The summary is built where it is sent, not here: what goes at the end
+    // of it depends on the fill's own result, which is only settled once the
+    // fill is done.
+    return { result, applicant, repeat };
   } finally {
     session.filling = false;
     busy();
@@ -538,7 +535,12 @@ async function fillAndShow(ctx, chatId, round = 1) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
   try {
     const filledFrom = session.received ?? 0;
-    const { result, summary, repeat } = await fillPage(ctx, chatId, page, dir);
+    const { result, applicant, repeat } = await fillPage(
+      ctx,
+      chatId,
+      page,
+      dir
+    );
     logFill(chatId, result);
     if (repeat) {
       // The same values, with the same fields refusing them: the applicant
@@ -578,6 +580,15 @@ async function fillAndShow(ctx, chatId, round = 1) {
     }
     // Now the form is worth looking at, so the window comes forward.
     await showBrowser(page);
+    const tail = describeTail(result, outstanding, session.language);
+    const summary = describeSummary(
+      applicant,
+      session.data,
+      session.language,
+      session.reported,
+      session.disputed ?? {},
+      tail
+    );
     await sendOutcome({
       ctx,
       chatId,

@@ -54,13 +54,15 @@ import {
   openForm,
   reopenForm,
   readPassportDocumentInWorker,
-  fillAndCapture,
+  fillBySection,
+  captureSection,
+  captureForm,
   advanceAndCapture,
   showBrowser,
 } from './evisa-session.mjs';
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
-import { sendFormAndSections } from './evisa-slice.mjs';
+import { sendSection, sendOutcome } from './evisa-sections.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
 import { registerVisaCommands } from './evisa-commands.mjs';
@@ -436,10 +438,25 @@ async function fillPage(ctx, chatId, page, dir) {
         uploads[key] = file;
       }
     }
-    const result = await fillAndCapture(page, applicant, {
+    // Filled a part at a time, in the order the form prints them, and each
+    // part sent as it is done, so the applicant watches the form fill from
+    // the top down.
+    const result = await fillBySection(page, applicant, {
       uploads,
-      screenshot: path.join(dir, 'form.png'),
+      capture: (at, title) =>
+        captureSection(page, title, path.join(dir, `section-${at}.png`)),
+      onSection: (part) =>
+        sendSection({
+          ctx,
+          chatId,
+          part,
+          log,
+          InputFile,
+          name: (title) => sectionName(title, session.language),
+        }),
     });
+    // The whole page as well, which is what the applicant keeps.
+    result.screenshot = await captureForm(page, path.join(dir, 'form.png'));
     for (const key of Object.keys(uploads)) {
       if (result.filled.includes(key)) {
         session.uploaded[key] = uploads[key];
@@ -467,44 +484,6 @@ async function fillPage(ctx, chatId, page, dir) {
   } finally {
     session.filling = false;
     busy();
-  }
-}
-
-/**
- * Sends the filled form with the fill's outcome under it, then the
- * explanation of what went where.
- *
- * The form first: it is what the applicant checks, and the explanation reads
- * against it. It goes as a PDF, paged at the same cuts as the pictures, and
- * as those pictures: Telegram shrinks a photo to fit a screen, and a page
- * nine screens tall comes out too small to read either way. The explanation
- * is its own message because Telegram's caption limit would cut a list of
- * forty values short.
- */
-async function sendOutcome(ctx, chatId, result, summary, outstanding) {
-  const session = sessions.get(chatId);
-  const caption = describeOutcome(result, outstanding, session.language);
-  const sending = showStatus(ctx, 'upload_document');
-  try {
-    await sendFormAndSections({
-      ctx,
-      chatId,
-      screenshot: result.screenshot,
-      caption,
-      page: browsers.get(chatId)?.page,
-      log,
-      InputFile,
-      name: (title) => sectionName(title, session.language),
-    });
-  } finally {
-    sending();
-  }
-  if (summary) {
-    await ctx
-      .reply(summary, { parse_mode: 'HTML' })
-      .catch((error) =>
-        log(chatId, `the summary did not send: ${error.message}`)
-      );
   }
 }
 
@@ -599,7 +578,16 @@ async function fillAndShow(ctx, chatId, round = 1) {
     }
     // Now the form is worth looking at, so the window comes forward.
     await showBrowser(page);
-    await sendOutcome(ctx, chatId, result, summary, outstanding);
+    await sendOutcome({
+      ctx,
+      chatId,
+      result,
+      summary,
+      caption: describeOutcome(result, outstanding, session.language),
+      log,
+      InputFile,
+      showStatus,
+    });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -421,3 +421,148 @@ export async function advanceAndCapture(page, screenshot, label = 'Next') {
 export async function showBrowser(page) {
   await page.bringToFront().catch(() => {});
 }
+
+/**
+ * Captures one part of the form, by its heading.
+ *
+ * The part is measured on the page and cut from a capture of it, so what the
+ * applicant is sent is exactly the part just filled, with the site's
+ * navigation held still and its banner left off.
+ */
+export async function captureSection(page, title, outputPath) {
+  const released = await holdStillForCapture(page);
+  try {
+    const box = await page.evaluate((wanted) => {
+      const headings = [...document.querySelectorAll('h3')].filter(
+        (heading) => heading.offsetParent !== null
+      );
+      const at = headings.findIndex(
+        (heading) => heading.innerText.trim() === wanted
+      );
+      if (at < 0) {
+        return null;
+      }
+      const top = headings[at].getBoundingClientRect().top + window.scrollY;
+      const next = headings[at + 1];
+      const bottom = next
+        ? next.getBoundingClientRect().top + window.scrollY
+        : document.documentElement.scrollHeight;
+      return { top: Math.max(0, top - 16), bottom };
+    }, title);
+    if (!box) {
+      return null;
+    }
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    // A part below the fold lies outside the window, so the clip is measured
+    // against the whole page.
+    await page.screenshot({
+      path: outputPath,
+      fullPage: true,
+      clip: {
+        x: 0,
+        y: box.top,
+        width: page.viewportSize()?.width ?? 1500,
+        height: Math.max(1, box.bottom - box.top),
+      },
+    });
+    return outputPath;
+  } finally {
+    await released();
+  }
+}
+
+/**
+ * Fills the form one part at a time, in the order the form prints them.
+ *
+ * The applicant reads the form downwards, so it is filled downwards. Each
+ * part is filled, settled and handed to `onSection` before the next is begun,
+ * so the chat shows the form appearing in the order it is actually filled —
+ * and a part with nothing to fill is still shown, since the applicant is
+ * checking it either way.
+ *
+ * The uploads go first, being the pictures at the top of the form, and the
+ * declarations are ticked at the end, under the last part.
+ */
+export async function fillBySection(
+  page,
+  applicant,
+  { uploads, onSection, capture }
+) {
+  const { FIELDS } = await import('./evisa-schema.mjs');
+  const { readFieldSections, groupBySection, SECTION_ORDER } =
+    await import('./evisa-sections.mjs');
+  // The page is asked where its fields are, so a form that has been
+  // rearranged is still filled in its own order.
+  const placement = await readFieldSections(page, FIELDS);
+  const parts = groupBySection(applicant, placement);
+
+  const result = { filled: [], typed: [], failures: [], sections: [] };
+  const take = (from) => {
+    result.filled.push(...from.filled);
+    result.typed.push(...from.typed);
+    result.failures.push(...from.failures);
+  };
+
+  if (uploads && Object.keys(uploads).length) {
+    take(await fillForm(page, {}, { uploads }));
+    await settleForm(page);
+    await report(0, SECTION_ORDER[0], result, onSection, capture);
+  }
+
+  // Every part of the form is shown, in printed order, whether or not this
+  // fill had anything to put in it: the applicant is checking all of them,
+  // and a part that skipped its turn reads as one that went wrong.
+  const filling = new Map(parts.map((part) => [part.at, part]));
+  const shown = await presentSections(page);
+  for (const { at, title } of shown) {
+    const part = filling.get(at);
+    if (part) {
+      take(await fillForm(page, part.fields));
+      // Only a part that was written to needs settling; one merely being
+      // shown is already as settled as the part before it left it.
+      await settleForm(page, { timeout: 8000 });
+    }
+    await report(at, title, result, onSection, capture);
+  }
+  // Anything the page had no place for is attempted last, so nothing is
+  // silently dropped for want of a heading to sit under.
+  for (const part of parts) {
+    if (!shown.some(({ at }) => at === part.at)) {
+      take(await fillForm(page, part.fields));
+      await settleForm(page);
+    }
+  }
+
+  result.declared = await tickDeclarations(page);
+  return result;
+}
+
+/**
+ * The parts the form is showing, in printed order.
+ *
+ * Read from the page, so a form that has grown a part is still shown whole.
+ */
+async function presentSections(page) {
+  const { sectionNumber } = await import('./evisa-sections.mjs');
+  const titles = await page
+    .evaluate(() =>
+      [...document.querySelectorAll('h3')]
+        .filter((heading) => heading.offsetParent !== null)
+        .map((heading) => heading.innerText.trim())
+    )
+    .catch(() => []);
+  return titles.map((title, order) => ({
+    at: sectionNumber(title) ?? order,
+    title,
+  }));
+}
+
+/** Captures one part of the form and hands it over, if a caller wants it. */
+async function report(at, title, result, onSection, capture) {
+  if (!onSection) {
+    return;
+  }
+  const image = capture ? await capture(at, title) : null;
+  result.sections.push({ at, title });
+  await onSection({ at, title, image }).catch(() => {});
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'test-anywhere';
-import { createBatcher } from '../src/evisa-batch.mjs';
+import { createBatcher, createFillBatcher } from '../src/evisa-batch.mjs';
 
 /** A batcher that counts its fills and notices two running at once. */
 function counting({ quietMs = 40, fillMs = 60 } = {}) {
@@ -164,5 +164,54 @@ describe('nothing waits for ever', () => {
     batch.arrived('c', {});
     await after(250);
     expect(tries).toBe(2);
+  });
+});
+
+describe('the typing status while a chat waits for its form', () => {
+  it('is the fill´s own, and nothing else puts it out', async () => {
+    // Two owners of one indicator is one too many. The fill used to begin by
+    // disarming the batcher's status, so it went out at the very moment the
+    // work began: the applicant watched the bot stop typing and then sat
+    // through a minute of silence while the form was captured and sent.
+    const events = [];
+    const showStatus = () => {
+      events.push('up');
+      return () => events.push('down');
+    };
+    const { batch, disarmIdleFill } = createFillBatcher({
+      quietMs: 20,
+      log: () => {},
+      fill: async () => {
+        const stop = showStatus();
+        try {
+          // What the fill does, and what a caller does partway through it.
+          await new Promise((done) => setTimeout(done, 20));
+          disarmIdleFill(1);
+          await new Promise((done) => setTimeout(done, 20));
+        } finally {
+          stop();
+        }
+      },
+    });
+    batch.arrived(1, {});
+    await new Promise((done) => setTimeout(done, 200));
+    // Raised once, and lowered once, at the end.
+    expect(events).toEqual(['up', 'down']);
+  });
+
+  it('is not put up by the batcher while the quiet window runs', async () => {
+    // While the window is open the applicant is still sending; a bot that
+    // appears to be typing the whole time says nothing about when it began.
+    const events = [];
+    const { batch } = createFillBatcher({
+      quietMs: 60,
+      log: () => {},
+      fill: async () => events.push('filling'),
+    });
+    batch.arrived(1, {});
+    await new Promise((done) => setTimeout(done, 20));
+    expect(events).toEqual([]);
+    await new Promise((done) => setTimeout(done, 120));
+    expect(events).toEqual(['filling']);
   });
 });

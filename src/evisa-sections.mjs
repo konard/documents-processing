@@ -315,6 +315,22 @@ export const SECTION_NAMES = {
     '7. ACCOMPANY CHILD(REN)': '7. Дети в том же паспорте',
     "8. TRIP'S EXPENSES, INSURANCE": '8. Расходы и страховка',
     'Photos and passport page': 'Фотографии и страница паспорта',
+    // The review page names the same parts again, without their numbers and
+    // gathered differently: everything the form asked in parts four to eight
+    // comes back as one "OTHER INFO".
+    'PERSONAL INFORMATION': 'Личные данные',
+    'REQUESTED INFORMATION': 'О какой визе просите',
+    'PASSPORT INFORMATION': 'Паспорт',
+    'CONTACT INFORMATION': 'Контакты',
+    OCCUPATION: 'Работа',
+    'INFORMATION ABOUT THE TRIP': 'Поездка',
+    'OTHER INFO': 'Остальное',
+    "TRIP'S EXPENSES, INSURANCE": 'Расходы и страховка',
+  },
+  en: {
+    // English needs no translating, but the review page shouts its headings
+    // and the form numbers them; both read better in title case.
+    'OTHER INFO': 'Other info',
   },
 };
 
@@ -355,6 +371,16 @@ export function sectionName(title, language) {
       return found[1];
     }
   }
+  // A heading the table holds under a number, met again without one: the
+  // review page names the same parts as the form and numbers none of them,
+  // so it is matched on what it says.
+  const unnumbered = entries.find(([key]) => {
+    const bare = headingKey(key).replace(/^\d+\.\s*/, '');
+    return bare && (bare === wanted || wanted.startsWith(bare));
+  });
+  if (unnumbered) {
+    return unnumbered[1];
+  }
   // A heading with no number of its own, worded differently from the table:
   // the images at the top of the form are the only one, and they are what a
   // heading naming a picture is.
@@ -362,4 +388,56 @@ export function sectionName(title, language) {
     return named["FOREIGNER'S IMAGES"] ?? text;
   }
   return text;
+}
+
+/**
+ * Shows a page the site has drawn, in its own parts, each with its name.
+ *
+ * A page of the site's own runs to nine screens, and a phone shrinks all of
+ * it to nothing, so it is cut at the headings the page itself carries. Such
+ * a page has nothing typed into it, so a single settle covers the whole of
+ * it and every part comes from that capture; `settleMs` is that short wait.
+ */
+export async function showPageInParts({
+  ctx,
+  chatId,
+  page,
+  dir,
+  language,
+  settleMs,
+  deps,
+}) {
+  const {
+    settleForm,
+    presentSections,
+    captureSection,
+    sendSection,
+    sectionName,
+    log,
+    InputFile,
+    join = (a, b) => `${a}/${b}`,
+  } = deps;
+  await settleForm(page, { timeout: settleMs }).catch(() => {});
+  const titles = await presentSections(page).catch(() => []);
+  for (const [at, { title }] of titles.entries()) {
+    const image = await captureSection(
+      page,
+      title,
+      join(dir, `part-${at}.png`)
+    ).catch((error) => {
+      log(chatId, `could not cut out "${title}": ${error.message}`);
+      return null;
+    });
+    if (!image) {
+      continue;
+    }
+    await sendSection({
+      ctx,
+      chatId,
+      part: { title, image },
+      log,
+      InputFile,
+      name: (heading) => sectionName(heading, language),
+    });
+  }
 }

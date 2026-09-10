@@ -18,11 +18,16 @@ export function registerVisaCommands(bot, deps) {
     describeChecklist,
     describeDeclaration,
     MESSAGES,
+    // Asking for a visa starts one, whatever went before. An application
+    // that stalled, or one already sent, is not something to add to: the
+    // applicant said "visa" and means a new one.
+    restartChat = async () => {},
   } = deps;
 
   bot.command('visa', async (ctx) => {
     const chatId = ctx.chat.id;
     log(chatId, '/visa');
+    await restartChat(chatId);
     touch(chatId);
     const session = sessions.get(chatId);
     // The checklist goes out at once. Opening a browser takes seconds, and

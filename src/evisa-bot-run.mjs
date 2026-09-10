@@ -53,13 +53,14 @@ import {
 } from './evisa-required.mjs';
 import {
   openForm,
-  reopenForm,
   readPassportDocumentInWorker,
   fillBySection,
   captureSection,
   captureForm,
   advanceAndCapture,
   showBrowser,
+  presentSections,
+  settleForm,
 } from './evisa-session.mjs';
 import {
   readCaptcha,
@@ -73,7 +74,11 @@ import {
   keepPassport,
   keepPortrait,
 } from './evisa-documents.mjs';
-import { sendSection, sendOutcome } from './evisa-sections.mjs';
+import {
+  sendSection,
+  sendOutcome,
+  showPageInParts,
+} from './evisa-sections.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
 import {
   traceFor,
@@ -83,7 +88,7 @@ import {
   recordStep,
 } from './evisa-trace.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
-import { showStatus as raiseStatus } from './evisa-status.mjs';
+import { showStatus as raiseStatus, trackStatuses } from './evisa-status.mjs';
 import { registerVisaCommands } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
@@ -130,8 +135,8 @@ const inTurn = (chatId, work) => {
 
 const browsers = new Map();
 
-/** The chat's status line, with this run's log. */
-const showStatus = (ctx, action) => raiseStatus(ctx, action, log);
+// One status per chat, so "stop" can put out the typing as well as the work.
+const { showStatus, clearStatus } = trackStatuses(raiseStatus, log);
 
 /**
  * One fill for everything an applicant sends, however they send it.
@@ -162,6 +167,28 @@ const HEADED = process.env.EVISA_BOT_HEADED === '1';
  * attaches to the very browser the bot drives.
  */
 const DEBUG_PORT = Number(process.env.EVISA_BOT_CDP_PORT ?? 0) || 0;
+
+/**
+ * How long to let a page settle before cutting a part out of it, in
+ * milliseconds, with `EVISA_BOT_SETTLE_MS`.
+ *
+ * The form is settled for as long as it takes, because a fill has just typed
+ * into it. A page the site has drawn for checking has had nothing typed into
+ * it and needs none of that, so it is cut as fast as the pictures are made.
+ */
+const SETTLE_MS = Number(process.env.EVISA_BOT_SETTLE_MS ?? 1500) || 0;
+
+/** What cutting a page into its parts needs, gathered in one place. */
+const PAGE_PART_DEPS = {
+  settleForm,
+  presentSections,
+  captureSection,
+  sendSection,
+  sectionName,
+  log,
+  InputFile,
+  join: path.join,
+};
 
 /**
  * Writes what the browser reports to the log: console errors and warnings,
@@ -335,17 +362,15 @@ async function restartChat(chatId) {
   batch.stop(chatId);
   disarmIdleFill(chatId);
   settleCountdown(chatId, 'stop');
+  // Starting again ends whatever was going on, the typing with it: an
+  // application begun afresh should look afresh.
+  clearStatus(chatId);
   sessions.clear(chatId);
-  const held = browsers.get(chatId);
-  if (!browserAlive(held)) {
-    await endChat(chatId);
-    return;
-  }
-  log(chatId, 'reusing the open browser; reopening the form');
-  await reopenForm(held.page).catch(async (error) => {
-    log(chatId, `could not reopen the form: ${error.message}`);
-    await endChat(chatId);
-  });
+  // And the window goes with it. A form half filled with the last
+  // application's details is not a starting point for the next one, and the
+  // applicant asked to start again: the next page opens empty.
+  log(chatId, 'starting again; the browser and its form are closed');
+  await endChat(chatId);
 }
 
 /** Notes that a chat is in use, so the sweep leaves its browser alone. */
@@ -615,6 +640,16 @@ async function fillAndShow(ctx, chatId, round = 1) {
 async function fillNow(ctx, chatId, reason = 'fill') {
   disarmIdleFill(chatId);
   const session = sessions.get(chatId);
+  // Nothing is typed past the form. The review page is the site's own
+  // rendering of what was already sent, and there is nothing on it to fill;
+  // a fill there walked its headings and wrote to nothing.
+  if ((session.stage ?? 'form') !== 'form') {
+    log(
+      chatId,
+      `${reason}: past the form at the ${session.stage} stage; nothing to fill`
+    );
+    return;
+  }
   // One fill at a time on a chat's page: two would type over each other. A
   // fill already waiting its turn is the fill this one would be, since both
   // read the same data at the moment they run. Asking again while one is
@@ -736,16 +771,25 @@ function pressNextAndShow(ctx, chatId, label = 'Next') {
       // expected to do.
       await recordStep(trace, chatId, page, step, label);
       await keepMarkup(chatId, page, `after-next-${step.stage}`);
-      busy();
-      const sending = showStatus(ctx, 'upload_document');
-      try {
-        await ctx.replyWithDocument(
-          new InputFile(step.screenshot, 'page.png'),
-          { caption: describeStep(step, session.language) }
-        );
-      } finally {
-        sending();
-      }
+      // The parts of the page first, each one readable on a phone, then the
+      // whole page as the file to keep. The captcha comes after both, in
+      // followStep, so what is asked for is the last thing on the screen.
+      await showPageInParts({
+        ctx,
+        chatId,
+        page,
+        dir,
+        language: session.language,
+        settleMs: SETTLE_MS,
+        deps: PAGE_PART_DEPS,
+      });
+      await ctx.replyWithDocument(
+        new InputFile(
+          step.screenshot,
+          (MESSAGES[session.language] ?? MESSAGES.en).previewFile
+        ),
+        { caption: describeStep(step, session.language) }
+      );
       return step;
     } catch (error) {
       log(chatId, `pressing ${label} failed: ${error.stack ?? error.message}`);
@@ -783,7 +827,11 @@ async function askCaptcha(ctx, chatId, caption, page = null) {
   log(chatId, 'captcha sent to the chat');
   await ctx.replyWithPhoto(new InputFile(enlarged, 'captcha.png'), {
     caption,
+    show_caption_above_media: true,
   });
+  // The turn is the applicant's now: the bot is waiting on a code, not
+  // working, and typing on while it waits says otherwise.
+  clearStatus(chatId);
   return true;
 }
 
@@ -985,8 +1033,10 @@ async function stopFilling(ctx, chatId) {
     await ctx.reply(strings.alreadyFilling);
     return;
   }
-  disarmIdleFill(chatId);
   log(chatId, `stop received; ${counting ? 'countdown' : 'quiet timer'} ended`);
+  // Stop means stopped: the work, the typing, and the window with its
+  // half-filled form. What follows is /visa, which begins a new one.
+  await restartChat(chatId);
   await ctx.reply(strings.stopped);
 }
 
@@ -1058,6 +1108,7 @@ registerVisaCommands(bot, {
   describeChecklist,
   describeDeclaration,
   MESSAGES,
+  restartChat,
 });
 
 bot.command('reset', async (ctx) => {

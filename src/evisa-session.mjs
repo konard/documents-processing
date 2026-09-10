@@ -20,6 +20,7 @@ import {
   readDialog,
 } from './evisa-fill.mjs';
 import { FIELDS } from './evisa-schema.mjs';
+import { giveBackTheFront, takeTheFrontBack } from './evisa-window.mjs';
 
 /**
  * Opens a browser on the application form, past the dialog that gates it.
@@ -60,6 +61,13 @@ export async function openForm({
     viewport: headless ? (viewport ?? { width: 1500, height: 1000 }) : null,
     deviceScaleFactor: headless ? 2 : undefined,
   });
+  if (!headless) {
+    // The flag above is not enough on a Mac, where launching an application
+    // makes it the active one whatever its windows do. Handing the front back
+    // to whatever the applicant was in puts the window behind without closing
+    // or moving it, and costs nothing where the command is not there.
+    await giveBackTheFront();
+  }
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await acceptNoteModal(page);
   await waitForForm(page);
@@ -510,6 +518,9 @@ export async function advanceAndCapture(page, screenshot, label = 'Next') {
  * when the form is filled.
  */
 export async function showBrowser(page) {
+  // Unhidden first: a window whose application was put behind when it opened
+  // will not come forward for `bringToFront` alone.
+  await takeTheFrontBack();
   await page.bringToFront().catch(() => {});
 }
 
@@ -672,7 +683,7 @@ export async function fillBySection(
  *
  * Read from the page, so a form that has grown a part is still shown whole.
  */
-async function presentSections(page) {
+export async function presentSections(page) {
   const { sectionNumber } = await import('./evisa-sections.mjs');
   const titles = await page
     .evaluate(() =>

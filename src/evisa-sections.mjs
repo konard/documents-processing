@@ -193,16 +193,17 @@ export async function sendSection({
     .catch((error) => log(chatId, `a part did not send: ${error.message}`));
 }
 
+/** What Telegram allows in the caption under a file, in characters. */
+const CAPTION_LIMIT = 1024;
+
 /**
- * Sends the filled form with the fill's outcome under it, then the
- * explanation of what went where.
+ * Sends the filled form with everything there is to say about it.
  *
- * The form first: it is what the applicant checks, and the explanation reads
- * against it. It goes as a PDF, paged at the same cuts as the pictures, and
- * as those pictures: Telegram shrinks a photo to fit a screen, and a page
- * nine screens tall comes out too small to read either way. The explanation
- * is its own message because Telegram's caption limit would cut a list of
- * forty values short.
+ * One message whenever it fits: the page, and under it what went on it and
+ * what to do next. Telegram allows a thousand characters under a file, and a
+ * short form fits inside that; a long one does not, and the rest follows as
+ * a second message, since a caption past the limit is refused outright and
+ * nothing would arrive at all.
  */
 export async function sendOutcome({
   ctx,
@@ -214,18 +215,21 @@ export async function sendOutcome({
   InputFile,
   showStatus,
 }) {
+  // What the applicant reads under the page: the outcome, then the values.
+  const whole = [caption, summary].filter(Boolean).join('\n\n');
+  // Counted the way Telegram counts it, which is after the markup is parsed.
+  const asShown = whole.replace(/<[^>]+>/g, '');
+  const fits = asShown.length <= CAPTION_LIMIT;
+  const under = fits ? whole : caption;
+  const rest = fits ? null : summary;
+
   const sending = showStatus(ctx, 'upload_document');
-  let sent = null;
   try {
-    // The parts went out as they were filled, so what is left is the whole
-    // page, as the file the applicant keeps, with the outcome under it.
     await Promise.race([
       ctx
         .replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
-          caption,
-        })
-        .then((message) => {
-          sent = message;
+          caption: under,
+          parse_mode: 'HTML',
         })
         .catch((error) =>
           log(chatId, `the page did not send: ${error.message}`)
@@ -238,19 +242,14 @@ export async function sendOutcome({
   } finally {
     sending();
   }
-  if (summary) {
-    // Sent as a reply to the page, so Telegram draws the two together and
-    // the values are read against the form they are on. It cannot be the
-    // caption: a caption stops at 1024 characters and is refused outright
-    // past that, while a summary of forty values with where each came from
-    // runs to twice that.
+  if (rest) {
+    log(
+      chatId,
+      `the summary is ${asShown.length} characters, past the ${CAPTION_LIMIT} ` +
+        'a caption holds; sent as a second message'
+    );
     await ctx
-      .reply(summary, {
-        parse_mode: 'HTML',
-        reply_parameters: sent
-          ? { message_id: sent.message_id, allow_sending_without_reply: true }
-          : undefined,
-      })
+      .reply(rest, { parse_mode: 'HTML' })
       .catch((error) =>
         log(chatId, `the summary did not send: ${error.message}`)
       );

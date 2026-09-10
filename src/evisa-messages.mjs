@@ -81,8 +81,9 @@ export const MESSAGES = {
       'Filling stopped: the browser closed, most likely because the bot was ' +
       'restarted. Send /start, then the documents and details again.',
     restarting:
-      'The bot is restarting, and this browser closes with it. Afterwards, ' +
-      'send /start, then the documents and details again.',
+      'The bot is shutting down, and the browser window with the form is ' +
+      'being closed. Nothing is lost that you sent me. When the bot is back, ' +
+      'say /visa and send the documents and details again.',
     browserClosed:
       'The browser window has closed, and the form in it is gone. I still ' +
       'have everything you sent: say "fill" and I open a new window and ' +
@@ -161,10 +162,11 @@ export const MESSAGES = {
     paymentSeen:
       'The browser reached the site\u2019s payment page, so the payment is ' +
       'through. Fetching the documents now.',
-    fieldStuck: (fields) =>
-      `The site will not take ${fields.join(', ')}, and filling the form ` +
-      'again changes nothing. Send the value you want for it and I will try ' +
-      'that; everything else on the form is as you saw it.',
+    fieldStuck: (fields, more = 0) =>
+      `The site will not take ${fields.join(', ')}${
+        more ? ` and ${more} more` : ''
+      }, and filling the form again changes nothing. Send the value you want ` +
+      `and I will try that; everything else on the form is as you saw it.`,
     nothingChanged:
       'Nothing changed on the form since you last saw it, so I have not sent ' +
       'it again. Send a correction whenever you have one.',
@@ -280,8 +282,9 @@ export const MESSAGES = {
       'Заполнение прервалось: браузер закрылся, скорее всего из-за ' +
       'перезапуска бота. Пришлите /start, затем документы и данные заново.',
     restarting:
-      'Бот перезапускается, и этот браузер закрывается вместе с ним. Когда ' +
-      'он вернётся, пришлите /start, затем документы и данные заново.',
+      'Бот выключается, окно браузера с анкетой сейчас закроется. Всё, что ' +
+      'вы присылали, у меня сохранено. Когда бот вернётся, напишите /visa и ' +
+      'пришлите документы и данные заново.',
     browserClosed:
       'Окно браузера закрылось, и анкета в нём пропала. Всё присланное я ' +
       'помню: напишите «заполняй», и я открою новое окно и заполню заново.',
@@ -354,10 +357,11 @@ export const MESSAGES = {
     paymentSeen:
       'Браузер дошёл до страницы оплаты — значит, оплата прошла. Скачиваю ' +
       'документы.',
-    fieldStuck: (fields) =>
-      `Сайт не принимает ${fields.join(', ')}, и повторное заполнение ничего ` +
-      'не меняет. Пришлите нужное значение — попробую его; остальное в ' +
-      'анкете такое же, как вы видели.',
+    fieldStuck: (fields, more = 0) =>
+      `Сайт не принимает: ${fields.join(', ')}${
+        more ? ` и ещё ${more}` : ''
+      }. Повторное заполнение ничего не меняет. Пришлите нужное значение — ` +
+      `попробую его; остальное в анкете такое же, как вы видели.`,
     nothingChanged:
       'С прошлого раза в анкете ничего не изменилось, поэтому не присылаю её ' +
       'снова. Пришлите исправление, когда будет.',

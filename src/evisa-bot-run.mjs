@@ -30,6 +30,7 @@ import {
   CHAT_TTL_MS,
   detectLanguage,
   describeChecklist,
+  labelFor,
   sectionName,
   describeDeclaration,
   describeSummary,
@@ -88,6 +89,7 @@ import {
   recordStep,
 } from './evisa-trace.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
+import { onShutdown } from './evisa-shutdown.mjs';
 import { showStatus as raiseStatus, trackStatuses } from './evisa-status.mjs';
 import { registerVisaCommands } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
@@ -576,6 +578,7 @@ async function fillAndShow(ctx, chatId, round = 1) {
         session,
         strings: MESSAGES[session.language],
         result,
+        labelFor: (field) => labelFor(field, session.language),
       });
       return;
     }
@@ -1421,24 +1424,20 @@ bot.catch(async (error) => {
 /** True while the process is on its way out: a failure then goes unreported. */
 let shuttingDown = false;
 
-process.on('SIGINT', async () => {
-  shuttingDown = true;
-  // Each chat with a browser hears that it is closing, since the fill or
-  // the page in it is lost with it; then browsers get a few seconds to
-  // close, and one that hangs must not keep the process from exiting.
-  const warned = [...browsers.keys()].map((chatId) => {
-    const strings = MESSAGES[sessions.get(chatId).language];
-    log(chatId, 'restarting; the chat is told its browser closes');
-    return bot.api.sendMessage(chatId, strings.restarting).catch(() => {});
-  });
-  await Promise.race([
-    Promise.all(warned),
-    new Promise((resolve) => setTimeout(resolve, 3000)),
-  ]);
-  const closing = Promise.all([...browsers.keys()].map(endChat));
-  const grace = new Promise((resolve) => setTimeout(resolve, 5000));
-  await Promise.race([closing, grace]);
-  process.exit(0);
+// Ctrl+C and a stop signal both come here: each chat is told, then its
+// window is closed, then the process goes.
+onShutdown({
+  browsers,
+  sessions,
+  MESSAGES,
+  log,
+  clearStatus,
+  endChat,
+  say: (chatId, text) => bot.api.sendMessage(chatId, text),
+  stopBot: () => bot.stop(),
+  onClosing: () => {
+    shuttingDown = true;
+  },
 });
 
 console.log('e-visa bot running. Press Ctrl+C to stop.');

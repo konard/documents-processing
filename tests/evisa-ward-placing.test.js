@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync } from 'node:fs';
-import { matchWard } from '../src/evisa-vietnam-address.mjs';
+import {
+  matchWard,
+  parseVietnamAddress,
+} from '../src/evisa-vietnam-address.mjs';
 import { FIELD_SECTIONS, groupBySection } from '../src/evisa-sections.mjs';
 
 const fill = readFileSync('src/evisa-fill.mjs', 'utf8');
@@ -117,5 +120,30 @@ describe('what the list under the form says', () => {
     const run = readFileSync('src/evisa-bot-run.mjs', 'utf8');
     // And the list is written from them.
     expect(run.includes('{ ...applicant, ...result.placed }')).toBe(true);
+  });
+});
+
+describe('a booking that names no ward at all', () => {
+  it('is still placed, since the town it is in has one', () => {
+    // One booking writes "18/4 [REDACTED], Loc Tho Ward, Nha Trang" and
+    // another "14 Dinh Tien Hoang 7, Nha Trang". The second names no ward,
+    // and the field is one the site will not go on without.
+    const parsed = parseVietnamAddress(
+      '14 Đinh Tiên Hoàng 7, 650000 Нячанг, Вьетнам'
+    );
+    expect(parsed.wardInVietnam).toBe(null);
+    expect(parsed.townInVietnam).toBe('NHA TRANG');
+    // The town alone is enough to name the ward the site offers for it.
+    expect(matchWard(null, AS_THE_SITE_OFFERS, parsed.townInVietnam)).toBe(
+      'NHA TRANG WARD'
+    );
+  });
+
+  it('asks the page for the list when only the town is known', () => {
+    // The resolving stopped before it ever looked, so the field was left
+    // empty on a form that requires it.
+    const resolve = fill.slice(fill.indexOf('async function resolveWard'));
+    const body = resolve.slice(0, resolve.indexOf('\n}\n'));
+    expect(body.includes('!wanted && !applicant.townInVietnam')).toBe(true);
   });
 });

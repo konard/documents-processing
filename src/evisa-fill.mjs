@@ -407,7 +407,12 @@ export async function selectOptions(page, id) {
  */
 async function resolveWard(page, applicant) {
   const wanted = applicant.wardInVietnam;
-  if (!wanted || !applicant.provinceInVietnam) {
+  // A booking naming no ward is still placeable: the town it is in has one
+  // of its own, and the site requires the field. Written "18/4 [REDACTED],
+  // Loc Tho Ward, Nha Trang" a booking says which; written "14 Dinh Tien
+  // Hoang 7, Nha Trang" it does not, and the field was left empty on a form
+  // that will not go on without it.
+  if ((!wanted && !applicant.townInVietnam) || !applicant.provinceInVietnam) {
     return applicant;
   }
   try {

@@ -80,3 +80,38 @@ export function showStatus(
     }
   };
 }
+
+/**
+ * Keeps one status per chat, so it can be put out from anywhere.
+ *
+ * "Stop" has to stop the typing as well as the work: a bot that says it has
+ * stopped and goes on typing has not stopped, as far as the applicant can
+ * tell. Raising a second status for a chat puts out the first, since only one
+ * is ever shown and two loops beside each other overwrite one another.
+ */
+export function trackStatuses(raise, log) {
+  const held = new Map();
+
+  const clearStatus = (chatId) => {
+    const stop = held.get(chatId);
+    if (stop) {
+      held.delete(chatId);
+      stop();
+    }
+  };
+
+  const showStatus = (ctx, action) => {
+    const chatId = ctx.chat?.id;
+    clearStatus(chatId);
+    const stop = raise(ctx, action, log);
+    held.set(chatId, stop);
+    return () => {
+      if (held.get(chatId) === stop) {
+        held.delete(chatId);
+      }
+      stop();
+    };
+  };
+
+  return { showStatus, clearStatus };
+}

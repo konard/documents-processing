@@ -28,6 +28,8 @@ export const MESSAGES = {
     // The name the filled page is sent under. A client draws a file's name
     // above its caption, so it is the first thing read.
     formFile: 'FORM.png',
+    // The page the site draws for checking, before the application is in.
+    previewFile: 'FORM-PREVIEW.png',
     sections: {
       applicant: 'Applicant',
       passport: 'Passport',
@@ -90,7 +92,8 @@ export const MESSAGES = {
       'data stripped; the site may doubt a portrait like that. I use it, ' +
       'but a copy sent as a file (attach, then File) arrives as it is.',
     stopped:
-      'Stopped. Send corrections, or say "send" when everything is right.',
+      'Stopped. Nothing more is filled or sent, and the browser is closed. ' +
+      'Say /visa to begin an application again.',
     alreadyFilling: 'Still filling. Next is not pressed without your word.',
     needed: 'Still needed:',
     thenAgain: 'Once you send it, I fill the form again and show it.',
@@ -222,6 +225,7 @@ export const MESSAGES = {
     // Имя файла с заполненной анкетой: клиент показывает его над подписью,
     // поэтому его читают первым.
     formFile: 'АНКЕТА.png',
+    previewFile: 'ПРЕДПРОСМОТР-АНКЕТЫ.png',
     sections: {
       applicant: 'Заявитель',
       passport: 'Паспорт',
@@ -286,8 +290,8 @@ export const MESSAGES = {
       'камеры, и сайт может усомниться в таком портрете. Я его использую, ' +
       'но лучше прислать ещё раз как файл (скрепка, затем «Файл»).',
     stopped:
-      'Остановил. Пришлите исправления или напишите «отправляй», когда всё ' +
-      'верно.',
+      'Остановил. Больше ничего не заполняю и не отправляю, браузер закрыт. ' +
+      'Чтобы начать заново, напишите /visa.',
     alreadyFilling: 'Ещё заполняю. «Next» без вашего слова не нажму.',
     needed: 'Ещё нужно:',
     thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',

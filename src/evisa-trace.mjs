@@ -51,6 +51,38 @@ export const STEPS = [
 const NEVER_RECORDED = ['captcha'];
 
 /**
+ * A value written so the notation carries it whole and reads it back the
+ * same.
+ *
+ * The quoting is the notation's own `Link.escapeReference`, so a value is
+ * written the way anything else in this format writes it: quoted when it
+ * holds a space, a colon, a bracket or a quote, and left bare when it does
+ * not. Two cases it does not cover are handled here first:
+ *
+ * A value holding both kinds of quote comes back from it backslash-escaped,
+ * which the parser does not read; the notation escapes a quote by doubling
+ * it. Written in single quotes with the single quotes doubled, it reads back
+ * as itself.
+ *
+ * A value opening with `#` is a comment to the parser, so the whole line
+ * would be lost. Quoted, it is a value again.
+ */
+export function escapeValue(text, notation) {
+  const body = text === null || text === undefined ? '' : String(text);
+  if (body.includes("'") && body.includes('"')) {
+    return `'${body.replace(/'/g, "''")}'`;
+  }
+  if (body.startsWith('#')) {
+    return `'${body}'`;
+  }
+  // The library knows the rest, including the empty value, which it writes
+  // as a bare pair of quotes so the line keeps both its halves.
+  return notation?.Link
+    ? notation.Link.escapeReference(body)
+    : JSON.stringify(body);
+}
+
+/**
  * Reads every field the page has, by id, with what it holds.
  *
  * A select reports the text it shows, which is what the applicant sees and
@@ -112,23 +144,7 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
   }
   const fileFor = (chatId) => path.join(directory, `chat-${chatId}.lino`);
 
-  /**
-   * A value written so the notation carries it whole.
-   *
-   * A bare word stands as it is; anything with a space, a colon or a quote in
-   * it is quoted, and an empty value is written as a pair of quotes so the
-   * line still has two halves. A timestamp needs this: its colons would
-   * otherwise end the word early.
-   */
-  const value = (text) => {
-    const body = String(text ?? '');
-    if (!body) {
-      return '""';
-    }
-    return /^[\w./@+-]+$/.test(body)
-      ? body
-      : `"${body.replace(/["\\]/g, '\\$&')}"`;
-  };
+  const value = (text) => escapeValue(text, notation);
 
   /**
    * One record, written indented: a heading, then a line per fact under it.

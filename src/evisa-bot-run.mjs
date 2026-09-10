@@ -30,6 +30,7 @@ import {
   CHAT_TTL_MS,
   detectLanguage,
   describeChecklist,
+  sectionName,
   describeDeclaration,
   describeSummary,
   describeOutcome,
@@ -44,19 +45,25 @@ import {
   withTempFile,
 } from './evisa-bot.mjs';
 import { normalizeApplicant } from './evisa-data.mjs';
-import { readRequiredFields, outstandingFields } from './evisa-required.mjs';
+import {
+  readRequiredFields,
+  outstandingFields,
+  KNOWN_REQUIRED,
+} from './evisa-required.mjs';
 import {
   openForm,
   reopenForm,
   readPassportDocumentInWorker,
   fillAndCapture,
   advanceAndCapture,
+  showBrowser,
 } from './evisa-session.mjs';
 import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
 import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
 import { sendFormAndSections } from './evisa-slice.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
+import { registerVisaCommands } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import {
@@ -487,6 +494,7 @@ async function sendOutcome(ctx, chatId, result, summary, outstanding) {
       page: browsers.get(chatId)?.page,
       log,
       InputFile,
+      name: (title) => sectionName(title, session.language),
     });
   } finally {
     sending();
@@ -535,7 +543,9 @@ function logFill(chatId, result) {
  * Whatever goes wrong, the browser stays open with the form as far as it
  * got: that is where an operator or the applicant carries on by hand.
  */
-async function fillAndShow(ctx, chatId) {
+/** How many times a fill takes in what arrived while it was running. */
+const FILL_ROUNDS = 2;
+async function fillAndShow(ctx, chatId, round = 1) {
   const session = sessions.get(chatId);
   // Opening a browser takes seconds too, and the status covers them.
   const opening = showStatus(ctx, 'typing');
@@ -548,6 +558,7 @@ async function fillAndShow(ctx, chatId) {
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
   try {
+    const filledFrom = session.received ?? 0;
     const { result, summary, repeat } = await fillPage(ctx, chatId, page, dir);
     logFill(chatId, result);
     if (repeat) {
@@ -578,6 +589,16 @@ async function fillAndShow(ctx, chatId) {
         `required but unmapped: ${report.unmapped.map((u) => u.label).join(' | ')}`
       );
     }
+    // What arrived during the fill goes on before the result is sent, so the
+    // applicant sees one form with their correction on it.
+    // Someone sending steadily could keep this going for ever, so it is
+    // taken in twice at most; anything after that is the next fill's.
+    if (session.received !== filledFrom && round < FILL_ROUNDS) {
+      log(chatId, 'more arrived during the fill; putting it on before sending');
+      return fillAndShow(ctx, chatId, round + 1);
+    }
+    // Now the form is worth looking at, so the window comes forward.
+    await showBrowser(page);
     await sendOutcome(ctx, chatId, result, summary, outstanding);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -901,10 +922,7 @@ async function verifyAddress(chatId, session, field) {
   log(chatId, `${field} not confirmed by the map${nearest}`);
 }
 
-/**
- * How long one call to Telegram may take. An upload that stalls never
- * completes on its own, leaving the applicant with no message and no error.
- */
+/** How long one call to Telegram may take; an upload can stall for ever. */
 const CALL_TIMEOUT_MS = 90_000;
 
 const bot = new Bot(token, {
@@ -956,37 +974,6 @@ bot.callbackQuery(/^language:(ru|en)$/, async (ctx) => {
   log(chatId, `language chosen: ${chosen}, and remembered`);
   await ctx.answerCallbackQuery();
   await ctx.reply(MESSAGES[chosen].menu);
-});
-
-bot.command('visa', async (ctx) => {
-  const chatId = ctx.chat.id;
-  log(chatId, '/visa');
-  touch(chatId);
-  const session = sessions.get(chatId);
-  // The checklist is read from the live form and sent as one message.
-  const page = await pageFor(chatId);
-  const report = await readRequiredFields(page);
-  await ctx.reply(describeChecklist(report.required, session.language));
-  // No timer yet: filling an empty form would tell the applicant nothing.
-});
-
-bot.command('arrival', async (ctx) => {
-  const chatId = ctx.chat.id;
-  log(chatId, '/arrival');
-  touch(chatId);
-  const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
-  const { buildDeclaration, fullNameOf } =
-    await import('./evisa-prearrival.mjs');
-  const applicant = {
-    ...(session.data ?? {}),
-    fullName: fullNameOf(session.data ?? {}),
-  };
-  const { values, missing } = buildDeclaration(applicant);
-  await ctx.reply(strings.arrivalIntro);
-  await ctx.reply(describeDeclaration(values, missing, session.language), {
-    parse_mode: 'HTML',
-  });
 });
 
 /**
@@ -1067,6 +1054,18 @@ bot.command('fill', async (ctx) => {
     return;
   }
   await fillNow(ctx, ctx.chat.id);
+});
+
+registerVisaCommands(bot, {
+  sessions,
+  log,
+  touch,
+  pageFor,
+  KNOWN_REQUIRED,
+  readRequiredFields,
+  describeChecklist,
+  describeDeclaration,
+  MESSAGES,
 });
 
 bot.command('reset', async (ctx) => {

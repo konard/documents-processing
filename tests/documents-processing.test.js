@@ -66,6 +66,7 @@ describe('documents-processing commands', () => {
     'evisa-store.mjs',
     'evisa-transcript.mjs',
     'evisa-batch.mjs',
+    'evisa-commands.mjs',
     'evisa-vietnam-address.mjs',
     'evisa-image-role.mjs',
     'evisa-prearrival.mjs',

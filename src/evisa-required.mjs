@@ -87,3 +87,21 @@ export function outstandingFields(requiredReport, collected = {}, skip = []) {
     )
     .map((field) => ({ name: field.name, label: field.label }));
 }
+
+/**
+ * The fields the form is known to require, from the schema.
+ *
+ * Reading the live page is better, since the form can change under us, but it
+ * costs a browser launch. This is what the checklist is built from while that
+ * launch happens behind it; the page is still read, and a field it asks for
+ * that this does not know about is logged.
+ */
+export const KNOWN_REQUIRED = Object.entries(FIELDS)
+  .filter(([, meta]) => meta.required)
+  .map(([name, meta]) => ({ name, label: meta.label ?? name }))
+  .concat(
+    Object.entries(UPLOADS).map(([name, meta]) => ({
+      name,
+      label: meta.label ?? name,
+    }))
+  );

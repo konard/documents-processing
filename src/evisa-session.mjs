@@ -33,7 +33,12 @@ export async function openForm({
   debugPort = 0,
 } = {}) {
   const { chromium } = await import('playwright');
-  const args = headless ? [] : ['--window-size=1500,1000'];
+  // A window that takes the screen the moment it opens interrupts whatever
+  // the applicant was doing, and the form is not worth looking at until it is
+  // filled. It opens behind, and `bringToFront` raises it when it is ready.
+  const args = headless
+    ? []
+    : ['--window-size=1500,1000', '--no-startup-window-activation'];
   if (debugPort) {
     // A debugger, chrome://inspect or a second Playwright, can then attach
     // to this browser and see what it sees.
@@ -255,13 +260,30 @@ export async function settleForm(page, { timeout = 15000 } = {}) {
       { timeout }
     )
     .catch(() => {});
+  // A field the form is still checking is drawn with a red border until the
+  // check comes back. Capturing then shows the applicant an error against a
+  // value the site went on to accept, so the checks are waited out.
+  await page
+    .waitForFunction(
+      () =>
+        !document.querySelector(
+          '.ant-form-item-is-validating, .ant-select-open'
+        ),
+      undefined,
+      { timeout }
+    )
+    .catch(() => {});
 
   const snapshot = () =>
     page.evaluate(
       () =>
+        // The errors showing count as part of the page: one that is about to
+        // clear means the page has not settled.
+        [...document.querySelectorAll('.ant-form-item-has-error')].length +
         [...document.querySelectorAll('input, textarea')]
           .map((element) => element.value)
-          .join('') + document.body.scrollHeight
+          .join('') +
+        document.body.scrollHeight
     );
   let previous = await snapshot();
   const deadline = Date.now() + timeout;
@@ -285,12 +307,47 @@ export async function settleForm(page, { timeout = 15000 } = {}) {
 export async function captureForm(page, outputPath) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   await settleForm(page);
+  // A header that sticks to the top of the window is drawn again at every
+  // scroll position of a full-page capture, so the site's navigation landed
+  // in the middle of the occupation section. Held still for the capture and
+  // released after it.
+  const released = await holdStillForCapture(page);
   // A dialog locks the page's scrolling, and a capture of the whole page
   // under it comes out as the dialog over a screen of content and a long
   // blank tail. The dialog is what there is to see, and it fits a screen.
   const fullPage = !(await readDialog(page));
-  await page.screenshot({ path: outputPath, fullPage });
+  try {
+    await page.screenshot({ path: outputPath, fullPage });
+  } finally {
+    await released();
+  }
   return outputPath;
+}
+
+/**
+ * Stops anything from following the window while the page is captured.
+ *
+ * Returns what puts it back, so the applicant's own browser is left as it
+ * was: they are looking at this page too.
+ */
+async function holdStillForCapture(page) {
+  const marker = 'evisa-hold-still';
+  await page
+    .addStyleTag({
+      content: `
+        [class*="sticky"], [class*="fixed"], header, nav {
+          position: static !important;
+        }
+      `,
+      // Named, so exactly this rule is the one taken away again.
+      id: marker,
+    })
+    .catch(() => {});
+  return async () => {
+    await page
+      .evaluate((id) => document.getElementById(id)?.remove(), marker)
+      .catch(() => {});
+  };
 }
 
 /**
@@ -353,4 +410,14 @@ export async function advanceAndCapture(page, screenshot, label = 'Next') {
       .catch(() => null));
   const image = screenshot ? await captureForm(page, screenshot) : null;
   return { ...step, empty, screenshot: image };
+}
+
+/**
+ * Raises the browser window.
+ *
+ * The window opens behind whatever the applicant is doing, and comes forward
+ * when the form is filled.
+ */
+export async function showBrowser(page) {
+  await page.bringToFront().catch(() => {});
 }

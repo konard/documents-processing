@@ -310,6 +310,7 @@ export async function sendFormAndSections({
   page,
   log,
   InputFile,
+  name = (title) => title,
 }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-slice-'));
   try {
@@ -346,11 +347,18 @@ export async function sendFormAndSections({
     for (const section of sections) {
       // One picture that will not upload must not cost the applicant the
       // rest of their form.
+      // The heading goes first, as its own message: Telegram draws a caption
+      // under the picture, and the applicant needs to know what they are
+      // about to look at before they look at it.
+      await ctx
+        .reply(name(section.title))
+        .catch((error) =>
+          log(chatId, `a heading did not send: ${error.message}`)
+        );
       const done = await withDeadline(
         ctx
           .replyWithPhoto(
-            new InputFile(section.path, `section-${section.index}.jpg`),
-            { caption: section.title }
+            new InputFile(section.path, `section-${section.index}.jpg`)
           )
           .then(() => true)
           .catch((error) => {

@@ -215,6 +215,7 @@ export async function sendOutcome({
   showStatus,
 }) {
   const sending = showStatus(ctx, 'upload_document');
+  let sent = null;
   try {
     // The parts went out as they were filled, so what is left is the whole
     // page, as the file the applicant keeps, with the outcome under it.
@@ -222,6 +223,9 @@ export async function sendOutcome({
       ctx
         .replyWithDocument(new InputFile(result.screenshot, 'form.png'), {
           caption,
+        })
+        .then((message) => {
+          sent = message;
         })
         .catch((error) =>
           log(chatId, `the page did not send: ${error.message}`)
@@ -235,8 +239,18 @@ export async function sendOutcome({
     sending();
   }
   if (summary) {
+    // Sent as a reply to the page, so Telegram draws the two together and
+    // the values are read against the form they are on. It cannot be the
+    // caption: a caption stops at 1024 characters and is refused outright
+    // past that, while a summary of forty values with where each came from
+    // runs to twice that.
     await ctx
-      .reply(summary, { parse_mode: 'HTML' })
+      .reply(summary, {
+        parse_mode: 'HTML',
+        reply_parameters: sent
+          ? { message_id: sent.message_id, allow_sending_without_reply: true }
+          : undefined,
+      })
       .catch((error) =>
         log(chatId, `the summary did not send: ${error.message}`)
       );

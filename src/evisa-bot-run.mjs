@@ -61,19 +61,32 @@ import {
   advanceAndCapture,
   showBrowser,
 } from './evisa-session.mjs';
-import { readCaptcha, refreshCaptcha, fillCaptcha } from './evisa-fill.mjs';
-import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
+import {
+  readCaptcha,
+  refreshCaptcha,
+  fillCaptcha,
+  enlargeCaptcha,
+} from './evisa-fill.mjs';
+import {
+  createDocuments,
+  tellWhatIsStuck,
+  keepPassport,
+  keepPortrait,
+} from './evisa-documents.mjs';
 import { sendSection, sendOutcome } from './evisa-sections.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
+import {
+  traceFor,
+  sweepTracesIn,
+  recordArrival,
+  recordFill,
+  recordStep,
+} from './evisa-trace.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
 import { registerVisaCommands } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
-import {
-  lookupAddress,
-  renderVerifiedAddress,
-  sameAddress,
-} from './evisa-geocode.mjs';
+import { verifyAddress } from './evisa-geocode.mjs';
 
 loadEnv();
 
@@ -417,9 +430,11 @@ function showStatus(ctx, action) {
  */
 async function fillPage(ctx, chatId, page, dir) {
   const session = sessions.get(chatId);
-  const busy = showStatus(ctx, 'typing');
-  // What arrived before this fill started; what arrives during it is for
-  // the next one, and keeps the form counted as changed.
+  // The status belongs to the caller, which goes on working after this
+  // returns: it still asks the page what is required, builds the summary and
+  // uploads a page several megabytes large. Stopping it here left the chat
+  // silent through all of that, and the applicant reading the silence as a
+  // bot that had died.
   const received = session.received ?? 0;
   try {
     const applicant = normalizeApplicant(session.data);
@@ -432,6 +447,15 @@ async function fillPage(ctx, chatId, page, dir) {
         uploads[key] = file;
       }
     }
+    // The page as it stands before this fill. What the applicant changed by
+    // hand in the browser since the last one shows up as a change made by
+    // them, which is exactly what an automation of that step has to learn.
+    const wasOnPage = await recordArrival(
+      trace,
+      chatId,
+      page,
+      session.lastPageState
+    );
     // Filled a part at a time, in the order the form prints them, and each
     // part sent as it is done, so the applicant watches the form fill from
     // the top down.
@@ -448,6 +472,11 @@ async function fillPage(ctx, chatId, page, dir) {
           InputFile,
           name: (title) => sectionName(title, session.language),
         }),
+    });
+    // What this fill put on the page, kept as edits so the run replays.
+    session.lastPageState = await recordFill(trace, chatId, page, {
+      before: wasOnPage,
+      result,
     });
     // The whole page as well, which is what the applicant keeps.
     result.screenshot = await captureForm(page, path.join(dir, 'form.png'));
@@ -480,7 +509,6 @@ async function fillPage(ctx, chatId, page, dir) {
     return { result, applicant, repeat };
   } finally {
     session.filling = false;
-    busy();
   }
 }
 
@@ -523,13 +551,17 @@ function logFill(chatId, result) {
 const FILL_ROUNDS = 2;
 async function fillAndShow(ctx, chatId, round = 1) {
   const session = sessions.get(chatId);
-  // Opening a browser takes seconds too, and the status covers them.
-  const opening = showStatus(ctx, 'typing');
+  // One status for the whole of it: opening the browser, filling, and sending
+  // the page at the end. Held in one place because every gap in it reads as a
+  // bot that has stopped, and the work between the last part and the form
+  // going out takes the better part of a minute on its own.
+  const busy = showStatus(ctx, 'typing');
   let page;
   try {
     page = await pageFor(chatId);
-  } finally {
-    opening();
+  } catch (error) {
+    busy();
+    throw error;
   }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evisa-shot-${chatId}-`));
@@ -587,7 +619,8 @@ async function fillAndShow(ctx, chatId, round = 1) {
       session.language,
       session.reported,
       session.disputed ?? {},
-      tail
+      // What the site itself read, so each line can say whose reading it is.
+      { asked: tail, fill: result }
     );
     await sendOutcome({
       ctx,
@@ -600,6 +633,7 @@ async function fillAndShow(ctx, chatId, round = 1) {
       showStatus,
     });
   } finally {
+    busy();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -633,9 +667,23 @@ async function fillNow(ctx, chatId, reason = 'fill') {
       const strings = MESSAGES[sessions.get(chatId).language];
       // A browser that has gone cannot be "left open": the applicant is
       // told to start over, not to look for a window that is not there.
-      const text = browserHasGone(error)
+      const gone = browserHasGone(error);
+      const text = gone
         ? strings.browserGone
         : strings.fillFailed(error.message.split('\n')[0]);
+      trace.step(chatId, 'form', {
+        moment: 'handed over',
+        detail: { why: error.message.split('\n')[0] },
+      });
+      // The form is still there, filled as far as it got, and finishing it by
+      // hand is what the moment calls for. So the window is raised: a message
+      // about a browser the applicant cannot see is no help to them.
+      if (!gone) {
+        const held = browsers.get(chatId);
+        if (browserAlive(held)) {
+          await showBrowser(held.page).catch(() => {});
+        }
+      }
       if (!shuttingDown && !justLostBrowser(chatId)) {
         await ctx.reply(text).catch(() => {});
       }
@@ -714,6 +762,11 @@ function pressNextAndShow(ctx, chatId, label = 'Next') {
           : `the site kept the page; ${step.errors.length} messages on the form${said}`
       );
       session.stage = step.stage;
+      // Each stage the application reaches, and what the site said about it.
+      // This is the record the last stretch to payment will be automated
+      // from, so what the page actually did is worth more than what it was
+      // expected to do.
+      await recordStep(trace, chatId, page, step, label);
       await keepMarkup(chatId, page, `after-next-${step.stage}`);
       busy();
       const sending = showStatus(ctx, 'upload_document');
@@ -757,11 +810,7 @@ async function askCaptcha(ctx, chatId, caption, page = null) {
     log(chatId, 'no captcha on the page');
     return false;
   }
-  const { default: sharp } = await import('sharp');
-  const enlarged = await sharp(image)
-    .resize({ width: 720, kernel: 'nearest' })
-    .png()
-    .toBuffer();
+  const enlarged = await enlargeCaptcha(image);
   session.captchaEntered = false;
   log(chatId, 'captcha sent to the chat');
   await ctx.replyWithPhoto(new InputFile(enlarged, 'captcha.png'), {
@@ -891,36 +940,6 @@ async function enterCaptcha(ctx, chatId, code) {
   );
 }
 
-/**
- * Checks an address that just arrived against the map, and keeps the map's
- * rendering when it confirms the house. An address the map cannot place is
- * kept as written and rendered from that at fill time.
- *
- * Two addresses the map places at the same flat of the same house are the
- * same address, however each was written, and the log says so.
- */
-async function verifyAddress(chatId, session, field) {
-  const written = session.data[field];
-  const found = await lookupAddress(written);
-  session.resolved ??= {};
-  session.resolved[field] = found;
-  const verified = renderVerifiedAddress(written, found);
-  if (verified) {
-    log(chatId, `${field} confirmed by the map: ${shown(verified)}`);
-    session.data[field] = verified;
-    for (const [other, resolved] of Object.entries(session.resolved)) {
-      if (other !== field && sameAddress(found, resolved)) {
-        log(chatId, `${field} is the same address as ${other}`);
-      }
-    }
-    return;
-  }
-  const nearest = found
-    ? `; nearest on the map: ${shown(`${found.street} ${found.houseNumber}, ${found.postalCode}`)}`
-    : '';
-  log(chatId, `${field} not confirmed by the map${nearest}`);
-}
-
 /** How long one call to Telegram may take; an upload can stall for ever. */
 const CALL_TIMEOUT_MS = 90_000;
 
@@ -930,6 +949,12 @@ const bot = new Bot(token, {
 
 // Every message of every conversation, both sides, written beside the log.
 const transcript = recordConversations(bot, STORE_DIR, valuesAllowed());
+
+// The record of each application as it was actually made, for replay.
+const trace = traceFor(STORE_DIR, {
+  enabled: valuesAllowed(),
+  notation: await prepareStore(),
+});
 
 bot.command('start', async (ctx) => {
   const chatId = ctx.chat.id;
@@ -1110,56 +1135,6 @@ async function downloadFile(ctx) {
   };
 }
 
-/**
- * Takes a passport's reading into the chat's data and its page for upload.
- *
- * The zone's fields replace whatever was held; the printed side's only fill
- * gaps, since a value the applicant typed is surer than a reading of print
- * over a pattern.
- */
-function keepPassport(session, read, extension) {
-  for (const [key, value] of Object.entries(read.data)) {
-    if (PRINTED_SIDE.includes(key)) {
-      session.data[key] ??= value;
-    } else {
-      session.data[key] = value;
-    }
-  }
-  // A field the engines split on is not put on the form: the candidates
-  // are kept, and the summary asks the applicant which is right.
-  session.disputed = {};
-  for (const { field, candidates } of read.disputed ?? []) {
-    session.disputed[field] = candidates.map((c) => c.value);
-    delete session.data[field];
-  }
-  session.uploads.passportPage = keepForUpload(
-    read.prepared.path,
-    `passport${extension}`
-  );
-}
-
-/**
- * Keeps an image with no passport in it as the portrait, which is the other
- * image the form wants and needs no reading.
- *
- * The prepared copy is the file as sent when it fits the site's 2 MB limit,
- * and a shrunk one when it does not, as a camera original sent as a file
- * would not.
- */
-function keepPortrait(chatId, session, read, local, extension) {
-  const portrait = read?.prepared?.path ?? local;
-  if (read?.prepared && !read.prepared.unchanged) {
-    log(
-      chatId,
-      `portrait shrunk to ${Math.round(read.prepared.bytes / 1024)} KB`
-    );
-  }
-  session.uploads.portraitPhoto = keepForUpload(
-    portrait,
-    `portrait${extension}`
-  );
-}
-
 bot.on(['message:photo', 'message:document'], (ctx) => {
   // The window opens when a message lands: a passport that takes a minute to
   // read must not let the window of the message before it run out.
@@ -1262,7 +1237,10 @@ async function receiveDocument(ctx) {
       // what each puts into the session goes in in turn.
       await inTurn(chatId, async () => {
         if (read && Object.keys(read.data).length) {
-          keepPassport(session, read, extension);
+          keepPassport(session, read, extension, {
+            PRINTED_SIDE,
+            keepForUpload,
+          });
         } else {
           // No zone read means the picture is something else, and which
           // something matters: a booking screenshot in the portrait upload is
@@ -1276,7 +1254,8 @@ async function receiveDocument(ctx) {
             extension,
             log,
             shown,
-            keepPortrait,
+            keepPortrait: (...args) =>
+              keepPortrait(...args, { log, keepForUpload }),
             keepForUpload,
             strings: MESSAGES[session.language],
           });
@@ -1402,7 +1381,7 @@ async function receiveText(ctx) {
 
   for (const field of ADDRESS_FIELDS) {
     if (parsed[field]) {
-      await verifyAddress(chatId, session, field);
+      await verifyAddress(chatId, session, field, { log, shown });
     }
   }
   armIdleFill(ctx, chatId);
@@ -1459,6 +1438,8 @@ if (sweptTranscripts) {
     `Transcripts older than ${RETENTION_DAYS} days removed: ${sweptTranscripts}`
   );
 }
+// And the traces, which hold the same details in another shape.
+sweepTracesIn(STORE_DIR, RETENTION_DAYS);
 console.log(
   `Kept documents older than ${RETENTION_DAYS} days removed: ${swept}`
 );

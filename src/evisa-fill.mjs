@@ -783,3 +783,16 @@ export async function screenshotForm(page, outputPath) {
   await page.screenshot({ path: outputPath, fullPage: true });
   return outputPath;
 }
+
+/**
+ * The captcha as a picture a person can actually read.
+ *
+ * The site draws it small enough that the letters blur on a phone, so it is
+ * enlarged with nearest-neighbour scaling: the pixels stay square and the
+ * shapes stay sharp, where a smooth scale would soften exactly the edges the
+ * applicant is trying to read.
+ */
+export async function enlargeCaptcha(image, width = 720) {
+  const { default: sharp } = await import('sharp');
+  return sharp(image).resize({ width, kernel: 'nearest' }).png().toBuffer();
+}

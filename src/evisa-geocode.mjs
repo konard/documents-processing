@@ -214,3 +214,42 @@ export function renderVerifiedAddress(text, found) {
     street: latinUnit(found.street),
   });
 }
+
+/**
+ * Checks one of an applicant's addresses against the map, and writes back
+ * the confirmed rendering when the map knows it.
+ *
+ * An address the map confirms goes on the form in the map's own words, which
+ * the site is more likely to accept than a hand-typed line. One the map does
+ * not know is left as the applicant wrote it: their address is theirs, and a
+ * map that has not heard of a building is not evidence that it is wrong.
+ *
+ * The addresses already checked are kept, so two that resolve to the same
+ * place can be noted as the same.
+ */
+export async function verifyAddress(
+  chatId,
+  session,
+  field,
+  { log, shown = (value) => value }
+) {
+  const written = session.data[field];
+  const found = await lookupAddress(written);
+  session.resolved ??= {};
+  session.resolved[field] = found;
+  const verified = renderVerifiedAddress(written, found);
+  if (verified) {
+    log(chatId, `${field} confirmed by the map: ${shown(verified)}`);
+    session.data[field] = verified;
+    for (const [other, resolved] of Object.entries(session.resolved)) {
+      if (other !== field && sameAddress(found, resolved)) {
+        log(chatId, `${field} is the same address as ${other}`);
+      }
+    }
+    return;
+  }
+  const nearest = found
+    ? `; nearest on the map: ${shown(`${found.street} ${found.houseNumber}, ${found.postalCode}`)}`
+    : '';
+  log(chatId, `${field} not confirmed by the map${nearest}`);
+}

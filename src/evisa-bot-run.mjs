@@ -128,7 +128,6 @@ const inTurn = (chatId, work) => {
 };
 
 const browsers = new Map();
-const timers = new Map();
 
 /**
  * One fill for everything an applicant sends, however they send it.
@@ -139,8 +138,6 @@ const timers = new Map();
 const { batch, armIdleFill, disarmIdleFill } = createFillBatcher({
   quietMs: IDLE_FILL_MS,
   log,
-  timers,
-  showStatus,
   fill: (ctx, chatId) => fillNow(ctx, chatId, 'quiet window'),
 });
 

@@ -176,32 +176,20 @@ export function createBatcher({
  * The applicant sees "typing" from the moment their first message lands until
  * the filled form appears, which is what the wait looks like from their side.
  */
-export function createFillBatcher({ quietMs, log, timers, showStatus, fill }) {
-  const disarmIdleFill = (chatId) => {
-    const armed = timers.get(chatId);
-    if (armed) {
-      armed.stop();
-      timers.delete(chatId);
-    }
-  };
+export function createFillBatcher({ quietMs, log, fill }) {
+  // Nothing to disarm: the quiet window is the batcher's own, and the status
+  // belongs to the fill. Kept so the callers that end a chat still read the
+  // same, and so ending one twice is harmless.
+  const disarmIdleFill = () => {};
 
   const batch = createBatcher({
     quietMs,
     log,
-    fill: async (ctx, chatId) => {
-      // The status goes up now, and not before: while the window is open the
-      // applicant is still sending, and a bot that appears to be typing the
-      // whole time tells them nothing about when it started. Two moments,
-      // plainly separate — their turn, then its turn.
-      if (!timers.has(chatId)) {
-        timers.set(chatId, { stop: showStatus(ctx, 'typing') });
-      }
-      try {
-        await fill(ctx, chatId);
-      } finally {
-        disarmIdleFill(chatId);
-      }
-    },
+    // The fill puts its own status up and takes it down again, and it is the
+    // only thing that does. Two owners of one indicator is one too many: the
+    // fill began by disarming this one, so the status went out at the very
+    // moment the work started and the chat sat silent through all of it.
+    fill,
   });
 
   /** Takes in something that arrived. */

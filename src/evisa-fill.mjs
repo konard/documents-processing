@@ -535,11 +535,12 @@ export async function fillForm(page, applicant, { uploads = {} } = {}) {
     corrected,
     agreed,
     siteOnly,
-    // What the fill made of the values it was given. A ward the site no
-    // longer lists is put in the one that replaced it, and the applicant is
-    // shown the form with that on it: they have to be told the same, or the
-    // list under the picture disagrees with the picture.
-    placed: applicant,
+    // The form as it stands, read back off the page. What the applicant is
+    // shown and what they are told have to be the same thing, and the page
+    // is the only account of it that cannot drift: a ward the site no longer
+    // lists went in as the one that replaced it, and a value the site
+    // rewrote on its own is there as the site wrote it.
+    placed: await readFilledFields(page),
   };
 }
 

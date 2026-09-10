@@ -543,7 +543,7 @@ export async function fillBySection(
   { uploads, onSection, capture }
 ) {
   const { FIELDS } = await import('./evisa-schema.mjs');
-  const { readFieldSections, groupBySection, SECTION_ORDER } =
+  const { readFieldSections, groupBySection } =
     await import('./evisa-sections.mjs');
   // The page is asked where its fields are, so a form that has been
   // rearranged is still filled in its own order.
@@ -557,10 +557,13 @@ export async function fillBySection(
     result.failures.push(...from.failures);
   };
 
+  // The pictures go up first, being at the top of the form. They are not
+  // shown here: the loop below walks every part the page has, and the part
+  // they belong to is one of them. Reporting them here as well sent the
+  // applicant the same picture twice.
   if (uploads && Object.keys(uploads).length) {
     take(await fillForm(page, {}, { uploads }));
     await settleForm(page);
-    await report(0, SECTION_ORDER[0], result, onSection, capture);
   }
 
   // Every part of the form is shown, in printed order, whether or not this

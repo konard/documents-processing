@@ -150,6 +150,8 @@ reports/
 # Every message of every conversation, both sides, and the files sent with
 # them. This is the applicant's passport, address and telephone number.
 data/transcripts/
+# The record of a run holds the applicant's own values, as a transcript does.
+data/traces/
 data/chats.lino
 data/chats.lino.writing
 data/match-checks-data.json

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'test-anywhere';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 
 const ignoreRules = readFileSync('.gitignore', 'utf8')
@@ -343,5 +344,43 @@ describe('the container keeps the bot self-contained', () => {
     // Chromium's sandbox refuses to start as root, and running as root would be
     // worth avoiding regardless.
     expect(dockerfile.includes('USER pwuser')).toBe(true);
+  });
+});
+
+describe('nothing an applicant sent is tracked by git', () => {
+  /** Every path git has staged or committed, as git itself reports them. */
+  const tracked = () =>
+    execFileSync('git', ['ls-files'], { encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+
+  it('tracks no run of the bot: no trace, no transcript, no chat store', () => {
+    // A trace holds the passport number, the name, the email and the
+    // addresses, exactly as the applicant sent them. It was tracked once,
+    // because the folder it lives in was made after the ignore rules were
+    // written and nobody added it to them. The test is on what git holds,
+    // since that is what reaches the published tree.
+    const runtime = tracked().filter((path) =>
+      /^data\/(traces|transcripts)\/|^data\/chats\.lino/.test(path)
+    );
+    expect(runtime).toEqual([]);
+  });
+
+  it('keeps every runtime folder under data ignored', () => {
+    // Each of these holds what an applicant sent. A new one is easy to add
+    // and easy to forget, so the rule is checked and not assumed.
+    const ignored = readFileSync('.gitignore', 'utf8');
+    for (const folder of ['data/traces/', 'data/transcripts/']) {
+      expect(`${folder}:${ignored.includes(folder)}`).toBe(`${folder}:true`);
+    }
+  });
+
+  it('tracks only example files under data', () => {
+    // Everything else there is a real applicant's, or is written at runtime.
+    const underData = tracked().filter((path) => path.startsWith('data/'));
+    const unexpected = underData.filter(
+      (path) => !/\.example\.(json|txt)$|^data\/\.env\.example$/.test(path)
+    );
+    expect(unexpected).toEqual([]);
   });
 });

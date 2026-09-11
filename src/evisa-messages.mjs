@@ -106,13 +106,15 @@ export const MESSAGES = {
       payment: 'payment',
       unknown: 'a page I do not know',
     },
-    applicationIn:
-      'The site took the code and registered the application. Its dialog ' +
-      'says:',
+    applicationIn: 'The application is registered. The site gives:',
+    registrationCode: 'application number',
+    registrationEmail: 'email',
+    registrationBirth: 'date of birth',
+    registrationPassport: 'passport',
     applicationInNext:
-      'Note the electronic document code: it is what checks the status ' +
-      'later. From here, go to the browser window: press Confirm there and ' +
-      'go on to payment yourself. I press nothing in that dialog.',
+      'Keep the application number: it is what the status is checked by. ' +
+      'The rest is in the browser window — confirm there and pay. I press ' +
+      'nothing in it.',
     inBrowserNow:
       'The application is registered; the rest is in the browser window: ' +
       'Confirm in the dialog, then payment. I press nothing there.',
@@ -305,12 +307,14 @@ export const MESSAGES = {
       payment: 'оплата',
       unknown: 'незнакомая мне страница',
     },
-    applicationIn:
-      'Сайт принял код и зарегистрировал заявление. В его окне написано:',
+    applicationIn: 'Заявление зарегистрировано. Сайт выдал:',
+    registrationCode: 'номер заявления',
+    registrationEmail: 'почта',
+    registrationBirth: 'дата рождения',
+    registrationPassport: 'паспорт',
     applicationInNext:
-      'Запишите код электронного документа: по нему потом проверяют ' +
-      'статус. Дальше в окне браузера: нажмите там «Confirm» и пройдите ' +
-      'оплату сами. В этом окне я ничего не нажимаю.',
+      'Сохраните номер заявления — по нему проверяют статус. Дальше всё в ' +
+      'окне браузера: подтвердите и оплатите. В нём я ничего не нажимаю.',
     inBrowserNow:
       'Заявление зарегистрировано, дальше в окне браузера: «Confirm» в ' +
       'окне сайта, потом оплата. Там я ничего не нажимаю.',

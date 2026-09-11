@@ -773,21 +773,31 @@ function pressNextAndShow(ctx, chatId, label = 'Next') {
       // The parts of the page first, each one readable on a phone, then the
       // whole page as the file to keep. The captcha comes after both, in
       // followStep, so what is asked for is the last thing on the screen.
-      await showPageInParts({
-        ctx,
-        chatId,
-        page,
-        dir,
-        language: session.language,
-        settleMs: SETTLE_MS,
-        deps: PAGE_PART_DEPS,
-      });
+      //
+      // A dialog over the page is the exception. It covers the parts under
+      // it, so cutting them out gives a white box with a corner of the
+      // dialog in it — and the applicant has seen these parts already, on
+      // the page this dialog opened over.
+      if (!step.dialog) {
+        await showPageInParts({
+          ctx,
+          chatId,
+          page,
+          dir,
+          language: session.language,
+          settleMs: SETTLE_MS,
+          deps: PAGE_PART_DEPS,
+        });
+      }
       await ctx.replyWithDocument(
         new InputFile(
           step.screenshot,
           (MESSAGES[session.language] ?? MESSAGES.en).previewFile
         ),
-        { caption: describeStep(step, session.language) }
+        {
+          caption: describeStep(step, session.language),
+          parse_mode: 'HTML',
+        }
       );
       return step;
     } catch (error) {

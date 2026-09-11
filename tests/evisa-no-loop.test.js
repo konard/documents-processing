@@ -141,3 +141,48 @@ describe('asking the bot to stop', () => {
     expect(runner.includes("command: 'stop'")).toBe(true);
   });
 });
+
+describe('the commands the bot answers to', () => {
+  const commands = readFileSync('src/evisa-commands.mjs', 'utf8');
+  const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+
+  it('names each one for the half of the work it does', () => {
+    // "/visa" said nothing about whether it filled an application or
+    // fetched one already filed. Both old names still answer.
+    expect(commands.includes("['fill_visa', 'fill-visa', 'visa']")).toBe(true);
+    expect(
+      runner.includes("['download_visa', 'download-visa', 'documents']")
+    ).toBe(true);
+  });
+
+  it('offers the underscored names, the only ones Telegram takes', () => {
+    // A hyphen in a name is refused, and the whole list goes with it.
+    const listed = runner.slice(runner.indexOf('setMyCommands'));
+    const block = listed.slice(0, listed.indexOf(']);'));
+    expect(block.includes("command: 'fill_visa'")).toBe(true);
+    expect(block.includes("command: 'download_visa'")).toBe(true);
+    // The names themselves carry no hyphen; a description may.
+    const names = [...block.matchAll(/command: '([^']+)'/g)].map((m) => m[1]);
+    expect(names.filter((name) => name.includes('-'))).toEqual([]);
+  });
+
+  it('asks for the application number, and never assumes one', () => {
+    // A chat is shared, and the last application filed in it is not always
+    // the one being asked about: fetching somebody else's documents unasked
+    // is worse than asking.
+    const at = runner.indexOf("bot.command(['download_visa'");
+    const body = runner.slice(at, runner.indexOf('});', at));
+    expect(body.includes("store.read(chatId, 'applicationNumber')")).toBe(
+      false
+    );
+    expect(body.includes('session.application?.applicationNumber')).toBe(false);
+    expect(body.includes('documentsNeedNumber')).toBe(true);
+  });
+
+  it('asks for a lookup´s code in its own words', () => {
+    // The form's captcha says the application is about to be filed, which
+    // is not what a lookup does.
+    const documents = readFileSync('src/evisa-documents.mjs', 'utf8');
+    expect(documents.includes('strings.lookupCaptchaAsk')).toBe(true);
+  });
+});

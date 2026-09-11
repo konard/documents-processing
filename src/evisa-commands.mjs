@@ -34,9 +34,14 @@ export function registerVisaCommands(bot, deps) {
     bot.command(name, (ctx) => stopFilling(ctx, ctx.chat.id));
   }
 
-  bot.command('visa', async (ctx) => {
+  // Named for what it does: "/visa" said nothing about which half of the
+  // work it was, filling an application or fetching one already filed.
+  // Telegram's own menu takes no hyphen in a name — it refuses the whole
+  // list — so fill_visa is the one it lists, and the other two are taken
+  // for anyone who types them.
+  bot.command(['fill_visa', 'fill-visa', 'visa'], async (ctx) => {
     const chatId = ctx.chat.id;
-    log(chatId, '/visa');
+    log(chatId, '/fill-visa');
     await restartChat(chatId);
     touch(chatId);
     const session = sessions.get(chatId);

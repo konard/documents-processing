@@ -11,9 +11,10 @@ export const MESSAGES = {
     welcome: 'I can prepare your Vietnam e-visa application.',
     menu:
       'I help with Vietnam entry documents.\n\n' +
-      '/visa — apply for an e-visa\n' +
+      '/fill_visa — fill in an e-visa application\n' +
+      '/download_visa — fetch a filed one: the form, the receipt, the visa\n' +
       '/arrival — the pre-arrival declaration, for after the visa\n' +
-      '/documents — fetch a filed application, its receipt and the visa\n\n' +
+      '/stop — stop, and close the browser window\n\n' +
       'The buttons below change the language.',
     arrivalIntro:
       'The pre-arrival declaration is filed just before you fly, and needs ' +
@@ -81,7 +82,7 @@ export const MESSAGES = {
     restarting:
       'The bot is shutting down, and the browser window with the form is ' +
       'being closed. Nothing is lost that you sent me. When the bot is back, ' +
-      'say /visa and send the documents and details again.',
+      'say /fill_visa and send the documents and details again.',
     browserClosed:
       'The browser window has closed, and the form in it is gone. I still ' +
       'have everything you sent: say "fill" and I open a new window and ' +
@@ -92,7 +93,7 @@ export const MESSAGES = {
       'but a copy sent as a file (attach, then File) arrives as it is.',
     stopped:
       'Stopped. Nothing more is filled or sent, and the browser is closed. ' +
-      'Say /visa to begin an application again.',
+      'Say /fill_visa to begin an application again.',
     alreadyFilling: 'Still filling. Nothing is sent without your word.',
     needed: 'Still needed:',
     thenAgain: 'Once you send it, I fill the form again and show it.',
@@ -142,6 +143,9 @@ export const MESSAGES = {
     captchaAgain:
       'The site did not take that code. Here is a new picture; send the code ' +
       'from it.',
+    lookupCaptchaAsk:
+      'Looking the application up. Send the code from this picture and I ' +
+      'fetch whatever the site has ready: the form, the receipt, the visa.',
     readAsPassportPage:
       'This looks like a passport data page, so I used it as one. I could ' +
       'not read the machine line at the bottom of it, so send the details ' +
@@ -161,7 +165,7 @@ export const MESSAGES = {
     applicationKept: (number) =>
       `I have noted the application number ${number}. Once the payment goes ` +
       'through in the browser, I fetch the form and the receipt on my own; ' +
-      'you can also ask any time with /documents.',
+      'you can also ask any time with /download_visa.',
     paymentSeen:
       'The browser reached the site\u2019s payment page, so the payment is ' +
       'through. Fetching the documents now.',
@@ -175,10 +179,10 @@ export const MESSAGES = {
       'it again. Send a correction whenever you have one.',
     documentsNeedNumber:
       'Send the application number with the command, like ' +
-      '/documents E260908XXX0000000000. It is in the email the site sent ' +
+      '/download_visa E260908XXX0000000000. It is in the email the site sent ' +
       'when the application was filed.',
     documentsNoCaptcha:
-      'The lookup page did not show a code picture. Try /documents again in ' +
+      'The lookup page did not show a code picture. Try /download_visa again in ' +
       'a moment.',
     documentsNone: 'The site found no application under that number.',
     documentsNotReady:
@@ -213,9 +217,10 @@ export const MESSAGES = {
     welcome: 'Помогу подготовить заявление на электронную визу во Вьетнам.',
     menu:
       'Помогаю с документами для въезда во Вьетнам.\n\n' +
-      '/visa — подать на электронную визу\n' +
+      '/fill_visa — заполнить заявление на электронную визу\n' +
+      '/download_visa — скачать поданное: анкету, квитанцию, визу\n' +
       '/arrival — декларация перед прилётом, уже после визы\n' +
-      '/documents — скачать поданное заявление, квитанцию и визу\n\n' +
+      '/stop — остановиться и закрыть окно браузера\n\n' +
       'Кнопки ниже меняют язык.',
     arrivalIntro:
       'Декларацию перед прилётом подают незадолго до вылета, для неё нужны ' +
@@ -284,7 +289,7 @@ export const MESSAGES = {
       'перезапуска бота. Пришлите /start, затем документы и данные заново.',
     restarting:
       'Бот выключается, окно браузера с анкетой сейчас закроется. Всё, что ' +
-      'вы присылали, у меня сохранено. Когда бот вернётся, напишите /visa и ' +
+      'вы присылали, у меня сохранено. Когда бот вернётся, напишите /fill_visa и ' +
       'пришлите документы и данные заново.',
     browserClosed:
       'Окно браузера закрылось, и анкета в нём пропала. Всё присланное я ' +
@@ -295,7 +300,7 @@ export const MESSAGES = {
       'но лучше прислать ещё раз как файл (скрепка, затем «Файл»).',
     stopped:
       'Остановил. Больше ничего не заполняю и не отправляю, браузер закрыт. ' +
-      'Чтобы начать заново, напишите /visa.',
+      'Чтобы начать заново, напишите /fill_visa.',
     alreadyFilling: 'Ещё заполняю. Без вашего слова ничего не отправлю.',
     needed: 'Ещё нужно:',
     thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',
@@ -340,6 +345,9 @@ export const MESSAGES = {
       'браузера перейдёт к оплате.',
     captchaAgain:
       'Сайт не принял этот код. Вот новая картинка — пришлите код с неё.',
+    lookupCaptchaAsk:
+      'Ищу заявление. Пришлите код с этой картинки, и я скачаю всё, что у ' +
+      'сайта готово: анкету, квитанцию, визу.',
     readAsPassportPage:
       'Похоже на страницу паспорта с данными — так её и использую. Машинную ' +
       'строку внизу прочитать не удалось, поэтому пришлите то, что неверно, ' +
@@ -359,7 +367,7 @@ export const MESSAGES = {
     applicationKept: (number) =>
       `Запомнил номер заявления ${number}. Как только в браузере пройдёт ` +
       'оплата, сам скачаю анкету и квитанцию; можно и в любой момент ' +
-      'спросить командой /documents.',
+      'спросить командой /download_visa.',
     paymentSeen:
       'Браузер дошёл до страницы оплаты — значит, оплата прошла. Скачиваю ' +
       'документы.',
@@ -373,10 +381,10 @@ export const MESSAGES = {
       'снова. Пришлите исправление, когда будет.',
     documentsNeedNumber:
       'Пришлите номер заявления вместе с командой, например ' +
-      '/documents E260908XXX0000000000. Он есть в письме, которое сайт ' +
+      '/download_visa E260908XXX0000000000. Он есть в письме, которое сайт ' +
       'прислал при подаче.',
     documentsNoCaptcha:
-      'Страница поиска не показала картинку с кодом. Попробуйте /documents ' +
+      'Страница поиска не показала картинку с кодом. Попробуйте /download_visa ' +
       'ещё раз через минуту.',
     documentsNone: 'Сайт не нашёл заявления с таким номером.',
     documentsNotReady:

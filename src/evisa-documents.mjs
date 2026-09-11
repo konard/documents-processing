@@ -267,7 +267,9 @@ export function createDocuments({
       dateOfBirth: known.dateOfBirth ?? session.data?.dateOfBirth,
     });
     session.lookingUp = number;
-    if (!(await askCaptcha(ctx, chatId, strings.captchaAsk, page))) {
+    // Its own wording: the form's captcha says the application is about to
+    // be filed, which is not what a lookup does.
+    if (!(await askCaptcha(ctx, chatId, strings.lookupCaptchaAsk, page))) {
       await ctx.reply(strings.documentsNoCaptcha);
     }
   }

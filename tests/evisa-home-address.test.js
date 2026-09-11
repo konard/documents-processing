@@ -781,3 +781,49 @@ describe('the contact person, as people name them', () => {
     expect(SEND_COUNTDOWN_MS).toBe(30_000);
   });
 });
+
+describe('everything the registration dialog gives', () => {
+  it('names all six of its values, and none of its furniture', () => {
+    // The dialog prints six things worth keeping and several that are the
+    // site talking to itself: a heading, a notice, and its two buttons.
+    const step = {
+      stage: 'declared',
+      moved: true,
+      errors: [],
+      notices: [],
+      dialog: {
+        lines: [
+          'Notice',
+          'DECLARATION COMPLETED',
+          'Electronic document code:',
+          'E000000XXX00000000000',
+          'Email:',
+          'traveller@example.com',
+          'Date of birth:',
+          '01/01/1990',
+          'Passport:',
+          '712345678',
+          'Nationality:',
+          'Russia',
+          'Date of apply:',
+          '11/09/2026',
+          'Notice: You have to note e-Visa app no. for check status of this file',
+        ],
+        buttons: ['Print', 'Confirm'],
+      },
+    };
+    const said = describeStep(step, 'ru');
+    for (const value of [
+      'E000000XXX00000000000',
+      'traveller@example.com',
+      '01/01/1990',
+      '712345678',
+      'Russia',
+      '11/09/2026',
+    ]) {
+      expect(`${value}:${said.includes(value)}`).toBe(`${value}:true`);
+    }
+    expect(said).not.toContain('DECLARATION COMPLETED');
+    expect(said).not.toContain('Notice');
+  });
+});

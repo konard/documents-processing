@@ -487,6 +487,8 @@ function describeRegistration(lines, strings) {
     [strings.registrationEmail, after('Email')],
     [strings.registrationBirth, after('Date of birth')],
     [strings.registrationPassport, after('Passport')],
+    [strings.registrationNationality, after('Nationality')],
+    [strings.registrationApplied, after('Date of apply')],
   ];
   return named
     .filter(([, value]) => value)

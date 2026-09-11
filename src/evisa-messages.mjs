@@ -111,6 +111,8 @@ export const MESSAGES = {
     registrationEmail: 'email',
     registrationBirth: 'date of birth',
     registrationPassport: 'passport',
+    registrationNationality: 'nationality',
+    registrationApplied: 'filed on',
     applicationInNext:
       'Keep the application number: it is what the status is checked by. ' +
       'The rest is in the browser window — confirm there and pay. I press ' +
@@ -312,6 +314,8 @@ export const MESSAGES = {
     registrationEmail: 'почта',
     registrationBirth: 'дата рождения',
     registrationPassport: 'паспорт',
+    registrationNationality: 'гражданство',
+    registrationApplied: 'подано',
     applicationInNext:
       'Сохраните номер заявления — по нему проверяют статус. Дальше всё в ' +
       'окне браузера: подтвердите и оплатите. В нём я ничего не нажимаю.',

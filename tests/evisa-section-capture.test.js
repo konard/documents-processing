@@ -224,3 +224,19 @@ describe('a page with a dialog over it', () => {
     expect(guard > 0 && guard < parts).toBe(true);
   });
 });
+
+describe('how a page reaches the chat', () => {
+  const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+
+  it('sends a dialog as a picture, and a whole page as a file', () => {
+    // A dialog is one screen: drawn in place, the applicant reads it where
+    // it lands. A whole page is nine screens and a chat shrinks a picture
+    // to fit, so that one stays a file and keeps its detail.
+    const press = runner.slice(runner.indexOf('function pressNextAndShow'));
+    const body = press.slice(0, press.indexOf('\n}\n'));
+    expect(body.includes('step.dialog\n        ? ctx.replyWithPhoto')).toBe(
+      true
+    );
+    expect(body.includes(': ctx.replyWithDocument(')).toBe(true);
+  });
+});

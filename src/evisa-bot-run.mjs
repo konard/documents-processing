@@ -789,16 +789,17 @@ function pressNextAndShow(ctx, chatId, label = 'Next') {
           deps: PAGE_PART_DEPS,
         });
       }
-      await ctx.replyWithDocument(
-        new InputFile(
-          step.screenshot,
-          (MESSAGES[session.language] ?? MESSAGES.en).previewFile
-        ),
-        {
-          caption: describeStep(step, session.language),
-          parse_mode: 'HTML',
-        }
-      );
+      // A dialog is one screen, so it goes as a picture the chat draws in
+      // place: the applicant reads it where it lands. A whole page is nine
+      // screens and would be shrunk to nothing, so that stays a file.
+      const under = {
+        caption: describeStep(step, session.language),
+        parse_mode: 'HTML',
+      };
+      const named = (MESSAGES[session.language] ?? MESSAGES.en).previewFile;
+      await (step.dialog
+        ? ctx.replyWithPhoto(new InputFile(step.screenshot, named), under)
+        : ctx.replyWithDocument(new InputFile(step.screenshot, named), under));
       return step;
     } catch (error) {
       log(chatId, `pressing ${label} failed: ${error.stack ?? error.message}`);

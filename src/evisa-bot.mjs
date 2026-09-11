@@ -467,12 +467,41 @@ export function describeOutcome(result, outstanding, language) {
  * form's first few messages and whatever the site said in a dialog.
  */
 /** What to say under a page that the site accepted and went on from. */
+/**
+ * The registration dialog as a few named lines.
+ *
+ * Its code is the one thing the applicant has to keep, so it goes first and
+ * alone; what is beside it is what a later lookup asks for. Anything the
+ * dialog holds that is neither is the site talking to itself.
+ */
+function describeRegistration(lines, strings) {
+  const said = lines.join('\n');
+  const code = said.match(/\bE\d{6}[A-Z]{3}\d+\b/)?.[0];
+  const after = (label) =>
+    said
+      .match(new RegExp(`${label}\\s*:?\\s*\\n?\\s*(.+)`, 'i'))?.[1]
+      ?.trim()
+      .split(/\s/)[0] || null;
+  const named = [
+    [strings.registrationCode, code],
+    [strings.registrationEmail, after('Email')],
+    [strings.registrationBirth, after('Date of birth')],
+    [strings.registrationPassport, after('Passport')],
+  ];
+  return named
+    .filter(([, value]) => value)
+    .map(([label, value]) => `• ${label}: <b>${escapeHtml(value)}</b>`);
+}
+
 function describeArrival(step, strings) {
   if (step.stage === 'declared') {
-    const lines = step.dialog?.lines ?? [];
+    // The dialog's own lines run together where the site's buttons sit —
+    // "PrintConfirm" — and repeat what the applicant has already been shown.
+    // What is worth keeping is the code and the details beside it, named.
     return [
       strings.applicationIn,
-      ...lines,
+      '',
+      ...describeRegistration(step.dialog?.lines ?? [], strings),
       '',
       strings.applicationInNext,
     ].join('\n');

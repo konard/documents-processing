@@ -651,16 +651,14 @@ describe('what the bot says after Next, and what it hears', () => {
         buttons: ['Print', 'Confirm'],
       },
     };
-    expect(describeStep(step, 'ru')).toBe(
-      [
-        'Сайт принял код и зарегистрировал заявление. В его окне написано:',
-        'DECLARATION COMPLETED',
-        'Electronic document code: E000000XXX00000000000',
-        'Date of apply: 08/09/2026',
-        '',
-        'Запишите код электронного документа: по нему потом проверяют статус. Дальше в окне браузера: нажмите там «Confirm» и пройдите оплату сами. В этом окне я ничего не нажимаю.',
-      ].join('\n')
-    );
+    // The dialog's own lines are the site talking to itself: a heading, a
+    // notice, and two button labels run together as "PrintConfirm". What the
+    // applicant needs is the number and what a later lookup asks for, named.
+    const said = describeStep(step, 'ru');
+    expect(said).toContain('• номер заявления: <b>E000000XXX00000000000</b>');
+    expect(said).toContain('Сохраните номер заявления');
+    expect(said).not.toContain('DECLARATION COMPLETED');
+    expect(said).not.toContain('Print');
   });
 
   it('says when the site opened the review page empty', () => {

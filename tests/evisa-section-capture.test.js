@@ -210,3 +210,17 @@ describe('what the chat is sent', () => {
     expect(body.includes('caption:')).toBe(false);
   });
 });
+
+describe('a page with a dialog over it', () => {
+  it('is not cut into parts, since the dialog covers them', () => {
+    // The registration dialog opens over the review page. Cutting that page
+    // into its parts then gives a white box with a corner of the dialog in
+    // it, and the parts under it are ones the applicant has already seen.
+    const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    const press = runner.slice(runner.indexOf('function pressNextAndShow'));
+    const body = press.slice(0, press.indexOf('\n}\n'));
+    const guard = body.indexOf('if (!step.dialog)');
+    const parts = body.indexOf('await showPageInParts(');
+    expect(guard > 0 && guard < parts).toBe(true);
+  });
+});

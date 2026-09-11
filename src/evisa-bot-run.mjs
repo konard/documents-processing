@@ -1120,19 +1120,16 @@ bot.command('reset', async (ctx) => {
   await ctx.reply('Cleared. Send /start to begin again.');
 });
 
-bot.command('documents', async (ctx) => {
+bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
   const chatId = ctx.chat.id;
   touch(chatId);
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
-  // The application number is what the site looks an application up by, and
-  // only the applicant has it: it arrives by email when the application is
-  // filed.
-  const asked = ctx.message.text.replace(/^\/documents\s*/, '').trim();
-  const number =
-    asked ||
-    session.application?.applicationNumber ||
-    store.read(chatId, 'applicationNumber');
+  // The number is asked for, and never taken from what the bot happens to
+  // remember: a chat is shared, an application is not always the last one
+  // filed, and fetching somebody else's documents unasked is worse than
+  // asking. The number arrives by email when the application is filed.
+  const number = ctx.message.text.replace(/^\/\S+\s*/, '').trim();
   if (!number) {
     await ctx.reply(strings.documentsNeedNumber);
     return;
@@ -1480,9 +1477,12 @@ async function startPolling(attempt = 1) {
     // visible without anybody being told them.
     await bot.api.setMyCommands([
       { command: 'start', description: 'start over, and choose a language' },
-      { command: 'visa', description: 'apply for an e-visa' },
+      { command: 'fill_visa', description: 'fill in an e-visa application' },
+      {
+        command: 'download_visa',
+        description: 'fetch a filed one: form, receipt, visa',
+      },
       { command: 'arrival', description: 'the pre-arrival declaration' },
-      { command: 'documents', description: 'fetch a filed application' },
       { command: 'stop', description: 'stop, and close the browser window' },
     ]);
     await bot.start();

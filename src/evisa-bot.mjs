@@ -390,6 +390,36 @@ export function describeDeclaration(values, missing, language) {
   return parts.join('\n').trim();
 }
 
+/**
+ * What stands on the declaration page after a fill, and what does not.
+ *
+ * Read back off the page, so what it reports is what the site holds: a value
+ * the form refused is absent here, whatever the bot believed it typed. The
+ * fill ends with the page waiting, since sending a declaration is the
+ * traveller's own act.
+ */
+export function describeFilled(onThePage, result, language) {
+  const strings = MESSAGES[language] ?? MESSAGES.en;
+  const labels = ARRIVAL_LABELS[language] ?? ARRIVAL_LABELS.en;
+  const named = (key) => labels[key] ?? key;
+  const parts = [`<b>${strings.arrivalFilled}</b>`];
+  for (const field of PREARRIVAL_ORDER) {
+    if (onThePage[field.key]) {
+      parts.push(`• ${named(field.key)}: ${escapeHtml(onThePage[field.key])}`);
+    }
+  }
+  const wanted = [...(result.missing ?? [])].filter((key) => !onThePage[key]);
+  if (wanted.length) {
+    parts.push('', `<b>${strings.arrivalStillWanted}</b>`);
+    parts.push(...wanted.map((key) => `• ${named(key)}`));
+  }
+  for (const gone of result.failed ?? []) {
+    parts.push(`• ${escapeHtml(gone)}`);
+  }
+  parts.push('', strings.arrivalYours);
+  return parts.join('\n').trim();
+}
+
 /** Telegram's limit on the caption under a file. */
 const CAPTION_LIMIT = 1024;
 

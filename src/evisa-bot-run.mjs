@@ -35,6 +35,7 @@ import {
   labelFor,
   sectionName,
   describeDeclaration,
+  describeFilled,
   describeSummary,
   describeTail,
   describeOutcome,
@@ -98,6 +99,12 @@ import { countNoise, watchBrowser } from './evisa-noise.mjs';
 import { createLookup, isCommand } from './evisa-lookup.mjs';
 import { createArrivalDocuments } from './evisa-arrival-documents.mjs';
 import { showArrival, registerArrivalCommand } from './evisa-prearrival.mjs';
+import {
+  declarationOpener,
+  declarationCaptchaTaker,
+  closeDeclaration,
+} from './evisa-arrival-run.mjs';
+import { anyCaptchaTaker } from './evisa-captcha-routing.mjs';
 import {
   MODES,
   modeOf,
@@ -333,6 +340,10 @@ async function endChat(chatId) {
     await held.browser.close().catch(() => {});
     browsers.delete(chatId);
   }
+  // The declaration keeps a browser of its own, on another site. Clearing
+  // the session drops the only reference to it, so it is closed first or it
+  // outlives the chat with nothing left to close it.
+  await closeDeclaration(sessions.get(chatId));
   // The watch holds a timer of its own, which outlives the session it
   // belongs to unless it is stopped first.
   stopWatchingPayment(chatId);
@@ -1113,10 +1124,27 @@ registerVisaCommands(bot, {
   stopFilling: (ctx, chatId) => inTurn(chatId, () => stopFilling(ctx, chatId)),
 });
 
+// What the declaration needs, on its own site: askCaptcha is wrapped rather
+// than passed, being defined further down the file than this.
+const arrivalDeps = {
+  sessions,
+  log,
+  looksLikeCaptcha,
+  askCaptcha: (...args) => askCaptcha(...args),
+  MESSAGES,
+  describeFilled,
+  headless: !HEADED,
+  debugPort: DEBUG_PORT ? DEBUG_PORT + 1 : 0,
+};
+
+const beginArrival = declarationOpener(arrivalDeps);
+const tookArrivalCaptcha = declarationCaptchaTaker(arrivalDeps);
+
 registerArrivalCommand(bot, {
   ...commandDeps,
   describeDeclaration,
   MESSAGES,
+  fillArrival: beginArrival,
 });
 
 bot.command('reset', async (ctx) => {
@@ -1322,26 +1350,13 @@ bot.on('message:text', (ctx) => {
 /** Keeps a chat in the language its applicant reads, message by message. */
 const followLanguage = languageFollower({ store, detectLanguage });
 
-/**
- * Takes a code on the review page as the form's captcha, asked for or not.
- *
- * One sent during the countdown replaces the one typed, and the countdown
- * starts over on it. Reports whether it did, so the caller can stop.
- */
-function tookReviewCaptcha(ctx, chatId, session) {
-  if (session.stage !== 'review' || !looksLikeCaptcha(ctx.message.text)) {
-    return false;
-  }
-  if (settleCountdown(chatId, 'stop')) {
-    log(chatId, 'another captcha code received during the countdown');
-  } else {
-    log(chatId, 'captcha code received');
-  }
-  typeTheCaptcha(ctx, chatId, ctx.message.text).catch((error) =>
-    log(chatId, `the captcha step failed: ${error.message}`)
-  );
-  return true;
-}
+const tookAnyCaptcha = anyCaptchaTaker({
+  tookArrivalCaptcha,
+  looksLikeCaptcha,
+  settleCountdown,
+  log,
+  typeTheCaptcha: (...args) => typeTheCaptcha(...args),
+});
 
 async function receiveText(ctx) {
   const chatId = ctx.chat.id;
@@ -1364,7 +1379,7 @@ async function receiveText(ctx) {
   ) {
     return;
   }
-  if (tookReviewCaptcha(ctx, chatId, session)) {
+  if (await tookAnyCaptcha(ctx, chatId, session)) {
     return;
   }
   if (isCommand(ctx.message)) {

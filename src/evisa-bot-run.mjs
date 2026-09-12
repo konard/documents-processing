@@ -54,6 +54,7 @@ import {
 } from './evisa-required.mjs';
 import {
   openForm,
+  loadForm,
   readPassportDocumentInWorker,
   fillBySection,
   captureSection,
@@ -91,8 +92,8 @@ import {
 import { createFillBatcher } from './evisa-batch.mjs';
 import { onShutdown } from './evisa-shutdown.mjs';
 import { startPolling, MENU } from './evisa-start.mjs';
-import { countNoise } from './evisa-noise.mjs';
-import { readLookupDetails, createLookup } from './evisa-lookup.mjs';
+import { countNoise, watchBrowser } from './evisa-noise.mjs';
+import { readLookupDetails, createLookup, isCommand } from './evisa-lookup.mjs';
 import { showStatus as raiseStatus, trackStatuses } from './evisa-status.mjs';
 import { registerVisaCommands, rememberedLanguage } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
@@ -197,42 +198,8 @@ const PAGE_PART_DEPS = {
 /** The site's own broken furniture: counted, and kept out of the log. */
 const noise = countNoise();
 
-/**
- * Writes what the browser reports to the log: console errors and warnings,
- * script errors, requests that failed and answers of 400 and up. When the
- * site draws a page bare, this is where the reason shows. The site's own
- * noise is only counted, so a real fault stands out among it.
- */
-function logBrowserEvents(chatId, page) {
-  page.on('console', (message) => {
-    if (
-      ['error', 'warning'].includes(message.type()) &&
-      !noise.filter(chatId, message.text())
-    ) {
-      log(chatId, `browser console ${message.type()}: ${message.text()}`);
-    }
-  });
-  page.on('pageerror', (error) => {
-    log(chatId, `browser script error: ${error.message}`);
-  });
-  page.on('requestfailed', (request) => {
-    if (noise.filter(chatId, request.url())) {
-      return;
-    }
-    log(
-      chatId,
-      `browser request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? '?'})`
-    );
-  });
-  page.on('response', (response) => {
-    if (response.status() >= 400 && !noise.filter(chatId, response.url())) {
-      log(
-        chatId,
-        `browser response ${response.status()}: ${response.request().method()} ${response.url()}`
-      );
-    }
-  });
-}
+const logBrowserEvents = (chatId, page) =>
+  watchBrowser(chatId, page, { log, noise });
 
 /** Fields read off the printed side of a passport, which fill gaps only. */
 const PRINTED_SIDE = [
@@ -296,9 +263,16 @@ function browserAlive(held) {
  * new one, and what was uploaded to its page is forgotten so the new page
  * gets it.
  */
-async function pageFor(chatId) {
+async function pageFor(chatId, { blank = false } = {}) {
   const held = browsers.get(chatId);
   if (browserAlive(held)) {
+    // A browser opened for a lookup has a blank page, since a lookup needs
+    // no application. The first caller that wants the form loads it.
+    if (held.blank && !blank) {
+      log(chatId, 'loading the form into the page the lookup opened');
+      await loadForm(held.page);
+      held.blank = false;
+    }
     return held.page;
   }
   if (held) {
@@ -314,11 +288,16 @@ async function pageFor(chatId) {
     : '';
   log(
     chatId,
-    `opening a ${HEADED ? 'visible' : 'headless'} browser on the form${attachable}`
+    `opening a ${HEADED ? 'visible' : 'headless'} browser ` +
+      `${blank ? 'with no page loaded' : 'on the form'}${attachable}`
   );
-  const { browser, page } = await openForm({ headless: !HEADED, debugPort });
+  const { browser, page } = await openForm({
+    headless: !HEADED,
+    debugPort,
+    blank,
+  });
   logBrowserEvents(chatId, page);
-  const opened = { browser, page, closing: false };
+  const opened = { browser, page, closing: false, blank };
   browsers.set(chatId, opened);
   // A window the applicant closes, or a browser that crashes, is noticed
   // then and there, not at the next fill: the chat hears, and what was on
@@ -1322,7 +1301,9 @@ async function refuseIfPastForm(ctx, session) {
 }
 
 bot.on('message:text', (ctx) => {
-  if (!isCancellation(ctx.message.text)) {
+  // A command is not a detail for the form. This handler sees commands too,
+  // so arming here on one asked /download_visa to fill in an application.
+  if (!isCancellation(ctx.message.text) && !isCommand(ctx.message)) {
     armIdleFill(ctx, ctx.chat.id);
   }
   return inTurn(ctx.chat.id, () => receiveText(ctx));
@@ -1393,6 +1374,11 @@ async function receiveText(ctx) {
     return;
   }
   if (tookReviewCaptcha(ctx, chatId, session)) {
+    return;
+  }
+  if (isCommand(ctx.message)) {
+    // Its own handler has run. Read as free text, "/download_visa E2609..."
+    // becomes details for the application form.
     return;
   }
   if (await refuseIfPastForm(ctx, session)) {

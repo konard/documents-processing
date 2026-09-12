@@ -132,11 +132,13 @@ describe('asking the bot to stop', () => {
   });
 
   it('does not open the quiet window on its way past', () => {
-    // A word that means stopping is not a reason to start filling.
+    // A word that means stopping is not a reason to start filling, and
+    // neither is a command: this handler sees those too.
     const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
     const handler = runner.slice(runner.indexOf("bot.on('message:text'"));
     const body = handler.slice(0, handler.indexOf('});'));
-    expect(body.includes('if (!isCancellation(ctx.message.text))')).toBe(true);
+    expect(body.includes('!isCancellation(ctx.message.text)')).toBe(true);
+    expect(body.includes('!isCommand(ctx.message)')).toBe(true);
   });
 
   it('is offered in the menu, so it can be found without being known', () => {

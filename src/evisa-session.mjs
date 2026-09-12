@@ -36,6 +36,7 @@ export async function openForm({
   headless = false,
   viewport,
   debugPort = 0,
+  blank = false,
 } = {}) {
   const { chromium } = await import('playwright');
   // Asked before the browser exists, since afterwards the answer is always
@@ -75,10 +76,27 @@ export async function openForm({
     // the front goes back to whatever the applicant was in.
     await giveBackTheFront(wasInFront);
   }
+  if (blank) {
+    // A lookup wants a browser, not an application. Loading the form for it
+    // costs a page nobody asked for, and leaves an empty one to be
+    // photographed by anything that later looks at the chat's page.
+    return { browser, page };
+  }
+  await loadForm(page);
+  return { browser, page };
+}
+
+/**
+ * Puts the application form on a page, past the notice the site opens with.
+ *
+ * Split out so a browser opened blank for a lookup can be given the form
+ * later, when something actually asks for one.
+ */
+export async function loadForm(page) {
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await acceptNoteModal(page);
   await waitForForm(page);
-  return { browser, page };
+  return page;
 }
 
 /**

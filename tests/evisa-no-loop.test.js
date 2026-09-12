@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync } from 'node:fs';
+import { MENU } from '../src/evisa-start.mjs';
 
 const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
 
@@ -137,8 +138,7 @@ describe('asking the bot to stop', () => {
   });
 
   it('is offered in the menu, so it can be found without being known', () => {
-    const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
-    expect(runner.includes("command: 'stop'")).toBe(true);
+    expect(MENU.some((entry) => entry.command === 'stop')).toBe(true);
   });
 });
 
@@ -157,12 +157,10 @@ describe('the commands the bot answers to', () => {
 
   it('offers the underscored names, the only ones Telegram takes', () => {
     // A hyphen in a name is refused, and the whole list goes with it.
-    const listed = runner.slice(runner.indexOf('setMyCommands'));
-    const block = listed.slice(0, listed.indexOf(']);'));
-    expect(block.includes("command: 'fill_visa'")).toBe(true);
-    expect(block.includes("command: 'download_visa'")).toBe(true);
+    const names = MENU.map((entry) => entry.command);
+    expect(names.includes('fill_visa')).toBe(true);
+    expect(names.includes('download_visa')).toBe(true);
     // The names themselves carry no hyphen; a description may.
-    const names = [...block.matchAll(/command: '([^']+)'/g)].map((m) => m[1]);
     expect(names.filter((name) => name.includes('-'))).toEqual([]);
   });
 

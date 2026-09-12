@@ -80,20 +80,20 @@ export const MESSAGES = {
       'Filling stopped: the browser closed, most likely because the bot was ' +
       'restarted. Send /start, then the documents and details again.',
     restarting:
-      'The bot is shutting down, and the browser window with the form is ' +
-      'being closed. Nothing is lost that you sent me. When the bot is back, ' +
-      'say /fill_visa and send the documents and details again.',
+      'The bot is shutting down, and the browser window it opened is being ' +
+      'closed. Documents and details are not kept across a shutdown. When ' +
+      'the bot is back, /start lists what it can do, and anything you sent ' +
+      'has to be sent again.',
     browserClosed:
-      'The browser window has closed, and the form in it is gone. I still ' +
-      'have everything you sent: say "fill" and I open a new window and ' +
-      'fill it again.',
+      'The browser window has closed, and everything in it is gone. Send the ' +
+      'documents and details again and I open a new window.',
     sentAsPhoto: (kb) =>
       `This came as a Telegram photo, shrunk to ${kb} KB with the camera's ` +
       'data stripped; the site may doubt a portrait like that. I use it, ' +
       'but a copy sent as a file (attach, then File) arrives as it is.',
     stopped:
       'Stopped. Nothing more is filled or sent, and the browser is closed. ' +
-      'Say /fill_visa to begin an application again.',
+      '/start lists what the bot can do, and any of it can be begun again.',
     alreadyFilling: 'Still filling. Nothing is sent without your word.',
     needed: 'Still needed:',
     thenAgain: 'Once you send it, I fill the form again and show it.',
@@ -288,19 +288,19 @@ export const MESSAGES = {
       'Заполнение прервалось: браузер закрылся, скорее всего из-за ' +
       'перезапуска бота. Пришлите /start, затем документы и данные заново.',
     restarting:
-      'Бот выключается, окно браузера с анкетой сейчас закроется. Всё, что ' +
-      'вы присылали, у меня сохранено. Когда бот вернётся, напишите /fill_visa и ' +
-      'пришлите документы и данные заново.',
+      'Бот выключается, открытое им окно браузера сейчас закроется. Документы ' +
+      'и данные при выключении не сохраняются. Когда бот вернётся, /start ' +
+      'покажет, что он умеет, а присланное нужно будет прислать заново.',
     browserClosed:
-      'Окно браузера закрылось, и анкета в нём пропала. Всё присланное я ' +
-      'помню: напишите «заполняй», и я открою новое окно и заполню заново.',
+      'Окно браузера закрылось, и всё, что в нём было, пропало. Документы и ' +
+      'данные пришлите заново, и я открою новое окно.',
     sentAsPhoto: (kb) =>
       `Это пришло как фото: Telegram сжал его до ${kb} КБ и убрал данные ` +
       'камеры, и сайт может усомниться в таком портрете. Я его использую, ' +
       'но лучше прислать ещё раз как файл (скрепка, затем «Файл»).',
     stopped:
       'Остановил. Больше ничего не заполняю и не отправляю, браузер закрыт. ' +
-      'Чтобы начать заново, напишите /fill_visa.',
+      '/start покажет, что бот умеет, — любое из этого можно начать заново.',
     alreadyFilling: 'Ещё заполняю. Без вашего слова ничего не отправлю.',
     needed: 'Ещё нужно:',
     thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',

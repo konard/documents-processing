@@ -90,6 +90,8 @@ import {
 } from './evisa-trace.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
 import { onShutdown } from './evisa-shutdown.mjs';
+import { startPolling, MENU } from './evisa-start.mjs';
+import { countNoise } from './evisa-noise.mjs';
 import { showStatus as raiseStatus, trackStatuses } from './evisa-status.mjs';
 import { registerVisaCommands, rememberedLanguage } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
@@ -191,14 +193,21 @@ const PAGE_PART_DEPS = {
   join: path.join,
 };
 
+/** The site's own broken furniture: counted, and kept out of the log. */
+const noise = countNoise();
+
 /**
  * Writes what the browser reports to the log: console errors and warnings,
  * script errors, requests that failed and answers of 400 and up. When the
- * site draws a page bare, this is where the reason shows.
+ * site draws a page bare, this is where the reason shows. The site's own
+ * noise is only counted, so a real fault stands out among it.
  */
 function logBrowserEvents(chatId, page) {
   page.on('console', (message) => {
-    if (['error', 'warning'].includes(message.type())) {
+    if (
+      ['error', 'warning'].includes(message.type()) &&
+      !noise.filter(chatId, message.text())
+    ) {
       log(chatId, `browser console ${message.type()}: ${message.text()}`);
     }
   });
@@ -206,13 +215,16 @@ function logBrowserEvents(chatId, page) {
     log(chatId, `browser script error: ${error.message}`);
   });
   page.on('requestfailed', (request) => {
+    if (noise.filter(chatId, request.url())) {
+      return;
+    }
     log(
       chatId,
       `browser request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? '?'})`
     );
   });
   page.on('response', (response) => {
-    if (response.status() >= 400) {
+    if (response.status() >= 400 && !noise.filter(chatId, response.url())) {
       log(
         chatId,
         `browser response ${response.status()}: ${response.request().method()} ${response.url()}`
@@ -1463,37 +1475,11 @@ setInterval(() => sweepKeptFiles(), 24 * 60 * 60 * 1000).unref();
 // Browsers of chats that have gone quiet are closed on the same principle.
 setInterval(() => sweepIdleChats(), 10 * 60 * 1000).unref();
 
-/**
- * Starts polling, waiting out a predecessor.
- *
- * Telegram allows one poller per token and answers a second with 409 until
- * the first's request ends, which after a restart can be half a minute. A
- * restart should not die in that window, so the start is retried for a
- * while before giving up.
- */
-async function startPolling(attempt = 1) {
-  try {
-    // The commands Telegram offers in its own menu, so the three ways in are
-    // visible without anybody being told them.
-    await bot.api.setMyCommands([
-      { command: 'start', description: 'start over, and choose a language' },
-      { command: 'fill_visa', description: 'fill in an e-visa application' },
-      {
-        command: 'download_visa',
-        description: 'fetch a filed one: form, receipt, visa',
-      },
-      { command: 'arrival', description: 'the pre-arrival declaration' },
-      { command: 'stop', description: 'stop, and close the browser window' },
-    ]);
-    await bot.start();
-  } catch (error) {
-    if (error.error_code === 409 && attempt <= 12) {
-      console.log('another instance still holds the poll; retrying in 5 s');
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      return startPolling(attempt + 1);
-    }
-    throw error;
-  }
-}
-
-startPolling();
+startPolling({
+  commands: MENU,
+  setCommands: (commands) => bot.api.setMyCommands(commands),
+  start: () => bot.start(),
+}).catch((error) => {
+  console.error(`the bot could not start: ${error.message}`);
+  process.exit(1);
+});

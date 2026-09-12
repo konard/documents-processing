@@ -31,7 +31,7 @@ const PAGE = [
   '01.01.2022',
   '01.01.2032',
   'Орган, выдавший документ / Authority',
-  '[REDACTED]',
+  'МВД 0001',
   LINE1,
   LINE2,
 ];
@@ -52,7 +52,7 @@ describe('the fields read off a page', () => {
     expect(print.passportExpiryDate).toBe('2032-01-01');
     expect(print.sex).toBe('Male');
     expect(print.placeOfBirth).toBe('МОСКВА/USSR');
-    expect(print.passportIssuingAuthority).toBe('[REDACTED]');
+    expect(print.passportIssuingAuthority).toBe('МВД 0001');
   });
 
   it('forgive the separators and glued digits engines put in dates and numbers', () => {
@@ -141,7 +141,7 @@ describe('the consensus over several readings', () => {
     expect(result.disputed).toEqual([]);
     expect(result.unverified).toEqual([]);
     expect(result.data.givenName).toBe('JOHN-ALEX');
-    expect(result.data.passportIssuingAuthority).toBe('[REDACTED]');
+    expect(result.data.passportIssuingAuthority).toBe('МВД 0001');
     // Two zone readings at double weight and two print readings.
     expect(result.agreement.passportNumber.votes).toBe(6);
     expect(Object.keys(result.data).sort()).toEqual(

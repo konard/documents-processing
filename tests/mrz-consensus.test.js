@@ -54,9 +54,9 @@ describe('namesAgree', () => {
 
 describe('consensus', () => {
   const agreeing = {
-    a: { documentNumber: '123456789', birthDate: '[REDACTED]' },
-    b: { documentNumber: '123456789', birthDate: '[REDACTED]' },
-    c: { documentNumber: '123456789', birthDate: '[REDACTED]' },
+    a: { documentNumber: '123456789', birthDate: '1991-04-05' },
+    b: { documentNumber: '123456789', birthDate: '1991-04-05' },
+    c: { documentNumber: '123456789', birthDate: '1991-04-05' },
   };
 
   it('accepts a value the engines agree on', () => {
@@ -72,14 +72,14 @@ describe('consensus', () => {
       { ...agreeing, d: { birthDate: '2010-03-02' } },
       { fields: ['birthDate'] }
     );
-    expect(result.data.birthDate).toBe('[REDACTED]');
+    expect(result.data.birthDate).toBe('1991-04-05');
     expect(result.agreement.birthDate.votes).toBe(3);
   });
 
   it('leaves an even split unresolved', () => {
     const result = consensus(
       {
-        a: { birthDate: '[REDACTED]' },
+        a: { birthDate: '1991-04-05' },
         b: { birthDate: '2010-03-02' },
       },
       { fields: ['birthDate'] }
@@ -146,7 +146,7 @@ describe('findMrzLines', () => {
       'RUSSIAN FEDERATION',
       'Date of birth',
       'P<UTODOE<<JOHN<<<<<<<<<<<<<<<',
-      '1234567897UTO9003026M3001019<<<<<<<<<<<<<<0',
+      '1234567897UTO9104059M3001019<<<<<<<<<<<<<<0',
     ];
     const lines = findMrzLines(page);
     expect(lines.length).toBe(2);
@@ -157,7 +157,7 @@ describe('findMrzLines', () => {
   it('pads short lines to the TD3 width', () => {
     const lines = findMrzLines([
       'P<UTODOE<<JOHN',
-      '1234567897UTO9003026M3001019',
+      '1234567897UTO9104059M3001019',
     ]);
     expect(lines[0].length).toBe(44);
     expect(lines[1].length).toBe(44);
@@ -176,7 +176,7 @@ describe('findMrzLines', () => {
 
   it('accepts a line the engine truncated after the fields it needs', () => {
     // Some engines stop at the filler; the fixed part is all that is parsed.
-    const lines = findMrzLines(['x', '1234567897UTO9003026M3001019<']);
+    const lines = findMrzLines(['x', '1234567897UTO9104059M3001019<']);
     expect(lines).not.toBe(null);
     expect(lines[1].startsWith('1234567897')).toBe(true);
   });
@@ -208,8 +208,8 @@ describe('benchmark scoring', () => {
 
   it('accepts a six-digit MRZ date against a full date', () => {
     const score = scoreReading(
-      { birthDate: '900302' },
-      { birthDate: '[REDACTED]' }
+      { birthDate: '910405' },
+      { birthDate: '1991-04-05' }
     );
     expect(score.correct).toBe(1);
   });

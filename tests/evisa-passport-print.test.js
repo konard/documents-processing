@@ -18,7 +18,7 @@ describe('the authority line of a passport issued abroad', () => {
   });
 
   it('yields nothing for a body with a code, or for noise', () => {
-    expect(cleanConsularAuthority('[REDACTED]')).toBe(null);
+    expect(cleanConsularAuthority('МВД 0001')).toBe(null);
     expect(cleanConsularAuthority('р t')).toBe(null);
     // A consulate with no city named is not a reading.
     expect(cleanConsularAuthority('Г/К РОССИИ')).toBe(null);

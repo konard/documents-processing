@@ -55,7 +55,7 @@ describe('reading the registration dialog', () => {
     'Email:',
     'someone@example.com',
     'Date of birth:',
-    '[REDACTED]',
+    '04/11/1988',
     'Passport:',
     '712345678',
   ];
@@ -69,7 +69,7 @@ describe('reading the registration dialog', () => {
   it('takes the other two answers the search page asks for', () => {
     const details = readRegistration(LINES);
     expect(details.email).toBe('someone@example.com');
-    expect(details.dateOfBirth).toBe('[REDACTED]');
+    expect(details.dateOfBirth).toBe('04/11/1988');
     expect(details.passportNumber).toBe('712345678');
   });
 
@@ -77,11 +77,11 @@ describe('reading the registration dialog', () => {
     const details = readRegistration([
       'Electronic document code: E260908ABC00000000000',
       'Email: someone@example.com',
-      'Date of birth: [REDACTED]',
+      'Date of birth: 04/11/1988',
     ]);
     expect(details.applicationNumber).toBe('E260908ABC00000000000');
     expect(details.email).toBe('someone@example.com');
-    expect(details.dateOfBirth).toBe('[REDACTED]');
+    expect(details.dateOfBirth).toBe('04/11/1988');
   });
 
   it('finds nothing in a dialog that is not a registration', () => {

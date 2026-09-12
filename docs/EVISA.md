@@ -242,7 +242,7 @@ value with no clear winner is left for the applicant to type. A faint or
 overprinted scan yields nothing rather than a guess.
 
 A place of birth printed as `Г.МОСКВА/USSR` reaches the form as `Moscow,
-USSR`; an authority printed as `[REDACTED]` as `MVD 0073`. Reading the Cyrillic
+USSR`; an authority printed as `МВД 0001` as `MVD 0001`. Reading the Cyrillic
 half needs the Russian model (`tesseract-ocr-rus`), which the container image
 carries; without it the Latin halves alone are read.
 

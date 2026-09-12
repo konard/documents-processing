@@ -68,7 +68,7 @@ describe('checkName', () => {
 
   it('names the character that does not belong', () => {
     // More use than refusing the whole value without saying why.
-    expect(checkName('NIK0LAI')).toContain('"0"');
+    expect(checkName('LE0NID')).toContain('"0"');
     expect(checkName('DOE2')).toContain('"2"');
   });
 
@@ -80,8 +80,8 @@ describe('checkName', () => {
 
 describe('checkDateText', () => {
   it('accepts a date written in digits', () => {
-    expect(checkDateText('[REDACTED]')).toBe(null);
-    expect(checkDateText('[REDACTED]')).toBe(null);
+    expect(checkDateText('05/04/1991')).toBe(null);
+    expect(checkDateText('1991-04-05')).toBe(null);
   });
 
   it('refuses letters standing in for digits', () => {
@@ -99,8 +99,8 @@ describe('checkDateText', () => {
 describe('normalizeName', () => {
   it('repairs a digit only when the text came from OCR', () => {
     // OCR confuses O with 0; a person typing a digit meant something by it.
-    expect(normalizeName('NIK0LAI', { fromOcr: true })).toBe('[REDACTED]');
-    expect(normalizeName('NIK0LAI')).toBe('NIK0LAI');
+    expect(normalizeName('LE0NID', { fromOcr: true })).toBe('LEONID');
+    expect(normalizeName('LE0NID')).toBe('LE0NID');
   });
 
   it('strips accents so the name matches the passport zone', () => {

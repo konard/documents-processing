@@ -73,6 +73,8 @@ describe('documents-processing commands', () => {
     'evisa-status.mjs',
     'evisa-window.mjs',
     'evisa-shutdown.mjs',
+    'evisa-start.mjs',
+    'evisa-noise.mjs',
     'evisa-vietnam-address.mjs',
     'evisa-image-role.mjs',
     'evisa-prearrival.mjs',

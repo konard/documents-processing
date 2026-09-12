@@ -195,3 +195,26 @@ export function logPassportReading(chatId, read, { log, shown }) {
   }
   log(chatId, `read from the document: ${describeFields(read?.data ?? {})}`);
 }
+
+/**
+ * Writes a page's markup to a file beside the kept documents, named for the
+ * moment: the empty form, the filled one, the page after Next.
+ *
+ * When a fill goes wrong, the markup at each point shows whether the site or
+ * this code is at fault. Kept on the same terms as the documents, since a
+ * filled page holds the applicant's details, and removed by the same sweep.
+ */
+export async function keepMarkup(chatId, page, moment) {
+  if (!valuesAllowed()) {
+    return;
+  }
+  try {
+    const html = await page.content();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-markup-'));
+    const file = path.join(dir, `${moment}.html`);
+    fs.writeFileSync(file, html);
+    log(chatId, `markup (${moment}) written to ${file}`);
+  } catch (error) {
+    log(chatId, `could not keep the markup (${moment}): ${error.message}`);
+  }
+}

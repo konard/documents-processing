@@ -19,6 +19,7 @@ import {
   withholdFromLog,
   describeFields,
   logPassportReading,
+  keepMarkup,
   announce,
   valuesAllowed,
   sweepKeptFiles,
@@ -96,7 +97,7 @@ import { startPolling, MENU } from './evisa-start.mjs';
 import { countNoise, watchBrowser } from './evisa-noise.mjs';
 import { createLookup, isCommand } from './evisa-lookup.mjs';
 import { createArrivalDocuments } from './evisa-arrival-documents.mjs';
-import { showArrival } from './evisa-prearrival.mjs';
+import { showArrival, registerArrivalCommand } from './evisa-prearrival.mjs';
 import {
   MODES,
   modeOf,
@@ -235,28 +236,6 @@ const ADDRESS_FIELDS = [
   'contactAddress',
   'emergencyAddress',
 ];
-
-/**
- * Writes the page's markup to a file beside the kept documents, named for
- * the moment: the empty form, the filled one, the page after Next. When a
- * fill goes wrong, the markup at each point shows whether the site or this
- * code is at fault. Kept on the same terms as the documents, since a filled
- * page holds the applicant's details, and removed by the same sweep.
- */
-async function keepMarkup(chatId, page, moment) {
-  if (!valuesAllowed()) {
-    return;
-  }
-  try {
-    const html = await page.content();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-markup-'));
-    const file = path.join(dir, `${moment}.html`);
-    fs.writeFileSync(file, html);
-    log(chatId, `markup (${moment}) written to ${file}`);
-  } catch (error) {
-    log(chatId, `could not keep the markup (${moment}): ${error.message}`);
-  }
-}
 
 /**
  * True within a minute of the chat hearing that its browser closed: a
@@ -1121,19 +1100,23 @@ bot.command('fill', async (ctx) => {
   await fillNow(ctx, ctx.chat.id);
 });
 
+// What every command needs: whose chat it is, and what language to answer in.
+const commandDeps = { sessions, log, touch, speakTheirLanguage };
+
 registerVisaCommands(bot, {
-  sessions,
-  log,
-  touch,
+  ...commandDeps,
   pageFor,
   KNOWN_REQUIRED,
   readRequiredFields,
   describeChecklist,
-  describeDeclaration,
-  MESSAGES,
   restartChat,
   stopFilling: (ctx, chatId) => inTurn(chatId, () => stopFilling(ctx, chatId)),
-  speakTheirLanguage,
+});
+
+registerArrivalCommand(bot, {
+  ...commandDeps,
+  describeDeclaration,
+  MESSAGES,
 });
 
 bot.command('reset', async (ctx) => {

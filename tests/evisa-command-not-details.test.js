@@ -163,9 +163,12 @@ describe('a lookup never fills in a form', () => {
     // nothing has to be inferred from whichever flags happen to be set.
     const commands = readFileSync('src/evisa-commands.mjs', 'utf8');
     const lookup = readFileSync('src/evisa-lookup.mjs', 'utf8');
+    // The arrival card is filed on its own site; its command lives with the
+    // declaration it draws.
+    const prearrival = readFileSync('src/evisa-prearrival.mjs', 'utf8');
     expect(lookup.includes('MODES.lookingUp')).toBe(true);
     expect(commands.includes('MODES.filling')).toBe(true);
-    expect(commands.includes('MODES.arriving')).toBe(true);
+    expect(prearrival.includes('MODES.arriving')).toBe(true);
     expect(runner.includes('MODES.idle')).toBe(true);
   });
 });

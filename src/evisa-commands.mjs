@@ -1,14 +1,21 @@
 // evisa-commands.mjs
 //
-// The two commands that only read: the checklist for a visa application, and
-// the draft of the pre-arrival declaration.
+// The commands for a visa application: starting one, and stopping it.
 //
-// Both answer from what is already known, so neither waits on a browser. The
-// applicant is told what to send at once; the page opens behind that reply.
+// The checklist answers from what is already known, so it does not wait on a
+// browser. The applicant is told what to send at once; the page opens behind
+// that reply.
+//
+// The arrival card is not here. It is a different form on a different
+// government site, filed at a different point in the trip, and it lived in
+// this file only because its command reads like a sibling of /fill_visa.
+// Sitting among the visa commands it was written without the language
+// restore that every command here does, and answered a Russian chat in
+// English. It now sits with the declaration it draws, in evisa-prearrival.
 
 import { MODES, enterMode } from './evisa-mode.mjs';
 
-/** Registers /visa and /arrival on a bot. */
+/** Registers the visa commands on a bot. */
 export function registerVisaCommands(bot, deps) {
   const {
     sessions,
@@ -18,8 +25,6 @@ export function registerVisaCommands(bot, deps) {
     KNOWN_REQUIRED,
     readRequiredFields,
     describeChecklist,
-    describeDeclaration,
-    MESSAGES,
     // What language to answer in, which outlives a session and the bot.
     speakTheirLanguage = (chatId) => sessions.get(chatId).language,
     // Asking for a visa starts one, whatever went before. An application
@@ -74,21 +79,6 @@ export function registerVisaCommands(bot, deps) {
     await listed;
     // The browser goes on opening behind the reply; nothing waits on it.
     void opened;
-  });
-
-  bot.command('arrival', async (ctx) => {
-    const chatId = ctx.chat.id;
-    log(chatId, '/arrival');
-    touch(chatId);
-    const session = enterMode(sessions.get(chatId), MODES.arriving);
-    const { showDeclaration } = await import('./evisa-prearrival.mjs');
-    await showDeclaration({
-      ctx,
-      session,
-      MESSAGES,
-      describeDeclaration,
-      intro: true,
-    });
   });
 }
 

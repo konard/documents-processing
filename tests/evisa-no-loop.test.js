@@ -202,6 +202,59 @@ describe('the language the applicant chose', () => {
     expect(rememberedLanguage(session, () => null)).toBe('en');
     expect(session.languageChosen).toBe(undefined);
   });
+
+  it('is restored by every command that starts a job', async () => {
+    // A command is the first thing a chat says after a restart, so it meets
+    // an empty session holding the default. /arrival did not read the choice
+    // back and answered a Russian chat in English; the fix belongs to every
+    // command that begins something, not to the one that was caught.
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    const { registerVisaCommands } = await import('../src/evisa-commands.mjs');
+    const { registerArrivalCommand } =
+      await import('../src/evisa-prearrival.mjs');
+    const { MESSAGES } = await import('../src/evisa-messages.mjs');
+
+    for (const [name, register] of [
+      ['fill_visa', registerVisaCommands],
+      ['arrival', registerArrivalCommand],
+    ]) {
+      const handlers = new Map();
+      const bot = {
+        command(names, handler) {
+          for (const one of [names].flat()) {
+            handlers.set(one, handler);
+          }
+        },
+      };
+      const sessions = createSessionStore();
+      register(bot, {
+        sessions,
+        log: () => {},
+        touch: () => {},
+        pageFor: () => new Promise(() => {}),
+        KNOWN_REQUIRED: [],
+        readRequiredFields: async () => ({ unmapped: [] }),
+        describeChecklist: (_fields, language) => `checklist in ${language}`,
+        describeDeclaration: (_values, _missing, language) =>
+          `declaration in ${language}`,
+        MESSAGES,
+        // The store remembers Russian; the fresh session does not.
+        speakTheirLanguage: () => 'ru',
+      });
+
+      const said = [];
+      await handlers.get(name)({
+        chat: { id: 7 },
+        reply: (text) => {
+          said.push(text);
+          return Promise.resolve();
+        },
+      });
+
+      expect(sessions.get(7).language).toBe('ru');
+      expect(said.join('\n')).toContain('in ru');
+    }
+  });
 });
 
 describe('asking the bot to stop', () => {

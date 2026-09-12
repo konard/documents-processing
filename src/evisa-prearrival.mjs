@@ -14,6 +14,10 @@
 // person solving that captcha first. Driving the form is therefore left until
 // the visas are granted and a real declaration can be filed; until then this
 // maps the data, says what is missing, and holds the entry points.
+//
+// The /arrival command is here too, with the declaration it draws.
+
+import { MODES, enterMode } from './evisa-mode.mjs';
 
 /** The site, and the three things it offers. */
 export const PREARRIVAL_URL = 'https://prearrival.immigration.gov.vn';
@@ -257,4 +261,40 @@ export function showArrival({ sessions, MESSAGES, describeDeclaration, log }) {
     });
     log(chatId, `declaration shown; ${missing.length} still wanted`);
   };
+}
+
+/**
+ * Registers /arrival, which opens the declaration and asks for what it wants.
+ *
+ * The arrival card is a separate filing on a separate site, and the one thing
+ * it shares with a visa application is the traveller. So its command belongs
+ * with the declaration it draws, not among the visa commands.
+ */
+export function registerArrivalCommand(bot, deps) {
+  const {
+    sessions,
+    log,
+    touch,
+    describeDeclaration,
+    MESSAGES,
+    // What language to answer in, which outlives a session and the bot. A
+    // restart leaves a fresh session holding the default, so a command that
+    // never reads the choice back answers a Russian chat in English.
+    speakTheirLanguage = (chatId) => sessions.get(chatId).language,
+  } = deps;
+
+  bot.command('arrival', async (ctx) => {
+    const chatId = ctx.chat.id;
+    log(chatId, '/arrival');
+    touch(chatId);
+    const session = enterMode(sessions.get(chatId), MODES.arriving);
+    session.language = speakTheirLanguage(chatId);
+    await showDeclaration({
+      ctx,
+      session,
+      MESSAGES,
+      describeDeclaration,
+      intro: true,
+    });
+  });
 }

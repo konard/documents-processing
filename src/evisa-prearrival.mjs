@@ -281,6 +281,8 @@ export function registerArrivalCommand(bot, deps) {
     // restart leaves a fresh session holding the default, so a command that
     // never reads the choice back answers a Russian chat in English.
     speakTheirLanguage = (chatId) => sessions.get(chatId).language,
+    // Opening the site and driving it, which only the bot has a browser for.
+    fillArrival = null,
   } = deps;
 
   bot.command('arrival', async (ctx) => {
@@ -296,5 +298,21 @@ export function registerArrivalCommand(bot, deps) {
       describeDeclaration,
       intro: true,
     });
+  });
+
+  // Showing the declaration and filling it in are separate asks. The first
+  // costs nothing and answers from memory; the second opens a browser on a
+  // government site and puts a captcha in front of the traveller, which is
+  // not something to do to somebody who only wanted to see the list.
+  if (!fillArrival) {
+    return;
+  }
+  bot.command(['fill_arrival', 'fill-arrival'], async (ctx) => {
+    const chatId = ctx.chat.id;
+    log(chatId, '/fill_arrival');
+    touch(chatId);
+    const session = enterMode(sessions.get(chatId), MODES.arriving);
+    session.language = speakTheirLanguage(chatId);
+    await fillArrival(ctx, chatId);
   });
 }

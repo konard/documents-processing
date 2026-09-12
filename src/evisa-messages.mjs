@@ -25,6 +25,20 @@ export const MESSAGES = {
       'needs the granted visa and the flight. Without it you are still let ' +
       'in, but the queue is longer. Here is what I already have for it.',
     arrivalMissing: 'Still needed for it:',
+    arrivalCaptcha:
+      'The declaration site asks for this code before it draws the form. ' +
+      'Send me what you read.',
+    arrivalCaptchaAgain:
+      'That code was refused. Here is a fresh one — send me what you read.',
+    arrivalTooEarly: (wanted, offered) =>
+      `The site will not take a declaration for ${wanted} yet: it offers ` +
+      `only ${offered.join(', ')}. It opens 72 hours before you land, so ` +
+      'come back then and I will fill it in.',
+    arrivalFilled: 'On the declaration now:',
+    arrivalStillWanted: 'Still to fill in:',
+    arrivalYours:
+      'The form is filled and waiting in the browser. Check it, then send ' +
+      'it yourself — I do not file it for you.',
     checklistDocuments: 'Send these',
     checklistDetails: 'Tell me these',
     checklistFooter:
@@ -268,6 +282,19 @@ export const MESSAGES = {
       'prearrival.immigration.gov.vn, и нужны выданная виза и рейс. Без неё ' +
       'тоже впустят, но очередь будет дольше. Вот что у меня для неё уже есть.',
     arrivalMissing: 'Для неё ещё нужно:',
+    arrivalCaptcha:
+      'Сайт декларации просит этот код, прежде чем показать форму. ' +
+      'Пришлите то, что видите.',
+    arrivalCaptchaAgain: 'Код не подошёл. Вот новый — пришлите то, что видите.',
+    arrivalTooEarly: (wanted, offered) =>
+      `Сайт пока не принимает декларацию на ${wanted}: он предлагает только ` +
+      `${offered.join(', ')}. Приём открывается за 72 часа до прилёта — ` +
+      'вернитесь тогда, и я всё заполню.',
+    arrivalFilled: 'Сейчас в декларации:',
+    arrivalStillWanted: 'Ещё нужно заполнить:',
+    arrivalYours:
+      'Форма заполнена и ждёт в браузере. Проверьте и отправьте сами — ' +
+      'я её за вас не подаю.',
     checklistDocuments: 'Пришлите',
     checklistDetails: 'Напишите',
     checklistFooter:

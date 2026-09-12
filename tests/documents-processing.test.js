@@ -82,6 +82,9 @@ describe('documents-processing commands', () => {
     'evisa-image-role.mjs',
     'evisa-prearrival.mjs',
     'evisa-arrival-documents.mjs',
+    'evisa-arrival-run.mjs',
+    'evisa-prearrival-form.mjs',
+    'evisa-captcha-routing.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

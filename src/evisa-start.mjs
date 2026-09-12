@@ -28,6 +28,10 @@ export const MENU = [
     description: 'fetch a filed one: form, receipt, visa',
   },
   { command: 'arrival', description: 'the pre-arrival declaration' },
+  {
+    command: 'fill_arrival',
+    description: 'fill in the pre-arrival declaration',
+  },
   { command: 'stop', description: 'stop, and close the browser window' },
 ];
 

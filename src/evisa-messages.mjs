@@ -178,9 +178,24 @@ export const MESSAGES = {
       'Nothing changed on the form since you last saw it, so I have not sent ' +
       'it again. Send a correction whenever you have one.',
     documentsNeedNumber:
-      'Send the application number with the command, like ' +
-      '/download_visa E260908XXX0000000000. It is in the email the site sent ' +
-      'when the application was filed.',
+      'I can fetch a filed application: the form, the payment receipt, and ' +
+      'the visa after it is granted.\n\n' +
+      'The site asks for three things before it shows any of them:\n' +
+      '• the application number — starts with E, in the site´s email\n' +
+      '• the email the application was filed with\n' +
+      '• the applicant´s date of birth — as on the passport\n\n' +
+      'All three are in the confirmation email the site sent when the ' +
+      'application was filed. Send them in one message or one at a time, in ' +
+      'any order:\n\n' +
+      'E260908XXX0000000000 someone@example.com 01/02/1990',
+    documentsStillNeed: (missing) =>
+      `Still needed:\n${missing.map((it) => `• ${it}`).join('\n')}`,
+    documentsNumberName: 'the application number — starts with E',
+    documentsEmailName: 'the email the application was filed with',
+    documentsBirthName: 'the date of birth, as 01/02/1990',
+    documentsOpening:
+      'Opening the lookup. The site guards it with a code picture, which I ' +
+      'will send as soon as it loads.',
     documentsNoCaptcha:
       'The lookup page did not show a code picture. Try /download_visa again in ' +
       'a moment.',
@@ -380,9 +395,23 @@ export const MESSAGES = {
       'С прошлого раза в анкете ничего не изменилось, поэтому не присылаю её ' +
       'снова. Пришлите исправление, когда будет.',
     documentsNeedNumber:
-      'Пришлите номер заявления вместе с командой, например ' +
-      '/download_visa E260908XXX0000000000. Он есть в письме, которое сайт ' +
-      'прислал при подаче.',
+      'Могу скачать поданное заявление: анкету, квитанцию об оплате и саму ' +
+      'визу после выдачи.\n\n' +
+      'Сайт просит три вещи, прежде чем что-то показать:\n' +
+      '• номер заявления — начинается с E, есть в письме от сайта\n' +
+      '• почту, с которой подавали заявление\n' +
+      '• дату рождения заявителя — как в паспорте\n\n' +
+      'Всё это есть в письме, которое сайт прислал при подаче. Пришлите ' +
+      'одним сообщением или по одному, в любом порядке:\n\n' +
+      'E260908XXX0000000000 someone@example.com 01/02/1990',
+    documentsStillNeed: (missing) =>
+      `Ещё нужно:\n${missing.map((it) => `• ${it}`).join('\n')}`,
+    documentsNumberName: 'номер заявления — начинается с E',
+    documentsEmailName: 'почта, с которой подавали заявление',
+    documentsBirthName: 'дата рождения, в виде 01/02/1990',
+    documentsOpening:
+      'Открываю поиск. Сайт закрывает его картинкой с кодом — пришлю её, ' +
+      'как только загрузится.',
     documentsNoCaptcha:
       'Страница поиска не показала картинку с кодом. Попробуйте /download_visa ' +
       'ещё раз через минуту.',

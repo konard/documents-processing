@@ -245,10 +245,11 @@ export function createDocuments({
    * Opens the site's search page on an application and asks for its captcha.
    *
    * The search needs the number, the email the application was filed with and
-   * the applicant's date of birth; all three are already known, so the captcha
-   * is the only thing to ask for.
+   * the applicant's date of birth. After a payment all three are in the
+   * session; asked cold they are gathered first and handed in as `given`,
+   * since a search opened without them cannot succeed.
    */
-  async function lookUpApplication(ctx, chatId, number) {
+  async function lookUpApplication(ctx, chatId, number, given = {}) {
     const session = sessions.get(chatId);
     const strings = MESSAGES[session.language];
     const page = await lookupPageFor(chatId, {
@@ -263,8 +264,9 @@ export function createDocuments({
     };
     await openSearch(page, {
       applicationNumber: number,
-      email: known.email ?? session.data?.email,
-      dateOfBirth: known.dateOfBirth ?? session.data?.dateOfBirth,
+      email: given.email ?? known.email ?? session.data?.email,
+      dateOfBirth:
+        given.dateOfBirth ?? known.dateOfBirth ?? session.data?.dateOfBirth,
     });
     session.lookingUp = number;
     // Its own wording: the form's captcha says the application is about to

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync } from 'node:fs';
 import { MENU } from '../src/evisa-start.mjs';
+import { whatToAsk } from '../src/evisa-lookup.mjs';
+import { MESSAGES } from '../src/evisa-messages.mjs';
 
 const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
 
@@ -174,7 +176,21 @@ describe('the commands the bot answers to', () => {
       false
     );
     expect(body.includes('session.application?.applicationNumber')).toBe(false);
-    expect(body.includes('documentsNeedNumber')).toBe(true);
+  });
+
+  it('asks for all three the search page wants, not the number alone', () => {
+    // The site marks the number and the email required and refuses a search
+    // without them, so a window opened on the number alone cannot succeed.
+    const strings = MESSAGES.en;
+    expect(whatToAsk({}, strings).open).toBe(false);
+    expect(whatToAsk({}, strings).say).toBe(strings.documentsNeedNumber);
+    const one = { applicationNumber: 'E260908XXX0000000000' };
+    expect(whatToAsk(one, strings).open).toBe(false);
+    expect(
+      whatToAsk(one, strings).say.includes(strings.documentsEmailName)
+    ).toBe(true);
+    const all = { ...one, email: 'a@example.com', dateOfBirth: '01/02/1990' };
+    expect(whatToAsk(all, strings).open).toBe(true);
   });
 
   it('asks for a lookup´s code in its own words', () => {

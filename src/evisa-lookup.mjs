@@ -111,7 +111,10 @@ export function whatIsKnown({ session = {}, remembered = {} } = {}) {
 export function whatToAsk(gathered, strings) {
   const missing = stillNeeded(gathered);
   if (!missing.length) {
-    return { open: true, say: strings.documentsOpening };
+    // Nothing is said. The captcha follows with a caption of its own, and
+    // announcing it first is one message the applicant has to read before
+    // the one that actually asks them for something.
+    return { open: true, say: null };
   }
   if (missing.length === LOOKUP_FIELDS.length) {
     return { open: false, say: strings.documentsNeedNumber };
@@ -156,13 +159,18 @@ export function createLookup({
   log,
   shown,
   lookUpApplication,
+  // Opens the browser as soon as the command lands, so the page is loading
+  // while the applicant reads the list and copies their details across.
+  openBrowserEarly = null,
 }) {
   /** Asks for whatever the search page still needs, and opens it when it can. */
   async function continueLookup(ctx, chatId) {
     const session = sessions.get(chatId);
     const gathered = session.gathering;
     const asked = whatToAsk(gathered, MESSAGES[session.language]);
-    await ctx.reply(asked.say);
+    if (asked.say) {
+      await ctx.reply(asked.say);
+    }
     if (!asked.open) {
       return;
     }
@@ -198,6 +206,15 @@ export function createLookup({
     const said = ctx.message.text.replace(/^\/\S+\s*/, '').trim();
     const session = enterMode(sessions.get(chatId), MODES.lookingUp);
     session.gathering = readLookupDetails(said);
+    // The browser opens now, behind the reply, and goes on loading while the
+    // applicant copies the three things out of their email. By the time they
+    // have sent them the page is there and the captcha comes straight back.
+    if (openBrowserEarly) {
+      session.opening = openBrowserEarly(chatId).catch((error) => {
+        log(chatId, `the lookup browser did not open early: ${error.message}`);
+        return null;
+      });
+    }
     await continueLookup(ctx, chatId);
   }
 

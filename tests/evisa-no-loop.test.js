@@ -289,4 +289,61 @@ describe('the commands the bot answers to', () => {
     const documents = readFileSync('src/evisa-documents.mjs', 'utf8');
     expect(documents.includes('strings.lookupCaptchaAsk')).toBe(true);
   });
+
+  it('says nothing when it has everything and can just go', () => {
+    // Announcing the search and then sending the picture is two messages
+    // where one will do, and the first asks the applicant for nothing.
+    // The picture carries its own caption.
+    const strings = MESSAGES.en;
+    const all = {
+      applicationNumber: 'E260908XXX0000000000',
+      email: 'a@example.com',
+      dateOfBirth: '01/02/1990',
+    };
+    expect(whatToAsk(all, strings).open).toBe(true);
+    expect(whatToAsk(all, strings).say).toBe(null);
+  });
+
+  it('opens the browser when the command lands, not when the details do', () => {
+    // The page takes seconds to load and the applicant takes longer than
+    // that to copy three things out of their email. Run together, the two
+    // waits cost only the longer of them.
+    const lookup = readFileSync('src/evisa-lookup.mjs', 'utf8');
+    const at = lookup.indexOf('async function startLookup');
+    const body = lookup.slice(at, lookup.indexOf('\n  }\n', at));
+    expect(body.includes('openBrowserEarly(chatId)')).toBe(true);
+    // And it does not wait on it: the reply goes out first.
+    const opened = body.indexOf('openBrowserEarly(chatId)');
+    const replied = body.indexOf('continueLookup');
+    expect(opened < replied).toBe(true);
+    expect(body.includes('await openBrowserEarly')).toBe(false);
+  });
+
+  it('stays ready for the next application after fetching one', () => {
+    // Looking one up is rarely looking up only one. The chat stays in the
+    // lookup, so another number starts the next without the command again;
+    // what is cleared is the search the site answered.
+    const documents = readFileSync('src/evisa-documents.mjs', 'utf8');
+    const at = documents.indexOf('application status: ');
+    const before = documents.slice(Math.max(0, at - 400), at);
+    expect(before.includes('session.lookingUp = null')).toBe(true);
+    expect(before.includes('session.gathering = {}')).toBe(true);
+    // And it does not drop out of the lookup mode.
+    expect(before.includes('MODES.idle')).toBe(false);
+  });
+});
+
+describe('what the arrival declaration tells the applicant', () => {
+  it('gives the window in hours, not "shortly before"', () => {
+    // "Shortly before you fly" is not something anyone can act on. The site
+    // takes the arrival day and the two before it, and nothing earlier.
+    for (const language of ['en', 'ru']) {
+      const said = MESSAGES[language].arrivalIntro;
+      expect(`${language}:${said.includes('72')}`).toBe(`${language}:true`);
+      expect(
+        `${language}:${said.includes('prearrival.immigration.gov.vn')}`
+      ).toBe(`${language}:true`);
+    }
+    expect(MESSAGES.ru.arrivalIntro.includes('незадолго')).toBe(false);
+  });
 });

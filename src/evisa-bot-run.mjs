@@ -860,6 +860,7 @@ const {
   stopWatchingPayment,
   lookUpApplication,
   tookLookupCaptcha,
+  openLookupBrowser,
 } = createDocuments({
   sessions,
   browsers,
@@ -1141,6 +1142,7 @@ const { tookLookupDetails, startLookup } = createLookup({
   log,
   shown,
   lookUpApplication,
+  openBrowserEarly: openLookupBrowser,
 });
 
 bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {

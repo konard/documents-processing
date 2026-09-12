@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MESSAGES, looksLikeCaptcha } from './evisa-bot.mjs';
 import { refreshCaptcha } from './evisa-fill.mjs';
-import { MODES, enterMode, captchaIsForLookup } from './evisa-mode.mjs';
+import { captchaIsForLookup } from './evisa-mode.mjs';
 
 /** How often the browser is asked whether the payment has gone through. */
 const PAYMENT_POLL_MS = 60_000;
@@ -105,10 +105,12 @@ async function fetchDocuments(ctx, chatId, code, deps) {
     await deps.askCaptcha(ctx, chatId, strings.captchaAgain, page);
     return;
   }
-  // The search answered, so the lookup is over and the chat is between jobs
-  // again. Left in the lookup mode, the next thing said would be read as one
-  // more captcha code for a search that has already run.
-  enterMode(session, MODES.idle);
+  // That search is answered, so nothing is waiting on a captcha; a code sent
+  // now would be for a search that has already run. The chat stays in the
+  // lookup, though, because one is rarely the only one: another application
+  // number starts the next without the command being typed again.
+  session.lookingUp = null;
+  session.gathering = {};
   log(chatId, `application status: ${result.status}`);
   await ctx.reply(
     strings.applicationStatus(result.status, meaningOf(result.status))
@@ -314,6 +316,17 @@ export function createDocuments({
     return true;
   }
 
+  /**
+   * Opens the browser a lookup will want, before it is wanted.
+   *
+   * Called when the command lands, so the window is up and the page loading
+   * while the applicant copies three things out of their email. The page is
+   * kept on the session, so the lookup proper finds it already there.
+   */
+  function openLookupBrowser(chatId) {
+    return lookupPageFor(chatId, { browsers, log, pageFor, logBrowserEvents });
+  }
+
   return {
     keepRegistration,
     watchForPayment,
@@ -321,6 +334,7 @@ export function createDocuments({
     lookUpApplication,
     fetchDocuments,
     tookLookupCaptcha,
+    openLookupBrowser,
   };
 }
 

@@ -17,8 +17,13 @@ export const MESSAGES = {
       '/stop — stop, and close the browser window\n\n' +
       'The buttons below change the language.',
     arrivalIntro:
-      'The pre-arrival declaration is filed just before you fly, and needs ' +
-      'the granted visa and the flight. Here is what I already have for it.',
+      'The pre-arrival declaration is filed within 72 hours of landing — the ' +
+      'site takes the day you arrive or either of the two days before it, ' +
+      'and nothing earlier. The evening before you fly is the usual time: ' +
+      'that leaves room to correct a mistake, and a correction means filling ' +
+      'it in again. It is free at prearrival.immigration.gov.vn, and it ' +
+      'needs the granted visa and the flight. Without it you are still let ' +
+      'in, but the queue is longer. Here is what I already have for it.',
     arrivalMissing: 'Still needed for it:',
     checklistDocuments: 'Send these',
     checklistDetails: 'Tell me these',
@@ -238,8 +243,12 @@ export const MESSAGES = {
       '/stop — остановиться и закрыть окно браузера\n\n' +
       'Кнопки ниже меняют язык.',
     arrivalIntro:
-      'Декларацию перед прилётом подают незадолго до вылета, для неё нужны ' +
-      'выданная виза и рейс. Вот что у меня для неё уже есть.',
+      'Декларацию подают не раньше чем за 72 часа до прилёта — сайт принимает ' +
+      'день прилёта и два дня перед ним, раньше нельзя. Обычно её заполняют ' +
+      'вечером накануне вылета: останется время исправить ошибку, а исправить ' +
+      'её можно только заполнив заново. Это бесплатно, на ' +
+      'prearrival.immigration.gov.vn, и нужны выданная виза и рейс. Без неё ' +
+      'тоже впустят, но очередь будет дольше. Вот что у меня для неё уже есть.',
     arrivalMissing: 'Для неё ещё нужно:',
     checklistDocuments: 'Пришлите',
     checklistDetails: 'Напишите',

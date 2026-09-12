@@ -39,11 +39,18 @@ async function lookupPageFor(
   if (held?.lookup && !held.lookup.isClosed()) {
     return held.lookup;
   }
-  // A browser is what this needs. Where one is open on an application it is
-  // used; where none is, one is opened blank, since a lookup has no form to
-  // fill and an application loaded for it is a page nobody asked for.
+  // A lookup needs a browser, not an application. Where one is open on a
+  // form, the lookup gets a tab of its own beside it. Where none is open,
+  // one starts with a blank page and the lookup uses that page itself: a
+  // second tab would leave the blank one to be loaded with a form later.
   await pageFor(chatId, { blank: !held });
   const opened = browsers.get(chatId);
+  if (opened.blank) {
+    opened.lookup = opened.page;
+    opened.usedBlankForLookup = true;
+    log(chatId, 'using the blank page for the lookup');
+    return opened.lookup;
+  }
   opened.lookup = await opened.browser.newPage();
   logBrowserEvents(chatId, opened.lookup);
   log(chatId, 'opened a tab for the lookup');

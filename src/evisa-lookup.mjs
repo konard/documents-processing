@@ -13,6 +13,19 @@
 // with two fields empty cannot succeed. They are collected up front, and
 // the browser opens when there is something to search with.
 
+/**
+ * Whether a message is a command, as against something said to the bot.
+ *
+ * Telegram marks a command with an entity at the very start of the text.
+ * The text handler sees commands as well as ordinary messages, and taking
+ * one for details puts a command's own words on the application form.
+ */
+export function isCommand(message = {}) {
+  return (message.entities ?? []).some(
+    (entity) => entity.type === 'bot_command' && entity.offset === 0
+  );
+}
+
 /** What the search page needs, in the order it asks. */
 export const LOOKUP_FIELDS = ['applicationNumber', 'email', 'dateOfBirth'];
 

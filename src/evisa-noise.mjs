@@ -27,6 +27,46 @@ export function isSiteNoise(said) {
 }
 
 /**
+ * Writes what a browser reports to the log: console errors and warnings,
+ * script errors, requests that failed and answers of 400 and up.
+ *
+ * When the site draws a page bare, this is where the reason shows. The
+ * site's own noise is only counted, so a real fault stands out among it.
+ */
+export function watchBrowser(chatId, page, { log, noise }) {
+  page.on('console', (message) => {
+    if (
+      ['error', 'warning'].includes(message.type()) &&
+      !noise.filter(chatId, message.text())
+    ) {
+      log(chatId, `browser console ${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on('pageerror', (error) => {
+    log(chatId, `browser script error: ${error.message}`);
+  });
+  page.on('requestfailed', (request) => {
+    if (noise.filter(chatId, request.url())) {
+      return;
+    }
+    const why = request.failure()?.errorText ?? '?';
+    log(
+      chatId,
+      `browser request failed: ${request.method()} ${request.url()} (${why})`
+    );
+  });
+  page.on('response', (response) => {
+    if (response.status() >= 400 && !noise.filter(chatId, response.url())) {
+      const method = response.request().method();
+      log(
+        chatId,
+        `browser response ${response.status()}: ${method} ${response.url()}`
+      );
+    }
+  });
+}
+
+/**
  * Counts the site's noise per chat, so it can be filtered out of the log
  * and still reported as a number.
  */

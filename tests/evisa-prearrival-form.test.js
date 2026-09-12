@@ -5,10 +5,12 @@ import {
   selectorFor,
   nationalityAsNamedHere,
   chooseArrivalDate,
+  fillDeclaration,
   chooseGender,
   acknowledgeVisaNotes,
   splitPhone,
   whatThisSiteWillRefuse,
+  visaNumberAsNamedHere,
   PASSPORT_MARGIN_DAYS,
   PREARRIVAL_FORM_URL,
   ARRIVAL_WINDOW_DAYS,
@@ -96,6 +98,28 @@ describe('the three-day window the site allows', () => {
   it('counts the window in days, so the reason can be explained', () => {
     expect(ARRIVAL_WINDOW_DAYS).toBe(3);
   });
+
+  it('touches nothing else on a declaration it is too early to make', async () => {
+    // The date is settled first. A day the site will not offer ends the fill,
+    // and a form about to be abandoned should not be left with a box ticked
+    // and a gender chosen on it.
+    const touched = [];
+    const page = {
+      locator: () => ({ allTextContents: async () => ['12/09/2026'] }),
+      getByRole: (role) => {
+        touched.push(role);
+        return { first: () => ({ isVisible: async () => true }) };
+      },
+    };
+    const result = await fillDeclaration(page, {
+      arrivalDate: '16/09/2026',
+      sex: 'Male',
+      surname: 'TRAVELLER',
+    });
+    expect(result.arrival.tooEarly).toBe(true);
+    expect(touched).toEqual([]);
+    expect(result.filled).toEqual([]);
+  });
 });
 
 describe('the one phone number the traveller gives', () => {
@@ -141,6 +165,18 @@ describe('what the site will refuse, said before it refuses it', () => {
 
   it('takes a declaration the site has no objection to', () => {
     expect(whatThisSiteWillRefuse(fine)).toEqual([]);
+  });
+
+  it('takes the number as the granted visa prints it', () => {
+    // The Số / No. line reads "712345678/EV" and that is how the visa is read
+    // and stored. This form wants the digits alone, so the suffix comes off
+    // here and a real granted visa is not reported as refused.
+    expect(
+      whatThisSiteWillRefuse({ ...fine, visaNumber: '712345678/EV' })
+    ).toEqual([]);
+    expect(visaNumberAsNamedHere('712345678/EV')).toBe('712345678');
+    expect(visaNumberAsNamedHere('712345678')).toBe('712345678');
+    expect(visaNumberAsNamedHere(null)).toBe(null);
   });
 
   it('wants the nine digits off the visa, not the application code', () => {

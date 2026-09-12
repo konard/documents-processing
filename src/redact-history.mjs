@@ -13,19 +13,44 @@
 // had. Only the values inside them become [REDACTED]. The history stays
 // readable as the record of how the work was done.
 //
+// One decision is left to a person: what counts as personal data. Everything
+// after it the script does — reading the values, choosing the files, taking
+// the backup, rewriting, checking the result, and pushing.
+//
 // Usage:
-//   node src/redact-history.mjs --passport <image>        what would change
-//   node src/redact-history.mjs --values <file>           one value a line
-//   node src/redact-history.mjs --values <file> --write   rewrite history
+//   node src/redact-history.mjs --config <file>           what would change
+//   node src/redact-history.mjs --config <file> --write   rewrite and check
+//   node src/redact-history.mjs --config <file> --write --push
 //
-//   --repo <path>    which repository, default the one this lives in
-//   --passport <img> a passport page, read for the values it holds
-//   --values <file>  more values, one a line, kept outside the repository
-//   --write          rewrite; without it nothing is changed
+//   --repo <path>     which repository, default the one this lives in
+//   --config <file>   JSON: values, passports, only, except, keep (below)
+//   --passport <img>  a passport page, read for the values it holds
+//   --values <file>   more values, one a line, kept outside the repository
+//   --write           rewrite; without it nothing is changed
+//   --push            force-push every branch after a rewrite that verified
+//   --force           rewrite without a backup beside the repository
 //
-// After a rewrite the history has new commit ids, so a push has to be
-// forced and everyone else has to re-clone. Take a backup first: this
-// refuses to run without one.
+// The config is JSON and lives outside the repository, because it names the
+// values:
+//
+//   {
+//     "values": ["<a value>", "<another spelling of it>"],
+//     "valuesFile": "values.txt",
+//     "passports": ["scan.jpg"],
+//     "only": ["src/**", "tests/**"],
+//     "except": ["docs/case-studies/**", "tests/translit.test.js"],
+//     "keep": ["a public nickname", "a public place name"]
+//   }
+//
+// `only` and `except` are globs, and they are the answer to a word that is
+// personal data in one file and not in another: a surname is data where the
+// application uses it and a public name where a transliteration test does.
+// `keep` names values that must survive, and is checked against the list, so
+// a nickname cannot be redacted by a spelling rule that reached too far.
+//
+// After a rewrite the history has new commit ids, so a push has to be forced
+// and everyone else has to re-clone. A backup is taken first, and --write
+// refuses without one.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -35,17 +60,21 @@ import {
   valuesToRedact,
   replacementsFile,
   redactText,
+  chooseFiles,
   REDACTED,
 } from './evisa-redact.mjs';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
+
+/** The flags that stand alone, as against the ones that take a value. */
+const ALONE = new Set(['write', 'force', 'push']);
 
 /** The arguments, as a name to value map. */
 function readArguments(argv) {
   const given = { repo: path.join(HERE, '..') };
   for (let at = 0; at < argv.length; at += 1) {
     const name = argv[at].replace(/^--/, '');
-    if (name === 'write' || name === 'force') {
+    if (ALONE.has(name)) {
       given[name] = true;
     } else if (argv[at].startsWith('--')) {
       given[name] = argv[at + 1];
@@ -53,6 +82,47 @@ function readArguments(argv) {
     }
   }
   return given;
+}
+
+/**
+ * The configuration, read from JSON beside the values it names.
+ *
+ * Paths inside it are read relative to the config itself, so the whole of a
+ * run lives in one directory outside the repository and moves with it.
+ */
+function readConfig(file) {
+  const beside = path.dirname(path.resolve(file));
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const near = (one) => (path.isAbsolute(one) ? one : path.join(beside, one));
+  return {
+    values: config.values ?? [],
+    valuesFiles: [config.valuesFile, ...(config.valuesFiles ?? [])]
+      .filter(Boolean)
+      .map(near),
+    passports: (config.passports ?? []).map(near),
+    only: config.only ?? [],
+    except: config.except ?? [],
+    keep: config.keep ?? [],
+  };
+}
+
+/**
+ * Checks that nothing named as kept is about to be redacted.
+ *
+ * A spelling rule reaches further than the value it was given: asked to
+ * redact a surname it also takes the upper-case form, and a nickname that
+ * contains it would go with it. What must survive is named, and what is
+ * named gets checked.
+ */
+export function keptValuesAreSafe(wanted, keep) {
+  const broken = [];
+  for (const kept of keep) {
+    const { removed } = redactText(kept, wanted);
+    if (removed) {
+      broken.push(kept);
+    }
+  }
+  return broken;
 }
 
 /** Runs git in the repository, and gives back what it said. */
@@ -103,7 +173,7 @@ function readValuesFile(file) {
  * as it was, kept so a rewrite can be undone. They are not searched: they
  * are the backup, and they go when the rewrite is accepted.
  */
-function commitsHolding(repo, values) {
+function commitsHolding(repo, values, chosen = () => true) {
   const found = new Map();
   const commits = git(repo, ['rev-list', '--branches', '--remotes'])
     .split('\n')
@@ -113,10 +183,14 @@ function commitsHolding(repo, values) {
     .join('|');
   for (const commit of commits) {
     const said = git(repo, ['grep', '-lIE', pattern, commit], { quiet: true });
+    // Only the files a run is allowed to change. A value left standing in a
+    // file the config excludes is a decision somebody made, and reporting it
+    // as an outstanding leak buries the ones that are not.
     const files = said
       .split('\n')
       .filter(Boolean)
-      .map((line) => line.slice(line.indexOf(':') + 1));
+      .map((line) => line.slice(line.indexOf(':') + 1))
+      .filter(chosen);
     if (files.length) {
       found.set(commit.slice(0, 7), new Set(files));
     }
@@ -124,32 +198,109 @@ function commitsHolding(repo, values) {
   return found;
 }
 
-/** Whether a backup of this repository exists beside it. */
-function hasBackup(repo) {
+/** Every value the config asks for, longest first. */
+async function valuesWanted(config) {
+  const values = [...valuesToRedact({}, config.values)];
+  for (const passport of config.passports) {
+    console.log(`Reading ${passport} …`);
+    const reading = await readThePassport(passport);
+    const named = Object.keys(reading).filter((key) => reading[key]);
+    console.log(`  read: ${named.join(', ') || 'nothing'}`);
+    values.push(...valuesToRedact(reading));
+  }
+  for (const file of config.valuesFiles) {
+    values.push(...valuesToRedact({}, readValuesFile(file)));
+  }
+  return [...new Set(values)].sort((a, b) => b.length - a.length);
+}
+
+/** Takes the mirror backup a rewrite is undone from. */
+function takeBackup(repo) {
   const beside = `${repo.replace(/\/$/, '')}-backup`;
-  return fs.existsSync(path.join(beside, 'repo.git'));
+  const mirror = path.join(beside, 'repo.git');
+  if (fs.existsSync(mirror)) {
+    console.log(`Refreshing the backup at ${mirror} …`);
+    execFileSync('git', ['-C', mirror, 'fetch', '--all', '--prune'], {
+      stdio: 'ignore',
+    });
+    return mirror;
+  }
+  console.log(`Taking a backup at ${mirror} …`);
+  fs.mkdirSync(beside, { recursive: true });
+  execFileSync('git', ['clone', '--mirror', repo, mirror], { stdio: 'ignore' });
+  return mirror;
+}
+
+/**
+ * Whether the repository still works: its own tests, run as they are run.
+ *
+ * A rewrite that takes a value out of a fixture the tests read leaves a
+ * broken repository, and the moment to discover that is before the push.
+ */
+function testsStillPass(repo) {
+  try {
+    execFileSync('npm', ['test'], { cwd: repo, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Force-pushes every branch, which is what publishes the redaction. */
+function pushEverything(repo) {
+  const branches = git(repo, [
+    'for-each-ref',
+    '--format=%(refname:short)',
+    'refs/heads',
+  ])
+    .split('\n')
+    .filter(Boolean);
+  console.log(`\nForce-pushing ${branches.length} branches …`);
+  execFileSync(
+    'git',
+    [
+      '-C',
+      repo,
+      'push',
+      '--force',
+      'origin',
+      ...branches.map((b) => `${b}:${b}`),
+    ],
+    { stdio: 'inherit' }
+  );
+}
+
+/** The config a run works from, with anything named on the line folded in. */
+function configFor(given) {
+  const config = given.config
+    ? readConfig(given.config)
+    : {
+        values: [],
+        valuesFiles: [],
+        passports: [],
+        only: [],
+        except: [],
+        keep: [],
+      };
+  if (given.passport) {
+    config.passports.push(given.passport);
+  }
+  if (given.values) {
+    config.valuesFiles.push(given.values);
+  }
+  return config;
 }
 
 async function main() {
   const given = readArguments(process.argv.slice(2));
   const repo = path.resolve(given.repo);
+  const config = configFor(given);
 
-  const values = [];
-  if (given.passport) {
-    console.log(`Reading ${given.passport} …`);
-    const reading = await readThePassport(given.passport);
-    const named = Object.keys(reading).filter((key) => reading[key]);
-    console.log(`  read: ${named.join(', ') || 'nothing'}`);
-    values.push(...valuesToRedact(reading));
-  }
-  if (given.values) {
-    values.push(...valuesToRedact({}, readValuesFile(given.values)));
-  }
-  const wanted = [...new Set(values)].sort((a, b) => b.length - a.length);
-
+  const wanted = await valuesWanted(config);
   if (!wanted.length) {
     console.error(
-      'Nothing to redact. Give --passport <image> or --values <file>.'
+      'Nothing to redact. Give --config <file>, --passport <image> or ' +
+        '--values <file>.'
     );
     process.exit(1);
   }
@@ -157,7 +308,30 @@ async function main() {
   // the values themselves never are.
   console.log(`${wanted.length} values to look for.`);
 
-  const holding = commitsHolding(repo, wanted);
+  // What must survive is checked before anything is searched for, since a
+  // spelling rule reaches further than the value it was given.
+  const broken = keptValuesAreSafe(wanted, config.keep);
+  if (broken.length) {
+    console.error(
+      `\nThese are named as kept but would be redacted:\n${broken
+        .map((one) => `  ${one}`)
+        .join('\n')}\nNarrow the values, or take them out of "keep".`
+    );
+    process.exit(1);
+  }
+  if (config.keep.length) {
+    console.log(`${config.keep.length} values are named as kept, and survive.`);
+  }
+
+  const chosen = chooseFiles(config);
+  if (config.only.length || config.except.length) {
+    console.log(
+      `Files: ${config.only.length ? config.only.join(', ') : 'all'}` +
+        `${config.except.length ? `, except ${config.except.join(', ')}` : ''}`
+    );
+  }
+
+  const holding = commitsHolding(repo, wanted, chosen);
   if (!holding.size) {
     console.log('No commit holds any of them. Nothing to do.');
     return;
@@ -184,30 +358,65 @@ async function main() {
     return;
   }
 
-  if (!hasBackup(repo) && !given.force) {
+  rewriteAndPublish(repo, { wanted, config, chosen, given });
+}
+
+/**
+ * Rewrites, proves the result, and publishes it.
+ *
+ * Nothing is pushed on a promise. The history is searched again with the
+ * same question the dry run asked, the repository is tested as it is
+ * normally tested, and only a run that passes both reaches the remote.
+ */
+function rewriteAndPublish(repo, { wanted, config, chosen, given }) {
+  if (git(repo, ['status', '--porcelain'])) {
     console.error(
-      `\nNo backup found at ${repo}-backup/repo.git.\n` +
-        'Make one first:\n' +
-        `  git clone --mirror ${repo} ${repo}-backup/repo.git\n` +
-        'Or pass --force if you are sure.'
+      '\nThe working tree has changes. Commit or stash them first: a rewrite ' +
+        'refuses to run over them, and they would not be redacted anyway.'
     );
     process.exit(1);
   }
 
-  console.log('\nRewriting. Every commit keeps its place; only values change.');
-  rewrite(repo, wanted);
+  if (!given.force) {
+    takeBackup(repo);
+  }
 
-  const left = commitsHolding(repo, wanted);
-  console.log(
-    left.size
-      ? `\nStill found in ${left.size} commits. Look at those by hand.`
-      : '\nDone. No commit holds any of the values now.'
-  );
-  console.log(
-    'The commit ids are new, so the push has to be forced:\n' +
-      '  git push --force-with-lease --all\n' +
-      'Everyone else has to re-clone.'
-  );
+  console.log('\nRewriting. Every commit keeps its place; only values change.');
+  rewrite(repo, wanted, config);
+
+  const left = commitsHolding(repo, wanted, chosen);
+  if (left.size) {
+    console.error(
+      `\nStill found in ${left.size} commits:\n${[...left]
+        .flatMap(([id, files]) => [...files].map((f) => `  ${id} ${f}`))
+        .join('\n')}\nNothing was pushed.`
+    );
+    process.exit(1);
+  }
+  console.log('\nNo commit holds any of the values now.');
+
+  console.log('Running the tests against the rewritten tree …');
+  if (!testsStillPass(repo)) {
+    console.error(
+      'The tests fail after the rewrite, so a value the code needed went ' +
+        'with the ones that had to go.\n' +
+        `Nothing was pushed. Undo with the backup at ${repo}-backup/repo.git, ` +
+        'or with refs/original in this repository.'
+    );
+    process.exit(1);
+  }
+  console.log('The tests pass.');
+
+  if (!given.push) {
+    console.log(
+      '\nThe commit ids are new, so the push has to be forced. Re-run with ' +
+        '--push, or:\n  git push --force origin --all\n' +
+        'Everyone else has to re-clone.'
+    );
+    return;
+  }
+  pushEverything(repo);
+  console.log('\nDone. Everyone else has to re-clone.');
 }
 
 /** Whether git-filter-repo is installed and can be used. */
@@ -252,7 +461,7 @@ function rewriteWithFilterRepo(repo, values) {
  * what it finds and writes it back, so files and commits are all kept and
  * only their contents change.
  */
-function rewriteWithFilterBranch(repo, values) {
+function rewriteWithFilterBranch(repo, values, config = {}) {
   const script = path.join(
     fs.mkdtempSync(path.join(os.tmpdir(), 'redact-run-')),
     'redact-tree.mjs'
@@ -261,26 +470,38 @@ function rewriteWithFilterBranch(repo, values) {
   // values in a file beside it, not on a command line where they would
   // show up in a process list.
   const valuesFile = `${script}.values.json`;
-  fs.writeFileSync(valuesFile, JSON.stringify(values), { mode: 0o600 });
+  fs.writeFileSync(
+    valuesFile,
+    JSON.stringify({
+      values,
+      only: config.only ?? [],
+      except: config.except ?? [],
+    }),
+    { mode: 0o600 }
+  );
   fs.writeFileSync(
     script,
     `import fs from 'node:fs';
 import path from 'node:path';
-import { redactText, worthSearching } from ${JSON.stringify(path.join(HERE, 'evisa-redact.mjs'))};
-const values = JSON.parse(fs.readFileSync(${JSON.stringify(valuesFile)}, 'utf8'));
+import { redactText, chooseFiles } from ${JSON.stringify(path.join(HERE, 'evisa-redact.mjs'))};
+const held = JSON.parse(fs.readFileSync(${JSON.stringify(valuesFile)}, 'utf8'));
+const chosen = chooseFiles(held);
+const root = process.cwd();
 const walk = (dir) => {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === '.git') { continue; }
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) { walk(full); continue; }
-    if (!entry.isFile() || !worthSearching(full)) { continue; }
-    let held;
-    try { held = fs.readFileSync(full, 'utf8'); } catch { continue; }
-    const { text, removed } = redactText(held, values);
-    if (removed) { fs.writeFileSync(full, text); }
+    // Chosen by the path as the repository writes it, which is what the
+    // globs in the config are written against.
+    if (!entry.isFile() || !chosen(path.relative(root, full))) { continue; }
+    let text;
+    try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
+    const done = redactText(text, held.values);
+    if (done.removed) { fs.writeFileSync(full, done.text); }
   }
 };
-walk(process.cwd());
+walk(root);
 `,
     { mode: 0o700 }
   );
@@ -306,15 +527,26 @@ walk(process.cwd());
   fs.rmSync(path.dirname(script), { recursive: true, force: true });
 }
 
-/** Rewrites with whichever tool this machine has. */
-function rewrite(repo, values) {
-  if (hasFilterRepo(repo)) {
+/**
+ * Rewrites with whichever tool suits the run.
+ *
+ * git-filter-repo is faster and replaces text natively, but it replaces it
+ * in every file it sees. A run that names files needs the tree filter, which
+ * reads each path and decides.
+ */
+function rewrite(repo, values, config = {}) {
+  const byFile = (config.only ?? []).length || (config.except ?? []).length;
+  if (!byFile && hasFilterRepo(repo)) {
     console.log('Using git-filter-repo.');
     rewriteWithFilterRepo(repo, values);
     return;
   }
-  console.log('git-filter-repo is not installed; using filter-branch.');
-  rewriteWithFilterBranch(repo, values);
+  console.log(
+    byFile
+      ? 'Choosing files, so using filter-branch.'
+      : 'git-filter-repo is not installed; using filter-branch.'
+  );
+  rewriteWithFilterBranch(repo, values, config);
 }
 
 /** Redacting a single file, for a caller that wants one without the history. */

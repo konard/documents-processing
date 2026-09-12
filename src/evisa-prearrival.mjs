@@ -152,6 +152,12 @@ export function valueFor(field, applicant = {}, extras = {}) {
   ) {
     return applicant[field.from];
   }
+  // A field the visa or the ticket supplies is kept under the name the
+  // declaration itself uses, there being nothing on the application form to
+  // map it from. Reading the e-visa is what fills these.
+  if (applicant[field.key] !== null && applicant[field.key] !== undefined) {
+    return applicant[field.key];
+  }
   return null;
 }
 

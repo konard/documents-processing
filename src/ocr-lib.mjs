@@ -111,6 +111,15 @@ function canvasAsImage(canvas) {
     width: canvas.width,
     height: canvas.height,
     _canvas: canvas,
+    // A loaded Image has no encoder, so anything wanting the pixels as a file
+    // had to know this was a canvas underneath and reach for the private
+    // field. Asking the wrapper spares every caller that, and a caller that
+    // did not know found out by way of "toBuffer is not a function": a PDF
+    // page then reached the chat unread, and every one was answered as an
+    // unrecognisable picture.
+    toBuffer(type = 'image/png') {
+      return canvas.toBuffer(type);
+    },
     // params mirror the canvas drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh)
     // signature exactly; grouping them into an object would obscure that.
     // eslint-disable-next-line max-params

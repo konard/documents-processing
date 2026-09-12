@@ -139,10 +139,11 @@ describe('nothing fills or sends the form on its own', () => {
     // A passport takes the better part of a minute to read. Arming the window
     // only after that let the window of the message before it run out, and the
     // form was filled while later messages were still being read.
-    const handlers = runner.slice(runner.indexOf("bot.on(['message:photo'"));
-    expect(
-      handlers.slice(0, 600).includes('armIdleFill(ctx, ctx.chat.id)')
-    ).toBe(true);
+    // Armed in the handler itself, before the reading is handed to a worker,
+    // which is what "when the message lands" means.
+    const at = runner.indexOf("bot.on(['message:photo'");
+    const handler = runner.slice(at, runner.indexOf('batch.reading(', at));
+    expect(handler.includes('armIdleFill(ctx, ctx.chat.id)')).toBe(true);
   });
 
   it('reads documents at the same time, and fills after all of them', () => {
@@ -345,5 +346,38 @@ describe('what the arrival declaration tells the applicant', () => {
       ).toBe(`${language}:true`);
     }
     expect(MESSAGES.ru.arrivalIntro.includes('незадолго')).toBe(false);
+  });
+});
+
+describe('a document does not decide what job the chat is doing', () => {
+  it('begins an application only for a chat told to do nothing else', async () => {
+    // The declaration asks for a passport, the visa and the ticket by name.
+    // Taking a document as proof that an application is being filled opened
+    // the visa form during an arrival-card request and typed somebody's
+    // passport onto it.
+    const { MODES, enterMode, documentBeginsFilling } =
+      await import('../src/evisa-mode.mjs');
+    expect(documentBeginsFilling({})).toBe(true);
+    expect(documentBeginsFilling(enterMode({}, MODES.idle))).toBe(true);
+    // Told to do something else, the chat keeps that job.
+    expect(documentBeginsFilling(enterMode({}, MODES.arriving))).toBe(false);
+    expect(documentBeginsFilling(enterMode({}, MODES.lookingUp))).toBe(false);
+  });
+
+  it('arms no fill for a chat that is not filling', () => {
+    // The window is what a fill runs at the end of. Armed for an arrival
+    // card, it fills a form nobody asked for.
+    const at = runner.indexOf("bot.on(['message:photo', 'message:document']");
+    const body = runner.slice(at, runner.indexOf('});', at));
+    expect(body.includes('documentBeginsFilling(session)')).toBe(true);
+    expect(body.includes('if (fillsTheForm(session)) {')).toBe(true);
+  });
+
+  it('keeps reading the document whatever the chat is doing', () => {
+    // Every job wants what the document says: the declaration needs the
+    // passport as much as the form does. Only the fill is held back.
+    const at = runner.indexOf("bot.on(['message:photo', 'message:document']");
+    const body = runner.slice(at, runner.indexOf('});', at));
+    expect(body.includes('batch.reading(')).toBe(true);
   });
 });

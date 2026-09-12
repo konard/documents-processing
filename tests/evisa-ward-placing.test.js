@@ -125,9 +125,9 @@ describe('what the list under the form says', () => {
 
 describe('a booking that names no ward at all', () => {
   it('is still placed, since the town it is in has one', () => {
-    // One booking writes "18/4 [REDACTED], Loc Tho Ward, Nha Trang" and
-    // another "14 Dinh Tien Hoang 7, Nha Trang". The second names no ward,
-    // and the field is one the site will not go on without.
+    // One booking writes "1 Sample Street, Loc Tho Ward, Nha Trang" and
+    // another "2 Example Road, Nha Trang". The second names no ward, and
+    // the field is one the site will not go on without.
     const parsed = parseVietnamAddress(
       '14 Đinh Tiên Hoàng 7, 650000 Нячанг, Вьетнам'
     );

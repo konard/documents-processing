@@ -10,11 +10,11 @@ import {
 
 describe('finding every way a value is written', () => {
   it('finds a phone number however it is grouped', () => {
-    // Written [REDACTED] in one place and [REDACTED] in another, it is one
+    // Written 123-45-67 in one place and 1234567 in another, it is one
     // number, and redacting one spelling leaves the other published.
-    const spellings = spellingsOf('[REDACTED]');
-    expect(spellings.includes('[REDACTED]')).toBe(true);
-    expect(spellings.includes('[REDACTED]')).toBe(true);
+    const spellings = spellingsOf('123-45-67');
+    expect(spellings.includes('123-45-67')).toBe(true);
+    expect(spellings.includes('1234567')).toBe(true);
   });
 
   it('finds a date in the orders it gets written in', () => {

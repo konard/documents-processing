@@ -55,7 +55,7 @@ export const PERSONAL_FIELDS = [
 /**
  * The ways a value gets written, so a search for one finds all of them.
  *
- * A phone number appears as [REDACTED] and as [REDACTED]; a date in the order
+ * A phone number appears as 1234567 and as 123-45-67; a date in the order
  * the passport prints it and in the order the site wants; a name in upper
  * case in the machine line and in title case beneath it. Redacting only
  * the spelling the passport gave leaves the others in place.
@@ -92,7 +92,7 @@ export function spellingsOf(value) {
 /**
  * Every spelling of every personal value in a reading, longest first.
  *
- * Longest first matters: redacting "[REDACTED] 12" before "[REDACTED]"
+ * Longest first matters: redacting "Sample Street 12" before "Sample Street"
  * leaves no orphaned fragment behind where the longer value was.
  */
 export function valuesToRedact(reading = {}, also = []) {

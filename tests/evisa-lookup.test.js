@@ -5,7 +5,9 @@ import {
   canSearch,
   gather,
   whatIsKnown,
+  createLookup,
 } from '../src/evisa-lookup.mjs';
+import { MODES, enterMode, fillsTheForm } from '../src/evisa-mode.mjs';
 
 describe('gathering what a lookup needs', () => {
   it('reads all three out of one message, in any order', () => {
@@ -98,5 +100,51 @@ describe('gathering what a lookup needs', () => {
     expect(known.email).toBe('traveller@example.com');
     // Without a number there is still nothing to search for.
     expect(canSearch(known)).toBe(false);
+  });
+});
+
+describe('a second application number, after the first was fetched', () => {
+  /** A chat as the fetch leaves it: documents sent, lookup still the job. */
+  function afterAFetch() {
+    const session = enterMode({ language: 'ru' }, MODES.lookingUp);
+    // What the fetch sets: that search is answered, so no captcha is
+    // outstanding, but the gathering is open again for the next number.
+    session.lookingUp = null;
+    session.gathering = {};
+    return session;
+  }
+
+  it('starts the next lookup without the command being typed again', async () => {
+    // One application is rarely the only one, and having to send
+    // /download_visa between each is a step that says nothing.
+    const session = afterAFetch();
+    let searched = null;
+    const { tookLookupDetails } = createLookup({
+      sessions: { get: () => session },
+      MESSAGES: { ru: {} },
+      log: () => {},
+      shown: (one) => one,
+      lookUpApplication: async (ctx, chatId, number, gathered) => {
+        searched = { number, gathered };
+      },
+    });
+    const ctx = {
+      chat: { id: 1 },
+      message: {
+        text: 'E260908XXX0000000000\n01/02/1990\ntraveller@example.com',
+      },
+      reply: async () => {},
+    };
+    const took = await tookLookupDetails(ctx, 1, session);
+    expect(took).toBe(true);
+    expect(searched.number).toBe('E260908XXX0000000000');
+    expect(searched.gathered.email).toBe('traveller@example.com');
+  });
+
+  it('is not read as details for an application form', () => {
+    // The mode is what decides, and a chat fetching documents is not filling
+    // anything in. Read as form details instead, the application number
+    // would be typed onto a blank form and photographed.
+    expect(fillsTheForm(afterAFetch())).toBe(false);
   });
 });

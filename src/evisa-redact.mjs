@@ -155,3 +155,68 @@ export function replacementsFile(values) {
 export function worthSearching(path) {
   return !/\.(png|jpe?g|gif|pdf|zip|gz|woff2?|ico|mp4|webp)$/i.test(path);
 }
+
+/**
+ * Turns a glob into the expression that matches a path against it.
+ *
+ * Only what a path needs: `*` for a run within one segment, `**` for one
+ * that crosses segments, `?` for a single character. A pattern with no
+ * slash matches the name anywhere in the tree, which is how anyone writing
+ * `*.test.js` expects it to read, and a trailing `**` means everything
+ * under a directory, which is how `src/**` reads.
+ */
+export function globToPattern(glob) {
+  // Each piece is translated on its own and joined, so a character the
+  // translation writes is never read again as one the caller wrote.
+  // Splitting on a capture leaves empty strings around each match, so what
+  // counts as last is the last piece that says anything.
+  const pieces = glob.split(/(\*\*\/|\*\*|\*|\?)/);
+  const ends = pieces.reduce((last, piece, at) => (piece ? at : last), 0);
+  const body = pieces
+    .map((piece, at) => {
+      if (piece === '**/') {
+        return '(?:.*/)?';
+      }
+      if (piece === '**') {
+        // At the end it stands for the whole of what follows, files and
+        // directories alike; in the middle it is any run of directories.
+        return at === ends ? '.*' : '(?:.*/)?';
+      }
+      if (piece === '*') {
+        return '[^/]*';
+      }
+      if (piece === '?') {
+        return '[^/]';
+      }
+      return piece.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    })
+    .join('');
+  return new RegExp(glob.includes('/') ? `^${body}$` : `(^|/)${body}$`);
+}
+
+/**
+ * Which files a run is allowed to change.
+ *
+ * A tool that rewrites every commit needs a way to be told where to look and
+ * where to leave alone. Some files hold a value as a person's data and must
+ * be redacted; others hold the same word as a public place name, a nickname
+ * or a transliteration case, and redacting those breaks what the file is
+ * for. The decision belongs to whoever knows which is which.
+ *
+ * `only` narrows a run to what matches it; `except` takes files back out.
+ * A file must be worth searching either way, since that is about what the
+ * bytes are, not about what anyone wants.
+ */
+export function chooseFiles({ only = [], except = [] } = {}) {
+  const wanted = only.map(globToPattern);
+  const unwanted = except.map(globToPattern);
+  return function chosen(path) {
+    if (!worthSearching(path)) {
+      return false;
+    }
+    if (wanted.length && !wanted.some((one) => one.test(path))) {
+      return false;
+    }
+    return !unwanted.some((one) => one.test(path));
+  };
+}

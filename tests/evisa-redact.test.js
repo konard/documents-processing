@@ -6,6 +6,7 @@ import {
   redactText,
   replacementsFile,
   worthSearching,
+  chooseFiles,
   REDACTED,
 } from '../src/evisa-redact.mjs';
 
@@ -102,6 +103,66 @@ describe('taking the values out of a piece of text', () => {
   });
 });
 
+describe('choosing which files a run may change', () => {
+  it('matches a name anywhere when the pattern names no directory', () => {
+    // "*.test.js" reads as every test, wherever it sits.
+    const chosen = chooseFiles({ only: ['*.test.js'] });
+    expect(chosen('tests/a.test.js')).toBe(true);
+    expect(chosen('deep/down/b.test.js')).toBe(true);
+    expect(chosen('src/a.mjs')).toBe(false);
+  });
+
+  it('matches a whole path when the pattern names one', () => {
+    const chosen = chooseFiles({ only: ['src/**'] });
+    expect(chosen('src/a.mjs')).toBe(true);
+    expect(chosen('src/deep/b.mjs')).toBe(true);
+    expect(chosen('tests/a.test.js')).toBe(false);
+  });
+
+  it('takes files back out, which is the point of the whole thing', () => {
+    // A surname is personal data where the application uses it and a public
+    // name where a transliteration test does. One word, two answers, and the
+    // only thing that can tell them apart is which file it is in.
+    const chosen = chooseFiles({ except: ['tests/translit.test.js'] });
+    expect(chosen('tests/translit.test.js')).toBe(false);
+    expect(chosen('tests/other.test.js')).toBe(true);
+  });
+
+  it('excludes a whole directory, for work nobody wants rewritten', () => {
+    const chosen = chooseFiles({ except: ['docs/case-studies/**'] });
+    expect(chosen('docs/case-studies/issue-3/data.json')).toBe(false);
+    expect(chosen('docs/EVISA.md')).toBe(true);
+  });
+
+  it('leaves a picture alone whatever the patterns say', () => {
+    // Rewriting a PNG by pattern corrupts it, and that is about the bytes,
+    // not about anyone's choice.
+    const chosen = chooseFiles({ only: ['**'] });
+    expect(chosen('docs/passport.png')).toBe(false);
+  });
+
+  it('takes everything when nothing is named', () => {
+    const chosen = chooseFiles();
+    expect(chosen('anything.md')).toBe(true);
+  });
+});
+
+describe('values that must survive a run', () => {
+  it('refuses a run that would redact something named as kept', async () => {
+    // A spelling rule reaches further than the value it was given. Asked for
+    // a surname it takes the upper-case form too, and a public nickname that
+    // contains it would go with it.
+    const { keptValuesAreSafe } = await import('../src/redact-history.mjs');
+    expect(keptValuesAreSafe(['SAMPLE'], ['a public nickname'])).toEqual([]);
+    // Named as kept, but a value in the list is inside it.
+    expect(keptValuesAreSafe(['SAMPLE'], ['SAMPLETON'])).toEqual(['SAMPLETON']);
+  });
+
+  it('sees a match in any case, since redaction ignores case', () => {
+    expect(redactText('sampleton', ['SAMPLE']).removed).toBe(1);
+  });
+});
+
 describe('checking a repository after a rewrite', () => {
   it('asks what commits hold, not what they changed', () => {
     // A diff search matches a commit for taking a value out as readily as
@@ -125,12 +186,37 @@ describe('checking a repository after a rewrite', () => {
     expect(body.includes("'--all'")).toBe(false);
   });
 
-  it('refuses to rewrite without a backup beside the repository', () => {
+  it('takes the backup itself, so a run cannot start without one', () => {
     // The ids all change and every clone breaks, so there is one chance to
-    // have kept the history as it was.
+    // have kept the history as it was. The script takes it.
     const tool = readFileSync('src/redact-history.mjs', 'utf8');
-    expect(tool.includes('hasBackup(repo)')).toBe(true);
+    expect(tool.includes('function takeBackup')).toBe(true);
+    expect(tool.includes("'clone', '--mirror'")).toBe(true);
     expect(tool.includes('repo.git')).toBe(true);
+  });
+
+  it('proves the rewrite before publishing it', () => {
+    // The push is the irreversible half, so nothing reaches the remote on a
+    // promise: the history is searched again and the tests are run, and
+    // either failing stops the run with nothing pushed.
+    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const at = tool.indexOf('function rewriteAndPublish');
+    const body = tool.slice(at, tool.indexOf('\n}\n', at));
+    const verified = body.indexOf('commitsHolding(repo, wanted, chosen)');
+    const tested = body.indexOf('testsStillPass(repo)');
+    const pushed = body.indexOf('pushEverything(repo)');
+    expect(verified > -1 && tested > -1 && pushed > -1).toBe(true);
+    // Both checks come before the push, and both stop the run.
+    expect(verified < pushed).toBe(true);
+    expect(tested < pushed).toBe(true);
+    expect(body.includes('Nothing was pushed.')).toBe(true);
+  });
+
+  it('runs the repository´s own tests, not a check of its own', () => {
+    // A check written here would drift from what the repository actually
+    // requires. What it runs is what anybody runs.
+    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    expect(tool.includes("execFileSync('npm', ['test']")).toBe(true);
   });
 });
 

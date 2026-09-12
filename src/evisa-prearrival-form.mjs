@@ -177,6 +177,23 @@ function dayFrom(text) {
 export const PASSPORT_MARGIN_DAYS = 30;
 
 /**
+ * The visa number as this site wants it: the digits, without the suffix.
+ *
+ * A granted e-visa prints its number as "712345678/EV" on the Số / No. line,
+ * and that is how the visa itself is read and stored. This form takes nine
+ * digits and refuses anything else, so the suffix comes off here, where the
+ * two spellings meet, and the record keeps the number as the visa prints it.
+ */
+export function visaNumberAsNamedHere(visaNumber) {
+  const said = String(visaNumber ?? '').trim();
+  if (!said) {
+    return null;
+  }
+  const digits = /^(\d+)\s*\/\s*EV$/i.exec(said);
+  return digits ? digits[1] : said;
+}
+
+/**
  * What this site will refuse, checked before it is typed.
  *
  * The rules are the site's own and it states them only in red under a field,
@@ -187,9 +204,9 @@ export const PASSPORT_MARGIN_DAYS = 30;
 export function whatThisSiteWillRefuse(applicant = {}) {
   const refused = [];
   // The help behind the (?) beside the field: "The E-Visa number must be
-  // numeric and 9 digits long." It is the Số / No. line on the visa, which
-  // carries no letter, though an application's own code does.
-  const visaNumber = String(applicant.visaNumber ?? '').trim();
+  // numeric and 9 digits long." A granted visa prints "712345678/EV", so the
+  // suffix is dropped for this site and the digits are what is judged.
+  const visaNumber = visaNumberAsNamedHere(applicant.visaNumber);
   if (
     visaNumber &&
     /e-?visa/i.test(applicant.visaType ?? '') &&
@@ -224,6 +241,9 @@ export function valueAsNamedHere(field, applicant = {}) {
   }
   if (field.key === 'passportType') {
     return passportTypeAsNamedHere(applicant.passportType);
+  }
+  if (field.key === 'visaNumber') {
+    return visaNumberAsNamedHere(applicant.visaNumber);
   }
   return applicant[field.key];
 }
@@ -531,8 +551,10 @@ export async function chooseArrivalDate(page, arrivalDate) {
  */
 export async function acknowledgeVisaNotes(page) {
   const box = page.getByRole('checkbox').first();
+  // No box drawn is not a box that refused: the site draws none until a
+  // nationality is chosen, and there is nothing to report about it.
   if (!(await box.isVisible().catch(() => false))) {
-    return false;
+    return null;
   }
   if (await box.isChecked().catch(() => false)) {
     return true;
@@ -600,29 +622,41 @@ export async function chooseGender(page, sex) {
  * dialling code and the box that unlocks the visa section.
  *
  * Each is answered its own way — a button among three, a file, a radio, a
- * list, a tick — so they are done together, ahead of the typing. The box
- * comes first of all: until it is ticked the site holds the visa fields
- * behind an error, and everything typed into them is refused.
+ * list, a tick — so they are done together, ahead of the typing.
+ *
+ * The arrival date is settled first. A day the site will not offer ends the
+ * fill, and nothing should be ticked or typed on a declaration that is about
+ * to be abandoned. Everything after it assumes a form worth filling.
  */
 async function fillTheRest(
   page,
   applicant,
   { passportImage, filled, failed, at = 0 }
 ) {
-  if (await acknowledgeVisaNotes(page)) {
-    filled.push('readTheNotes');
-  }
-  if (applicant.phoneCountryCode) {
-    await choosePhoneCountryCode(page, applicant.phoneCountryCode, at)
-      .then(() => filled.push('phoneCountryCode'))
-      .catch((error) => failed.push(`phoneCountryCode: ${error.message}`));
-  }
   if (applicant.arrivalDate) {
     const picked = await chooseArrivalDate(page, applicant.arrivalDate);
     if (picked.tooEarly) {
       return picked;
     }
     filled.push('arrivalDate');
+  }
+  // Until this is ticked the site holds the visa fields behind an error and
+  // refuses everything typed into them, so it comes before the typing. A box
+  // that will not tick is reported, not thrown: the rest of the form is still
+  // worth filling, and the traveller can tick one box themselves.
+  await acknowledgeVisaNotes(page)
+    .then((ticked) => {
+      if (ticked === true) {
+        filled.push('readTheNotes');
+      } else if (ticked === false) {
+        failed.push('readTheNotes: the box would not tick');
+      }
+    })
+    .catch((error) => failed.push(`readTheNotes: ${error.message}`));
+  if (applicant.phoneCountryCode) {
+    await choosePhoneCountryCode(page, applicant.phoneCountryCode, at)
+      .then(() => filled.push('phoneCountryCode'))
+      .catch((error) => failed.push(`phoneCountryCode: ${error.message}`));
   }
   if (passportImage) {
     // The site reads the picture on its own server and fills what it finds

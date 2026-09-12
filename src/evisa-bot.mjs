@@ -416,6 +416,18 @@ export function describeFilled(onThePage, result, language) {
   for (const gone of result.failed ?? []) {
     parts.push(`• ${escapeHtml(gone)}`);
   }
+  // A value the site marks in red under its field. The traveller is reading a
+  // chat, not the page, so an unsaid refusal is one they meet at the very end
+  // with no idea which field it is about.
+  if (result.refused?.length) {
+    parts.push('', `<b>${strings.arrivalRefused}</b>`);
+    for (const { key, why, days } of result.refused) {
+      const said = strings.arrivalRefusedWhy?.[why];
+      parts.push(
+        `• ${escapeHtml(typeof said === 'function' ? said(days) : (said ?? named(key)))}`
+      );
+    }
+  }
   parts.push('', strings.arrivalYours);
   return parts.join('\n').trim();
 }

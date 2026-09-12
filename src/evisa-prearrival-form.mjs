@@ -164,6 +164,53 @@ export function splitPhone(phone) {
   return { phoneCountryCode: null, phone: digits };
 }
 
+/** A DD/MM/YYYY date as a day, or null when it is not one. */
+function dayFrom(text) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(text ?? '').trim());
+  if (!match) {
+    return null;
+  }
+  return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+}
+
+/** How long the passport must outlast the visa, in days. */
+export const PASSPORT_MARGIN_DAYS = 30;
+
+/**
+ * What this site will refuse, checked before it is typed.
+ *
+ * The rules are the site's own and it states them only in red under a field,
+ * on a page the traveller is not looking at. Read here, a value the site will
+ * not take is named in the chat along with everything else wanted, and the
+ * traveller learns which field "Invalid visa number" is about.
+ */
+export function whatThisSiteWillRefuse(applicant = {}) {
+  const refused = [];
+  // The help behind the (?) beside the field: "The E-Visa number must be
+  // numeric and 9 digits long." It is the Số / No. line on the visa, which
+  // carries no letter, though an application's own code does.
+  const visaNumber = String(applicant.visaNumber ?? '').trim();
+  if (
+    visaNumber &&
+    /e-?visa/i.test(applicant.visaType ?? '') &&
+    !/^\d{9}$/.test(visaNumber)
+  ) {
+    refused.push({ key: 'visaNumber', why: 'nineDigits' });
+  }
+  // "An electronic visa must expire at least 30 days before the passport
+  // expires." A passport running out too soon is a trip to renew it, not a
+  // value to correct, so it is worth saying early.
+  const visaEnds = dayFrom(applicant.visaExpiryDate);
+  const passportEnds = dayFrom(applicant.passportExpiryDate);
+  if (visaEnds && passportEnds) {
+    const days = (passportEnds - visaEnds) / 86400000;
+    if (days < PASSPORT_MARGIN_DAYS) {
+      refused.push({ key: 'passportExpiryDate', why: 'tooCloseToVisa', days });
+    }
+  }
+  return refused;
+}
+
 /**
  * A value in the words this site uses for it.
  *
@@ -665,7 +712,16 @@ export async function fillDeclaration(
 
   // An expiry caught mid-fill makes everything typed after it meaningless:
   // the page is still drawn, but the site has forgotten the declaration.
-  return { filled, missing, failed, arrival: null, expired: page.expired };
+  return {
+    filled,
+    missing,
+    failed,
+    arrival: null,
+    expired: page.expired,
+    // Typed and on the page, but the site will not take it. Saying so is the
+    // whole point: the traveller cannot see the red text under the field.
+    refused: whatThisSiteWillRefuse(applicant),
+  };
 }
 
 /** What the page holds now, read back so a fill can be checked. */

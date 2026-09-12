@@ -104,6 +104,7 @@ import {
   declarationCaptchaTaker,
   declarationRefiller,
   closeDeclaration,
+  arrivalDateOverride,
 } from './evisa-arrival-run.mjs';
 import { anyCaptchaTaker } from './evisa-captcha-routing.mjs';
 import {
@@ -1164,6 +1165,7 @@ registerArrivalCommand(bot, {
   describeDeclaration,
   MESSAGES,
   fillArrival: beginArrival,
+  rehearsing: () => Boolean(arrivalDateOverride()),
 });
 
 bot.command('reset', async (ctx) => {
@@ -1454,6 +1456,16 @@ onShutdown({
 });
 
 console.log('e-visa bot running. Press Ctrl+C to stop.');
+// A rehearsal is a temporary setting that makes every declaration name a day
+// the traveller is not flying on. It is worth seeing on the way in, so that a
+// bot left running with it set is not mistaken for one filing real dates.
+if (arrivalDateOverride()) {
+  console.log(
+    `REHEARSAL: every declaration will be filled for ${arrivalDateOverride()}, ` +
+      'whatever the ticket says. Nothing is filed. Unset ' +
+      'EVISA_ARRIVAL_DATE_OVERRIDE for real declarations.'
+  );
+}
 announce();
 
 // Kept documents are swept on startup and daily after that, so a machine that

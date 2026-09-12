@@ -9,6 +9,10 @@ import {
   windowOpensOn,
   nowInVietnam,
 } from '../src/evisa-prearrival.mjs';
+import {
+  arrivalDateOverride,
+  declarationFor,
+} from '../src/evisa-arrival-run.mjs';
 
 const APPLICANT = {
   surname: 'TRAVELLER',
@@ -151,5 +155,67 @@ describe('the day the site starts taking the declaration', () => {
     expect(nowInVietnam(lateOnThe12thUtc)).toBe(sept(13));
     // Early morning UTC is the same day in Vietnam.
     expect(nowInVietnam(Date.UTC(2026, 8, 12, 1, 0))).toBe(sept(12));
+  });
+});
+
+describe('the rehearsal that fills the form for a day the site offers', () => {
+  it('takes a date only from the setting meant for it', () => {
+    expect(
+      arrivalDateOverride({ EVISA_ARRIVAL_DATE_OVERRIDE: '14/09/2026' })
+    ).toBe('14/09/2026');
+  });
+
+  it('is off when nothing sets it', () => {
+    // The real filing is the default. A rehearsal has to be asked for.
+    expect(arrivalDateOverride({})).toBe(null);
+    expect(arrivalDateOverride({ EVISA_ARRIVAL_DATE_OVERRIDE: '' })).toBe(null);
+  });
+
+  it('refuses a date it cannot read as a day', () => {
+    // A malformed setting must not become an arrival date on a government
+    // form. Anything but DD/MM/YYYY leaves the traveller's own date alone.
+    for (const said of ['tomorrow', '14-09-2026', '2026-09-14', '14/9/26']) {
+      expect(
+        `${said}:${arrivalDateOverride({ EVISA_ARRIVAL_DATE_OVERRIDE: said })}`
+      ).toBe(`${said}:null`);
+    }
+  });
+
+  it('leaves the ticket alone when no rehearsal is asked for', () => {
+    const said = [];
+    const session = {
+      data: { surname: 'TRAVELLER', entryDate: '16/09/2026' },
+    };
+    const { values, rehearsal } = declarationFor(session, {
+      log: (chatId, line) => said.push(line),
+      chatId: 1,
+    });
+    expect(rehearsal).toBe(null);
+    // Without the setting the ticket's own date stands.
+    expect(values.arrivalDate).toBe('16/09/2026');
+    expect(said).toEqual([]);
+  });
+
+  it('replaces the arrival date and says so in the log', () => {
+    // The bot is driving a government form with a date the traveller is not
+    // flying on. Every such fill leaves a line saying so, naming both dates,
+    // so a rehearsal cannot be read back later as a real declaration.
+    const said = [];
+    process.env.EVISA_ARRIVAL_DATE_OVERRIDE = '14/09/2026';
+    try {
+      const { values, applicant, rehearsal } = declarationFor(
+        { data: { surname: 'TRAVELLER', entryDate: '16/09/2026' } },
+        { log: (chatId, line) => said.push(line), chatId: 1 }
+      );
+      expect(rehearsal).toBe('14/09/2026');
+      expect(values.arrivalDate).toBe('14/09/2026');
+      expect(applicant.arrivalDate).toBe('14/09/2026');
+      expect(said.length).toBe(1);
+      expect(said[0].includes('REHEARSAL')).toBe(true);
+      expect(said[0].includes('14/09/2026')).toBe(true);
+      expect(said[0].includes('16/09/2026')).toBe(true);
+    } finally {
+      delete process.env.EVISA_ARRIVAL_DATE_OVERRIDE;
+    }
   });
 });

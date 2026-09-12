@@ -356,6 +356,10 @@ export function registerArrivalCommand(bot, deps) {
     speakTheirLanguage = (chatId) => sessions.get(chatId).language,
     // Opening the site and driving it, which only the bot has a browser for.
     fillArrival = null,
+    // Whether a rehearsal is running, which fills the form for a day the site
+    // does offer. Passed in because the module that decides it drives the
+    // form, and that one already imports this.
+    rehearsing = () => false,
   } = deps;
 
   bot.command('arrival', async (ctx) => {
@@ -394,7 +398,9 @@ export function registerArrivalCommand(bot, deps) {
       ...(session.data ?? {}),
       fullName: fullNameOf(session.data ?? {}),
     });
-    const shut = windowOpensOn(values.arrivalDate);
+    // A rehearsal fills the form for a day the site does offer, so the window
+    // it is waiting on is not the one the ticket names.
+    const shut = rehearsing() ? null : windowOpensOn(values.arrivalDate);
     if (shut) {
       log(chatId, `too early to file: the window opens on ${shut.opens}`);
       await ctx.reply(

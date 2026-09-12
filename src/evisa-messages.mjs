@@ -35,6 +35,14 @@ export const MESSAGES = {
       'offers the day you arrive and the two before it, and there is no way ' +
       'to file it sooner. Keep sending me what it needs in the meantime: I ' +
       'hold it all, and on the day I fill the form in one go.',
+    // A rehearsal is worth nothing if it is mistaken for the real filing, so
+    // it says what it is every time, in the chat and in the log.
+    arrivalRehearsal: (using, real) =>
+      `⚠️ This is a rehearsal, not your declaration. I am filling the form ` +
+      `for ${using}, a day the site will accept today, so we can watch every ` +
+      `other field go in${real ? ` — you actually land on ${real}` : ''}. ` +
+      'Nothing is sent, and this fills nothing in for your real arrival. ' +
+      'The declaration that counts is the one filed inside the window.',
     arrivalCaptcha:
       'The declaration site asks for this code before it draws the form. ' +
       'Send me what you read.',
@@ -314,6 +322,12 @@ export const MESSAGES = {
       'Он предлагает день прилёта и два дня перед ним, раньше подать никак ' +
       'нельзя. Присылайте пока всё, что для неё нужно: я всё сохраню и в ' +
       'нужный день заполню форму за один раз.',
+    arrivalRehearsal: (using, real) =>
+      `⚠️ Это репетиция, а не ваша декларация. Заполняю форму на ${using} — ` +
+      'день, который сайт принимает уже сегодня, чтобы посмотреть, как ' +
+      `встанут все остальные поля${real ? `. На самом деле вы прилетаете ${real}` : ''}. ` +
+      'Ничего не отправляется, и на ваш настоящий прилёт это ничего не ' +
+      'заполняет. Считается только декларация, поданная в свой срок.',
     arrivalCaptcha:
       'Сайт декларации просит этот код, прежде чем показать форму. ' +
       'Пришлите то, что видите.',

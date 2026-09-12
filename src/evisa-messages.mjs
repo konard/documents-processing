@@ -34,6 +34,10 @@ export const MESSAGES = {
       `The site will not take a declaration for ${wanted} yet: it offers ` +
       `only ${offered.join(', ')}. It opens 72 hours before you land, so ` +
       'come back then and I will fill it in.',
+    arrivalExpired:
+      'The declaration site closed the session before the form was finished. ' +
+      'Send /fill_arrival and I open a new one — everything you have told me ' +
+      'is kept, so there is nothing to send again.',
     arrivalFilled: 'On the declaration now:',
     arrivalStillWanted: 'Still to fill in:',
     arrivalYours:
@@ -290,6 +294,10 @@ export const MESSAGES = {
       `Сайт пока не принимает декларацию на ${wanted}: он предлагает только ` +
       `${offered.join(', ')}. Приём открывается за 72 часа до прилёта — ` +
       'вернитесь тогда, и я всё заполню.',
+    arrivalExpired:
+      'Сайт декларации закрыл сессию, не дождавшись конца заполнения. ' +
+      'Отправьте /fill_arrival — открою заново. Всё, что вы мне уже ' +
+      'сказали, сохранено, присылать заново ничего не нужно.',
     arrivalFilled: 'Сейчас в декларации:',
     arrivalStillWanted: 'Ещё нужно заполнить:',
     arrivalYours:

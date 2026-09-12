@@ -218,9 +218,19 @@ describe('no personal data is committed', () => {
       // The bot fetches from Telegram, which is where its documents come from
       // and where its replies go; it is the applicant's own chat, so that one
       // host is allowed. Everything else makes no outbound request at all.
-      const allowsTelegram = file === 'evisa-bot-run.mjs';
+      const allowsTelegram =
+        file === 'evisa-bot-run.mjs' || file === 'evisa-details.mjs';
       if (!allowsTelegram) {
         expect(`${file}:${/\bfetch\s*\(/.test(text)}`).toBe(`${file}:false`);
+      }
+      // A file allowed to fetch may fetch from Telegram and nowhere else: the
+      // allowance is for the applicant's own chat, not for the open internet.
+      if (allowsTelegram) {
+        const hosts = text.match(/https?:\/\/[\w.-]+/g) ?? [];
+        const strangers = hosts.filter(
+          (host) => !/\/\/(?:api\.)?telegram\.org$/.test(host)
+        );
+        expect(`${file}:${strangers.join(',')}`).toBe(`${file}:`);
       }
       expect(`${file}:${/axios|node-fetch|https?\.request/.test(text)}`).toBe(
         `${file}:false`

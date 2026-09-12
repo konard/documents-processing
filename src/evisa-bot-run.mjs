@@ -102,9 +102,17 @@ import { showArrival, registerArrivalCommand } from './evisa-prearrival.mjs';
 import {
   declarationOpener,
   declarationCaptchaTaker,
+  declarationRefiller,
   closeDeclaration,
 } from './evisa-arrival-run.mjs';
 import { anyCaptchaTaker } from './evisa-captcha-routing.mjs';
+import {
+  renderImage,
+  upscale,
+  grayscale,
+  binarize,
+  ocrCanvas,
+} from './ocr-lib.mjs';
 import {
   MODES,
   modeOf,
@@ -123,6 +131,7 @@ import {
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import { verifyAddress } from './evisa-geocode.mjs';
+import { downloadFile, takeTypedDetails } from './evisa-details.mjs';
 
 loadEnv();
 
@@ -181,7 +190,17 @@ const { batch, armIdleFill, holdIdleFill, disarmIdleFill } = createFillBatcher({
     sessions,
     log,
     fill: (ctx, chatId) => fillNow(ctx, chatId, 'quiet window'),
-    arrive: showArrival({ sessions, MESSAGES, describeDeclaration, log }),
+    // A chat doing its arrival card gets the same treatment the visa form
+    // gets: what it sent goes onto the open declaration and the page comes
+    // back. With no declaration open there is nothing to type on, so the
+    // list of what is known is the answer instead.
+    arrive: (ctx, chatId) =>
+      sessions.get(chatId).arrival
+        ? refillArrival(ctx, chatId)
+        : showArrival({ sessions, MESSAGES, describeDeclaration, log })(
+            ctx,
+            chatId
+          ),
   }),
 });
 
@@ -238,12 +257,6 @@ const PRINTED_SIDE = [
 ];
 
 /** The address fields, each checked against the map when it arrives. */
-const ADDRESS_FIELDS = [
-  'permanentAddress',
-  'contactAddress',
-  'emergencyAddress',
-];
-
 /**
  * True within a minute of the chat hearing that its browser closed: a
  * fill that dies of the same closing needs no second message.
@@ -922,11 +935,6 @@ async function refillAfterEmptyReview(ctx, chatId) {
   await ctx.reply(MESSAGES[session.language].reviewEmpty).catch(() => {});
 }
 
-/**
- * A word to send on the form: Next at once, since the site answers with
- * the application laid out for review and a Back button, and nothing is
- * sent yet.
- */
 /** The captcha's code, typed in, then the countdown to sending. */
 async function typeTheCaptcha(ctx, chatId, code) {
   const session = sessions.get(chatId);
@@ -1133,12 +1141,23 @@ const arrivalDeps = {
   askCaptcha: (...args) => askCaptcha(...args),
   MESSAGES,
   describeFilled,
+  // The declaration's captcha is the bot's own to read: a refused code costs
+  // a reload and nothing else, so it tries before troubling the traveller.
+  ocr: {
+    renderImage,
+    upscale,
+    grayscale,
+    binarize,
+    ocrCanvas,
+    withImageFile: (bytes, use) => withTempFile(bytes, '.png', use),
+  },
   headless: !HEADED,
   debugPort: DEBUG_PORT ? DEBUG_PORT + 1 : 0,
 };
 
 const beginArrival = declarationOpener(arrivalDeps);
 const tookArrivalCaptcha = declarationCaptchaTaker(arrivalDeps);
+const refillArrival = declarationRefiller(arrivalDeps);
 
 registerArrivalCommand(bot, {
   ...commandDeps,
@@ -1174,22 +1193,6 @@ bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
   await startLookup(ctx, ctx.chat.id);
 });
 
-/** Downloads a file Telegram holds, without letting the token into an error. */
-async function downloadFile(ctx) {
-  const file = await ctx.getFile();
-  const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-  const response = await fetch(url).catch((error) => {
-    throw new Error(`could not download the file: ${error.message}`);
-  });
-  if (!response.ok) {
-    throw new Error(`could not download the file: HTTP ${response.status}`);
-  }
-  return {
-    buffer: Buffer.from(await response.arrayBuffer()),
-    extension: path.extname(file.file_path || '.jpg') || '.jpg',
-  };
-}
-
 bot.on(['message:photo', 'message:document'], (ctx) => {
   const session = sessions.get(ctx.chat.id);
   // Sending a document begins an application, but only for a chat that has
@@ -1223,7 +1226,7 @@ async function receiveDocument(ctx) {
   let buffer;
   let extension;
   try {
-    ({ buffer, extension } = await downloadFile(ctx));
+    ({ buffer, extension } = await downloadFile(ctx, token));
   } catch (error) {
     busy();
     log(chatId, error.message);
@@ -1390,42 +1393,30 @@ async function receiveText(ctx) {
   if (await refuseIfPastForm(ctx, session)) {
     return;
   }
-  // Nothing above claimed the message, so it is details for an application,
-  // and saying so is how a chat that has sent no command yet begins one.
-  enterMode(session, MODES.filling);
+  // Nothing above claimed the message, so it is details — for whichever form
+  // the chat is filling. A chat doing its arrival card stays on it: forced to
+  // `filling`, the hotel and the phone sent for the declaration opened the
+  // visa form and were typed onto that instead.
+  if (modeOf(session) !== MODES.arriving) {
+    enterMode(session, MODES.filling);
+  }
   // New details end a countdown, since the form they go on is about to
   // change, and restart the quiet timer; the fill that follows puts only
   // what changed on the form, and explains only that.
   if (settleCountdown(chatId, 'stop')) {
     log(chatId, 'details received during the countdown; Next not pressed');
   }
-  const parsed = parseFreeText(ctx.message.text);
-  // The text itself is logged too: what was not read out of it is only
-  // diagnosable against the words that were sent.
-  const text = valuesAllowed()
-    ? `: ${JSON.stringify(ctx.message.text)}`
-    : ` of ${ctx.message.text.length} characters`;
-  log(
+  await takeTypedDetails({
     chatId,
-    `text message (${session.language})${text}; read: ${describeFields(parsed)}`
-  );
-  Object.assign(session.data, parsed);
-  // A value the applicant types settles a field the passport's readers
-  // split on.
-  for (const key of Object.keys(parsed)) {
-    delete session.disputed?.[key];
-  }
-  session.received = (session.received ?? 0) + 1;
-  // A correction is what unsticks a form: the next fill is worth showing,
-  // and worth explaining again if it is still refused.
-  session.toldWhatIsStuck = false;
-  session.lastFill = null;
-
-  for (const field of ADDRESS_FIELDS) {
-    if (parsed[field]) {
-      await verifyAddress(chatId, session, field, { log, shown });
-    }
-  }
+    session,
+    text: ctx.message.text,
+    parseFreeText,
+    describeFields,
+    valuesAllowed,
+    verifyAddress,
+    log,
+    shown,
+  });
   // Counted when it landed, like a document: checking an address against the
   // map takes time, and only the window needs holding open for it.
   holdIdleFill(ctx, chatId);

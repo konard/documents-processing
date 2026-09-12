@@ -840,6 +840,20 @@ const LABELLED = [
     /(?:орган|кем\s+выдан|authority|issued\s+by)\s*:?\s*([^,;\n]+)/i,
     'passportIssuingAuthority',
   ],
+  // The declaration's own fields. The day of leaving Vietnam is a date like
+  // any other and sits next to the word "вылет", which names the flight out
+  // to Vietnam just as readily, so the match asks for leaving, not flying.
+  [
+    /(?:вылет\p{L}*\s+из\s+вьетнама|уезжа\p{L}+|отъезд\p{L}*|departure\s+from\s+viet\s*nam|leaving\s+viet\s*nam|depart\p{L}*\s+viet\s*nam)\D{0,20}(\d{1,2}[./-]\d{1,2}[./-]\d{4})/iu,
+    'departureDate',
+  ],
+  // Anchored to the start of the line, so a label naming the question ("где
+  // остановитесь") wins over a word inside the answer ("отель"): matched
+  // loose, the hotel's own name is eaten as part of the label.
+  [
+    /^\s*(?:где\s+останов\p{L}+|отель|гостиниц\p{L}*|жиль[ёе]|проживани\p{L}*|hotel|accommodation|staying\s+at)\s*:?\s*([^\n]+)/iu,
+    'accommodationAddress',
+  ],
 ];
 
 /** A short label ending in a colon, with whatever follows it on the line. */
@@ -853,6 +867,10 @@ const GATE_WORDS =
 
 const ENTRY_WORDS =
   /билет|вылет|прил[её]т|в[ъь]езд|arriv|flight|entry|ticket|дата\s+вьезда/i;
+
+/** A line about leaving Viet Nam, which is the declaration's own date. */
+const LEAVING_WORDS =
+  /из\s+вьетнама|уезжа|отъезд|from\s+viet\s*nam|leaving\s+viet\s*nam|depart\w*\s+viet\s*nam/i;
 
 /** Months by their opening letters, in Russian and English. */
 const MONTH_STEMS = [
@@ -1035,7 +1053,14 @@ function parseLines(text, found, email) {
       line = opened;
     }
     parseLabelled(line, found);
-    const entry = ENTRY_WORDS.test(line) ? dateInLine(line) : null;
+    // "вылет" means the flight to Vietnam and the flight home alike. A line
+    // that says which one it is has already been read as the departure, and
+    // reading it again as the entry date would put the day of leaving in the
+    // box for the day of arriving.
+    const entry =
+      ENTRY_WORDS.test(line) && !LEAVING_WORDS.test(line)
+        ? dateInLine(line)
+        : null;
     if (entry) {
       found.entryDate ??= entry;
     }

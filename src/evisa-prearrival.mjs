@@ -210,3 +210,51 @@ export function hasVisaDetails(values = {}) {
       values[key] !== null && values[key] !== undefined && values[key] !== ''
   );
 }
+
+/**
+ * Shows the declaration as it now stands, and what is still wanted for it.
+ *
+ * Run when the chat is asked for it and again whenever a document has added
+ * to it. Reading a visa and a ticket in silence left the traveller looking
+ * at the list of everything the declaration wanted, sent before either was
+ * read, with no way to tell that most of it had just been answered.
+ */
+export async function showDeclaration({
+  ctx,
+  session,
+  MESSAGES,
+  describeDeclaration,
+  intro = false,
+}) {
+  const applicant = {
+    ...(session.data ?? {}),
+    fullName: fullNameOf(session.data ?? {}),
+  };
+  const { values, missing } = buildDeclaration(applicant);
+  if (intro) {
+    await ctx.reply(MESSAGES[session.language].arrivalIntro);
+  }
+  await ctx.reply(describeDeclaration(values, missing, session.language), {
+    parse_mode: 'HTML',
+  });
+  return { values, missing };
+}
+
+/**
+ * The answer a chat gives when documents arrive for the arrival card.
+ *
+ * Runs at the end of the quiet window, so four files forwarded together are
+ * answered once, with everything they added between them.
+ */
+export function showArrival({ sessions, MESSAGES, describeDeclaration, log }) {
+  return async function arrived(ctx, chatId) {
+    const session = sessions.get(chatId);
+    const { missing } = await showDeclaration({
+      ctx,
+      session,
+      MESSAGES,
+      describeDeclaration,
+    });
+    log(chatId, `declaration shown; ${missing.length} still wanted`);
+  };
+}

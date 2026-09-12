@@ -92,14 +92,21 @@ export function captchaIsForLookup(session = {}) {
  * details to fill it with, so both get a blank form typed at and
  * photographed. The mode settles it in one place, whatever asked.
  */
-export function onlyWhenFilling({ sessions, log, fill }) {
+export function onlyWhenFilling({ sessions, log, fill, arrive = null }) {
   return (ctx, chatId) => {
     const session = sessions.get(chatId);
-    if (!fillsTheForm(session)) {
-      log(chatId, `nothing to fill: the chat is ${modeOf(session)}`);
-      return Promise.resolve();
+    if (fillsTheForm(session)) {
+      return fill(ctx, chatId);
     }
-    return fill(ctx, chatId);
+    // A chat gathering documents for the declaration has an answer of its
+    // own to give. Read in silence, a visa and a ticket left the traveller
+    // looking at the list of everything still wanted, sent before either was
+    // read: nothing was stuck, but nothing said so.
+    if (arrive && modeOf(session) === MODES.arriving) {
+      return arrive(ctx, chatId);
+    }
+    log(chatId, `nothing to fill: the chat is ${modeOf(session)}`);
+    return Promise.resolve();
   };
 }
 

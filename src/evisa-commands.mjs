@@ -81,17 +81,13 @@ export function registerVisaCommands(bot, deps) {
     log(chatId, '/arrival');
     touch(chatId);
     const session = enterMode(sessions.get(chatId), MODES.arriving);
-    const strings = MESSAGES[session.language];
-    const { buildDeclaration, fullNameOf } =
-      await import('./evisa-prearrival.mjs');
-    const applicant = {
-      ...(session.data ?? {}),
-      fullName: fullNameOf(session.data ?? {}),
-    };
-    const { values, missing } = buildDeclaration(applicant);
-    await ctx.reply(strings.arrivalIntro);
-    await ctx.reply(describeDeclaration(values, missing, session.language), {
-      parse_mode: 'HTML',
+    const { showDeclaration } = await import('./evisa-prearrival.mjs');
+    await showDeclaration({
+      ctx,
+      session,
+      MESSAGES,
+      describeDeclaration,
+      intro: true,
     });
   });
 }

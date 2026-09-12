@@ -221,10 +221,10 @@ export function createArrivalDocuments({
   MESSAGES,
   log,
   describeFields,
-  pdfText,
 }) {
   return async function tookArrivalDocument(ctx, chatId, local) {
     const session = sessions.get(chatId);
+    const { pdfText } = await import('./pdf-to-lino.mjs');
     let text;
     try {
       text = pdfText(local);

@@ -364,13 +364,15 @@ describe('a document does not decide what job the chat is doing', () => {
     expect(documentBeginsFilling(enterMode({}, MODES.lookingUp))).toBe(false);
   });
 
-  it('arms no fill for a chat that is not filling', () => {
-    // The window is what a fill runs at the end of. Armed for an arrival
-    // card, it fills a form nobody asked for.
+  it('opens no window for a chat that documents are not for', () => {
+    // The window is what an answer runs at the end of, and the two jobs
+    // documents feed both have one: the form is filled, or the declaration
+    // is shown again. A chat fetching a filed application has neither.
     const at = runner.indexOf("bot.on(['message:photo', 'message:document']");
     const body = runner.slice(at, runner.indexOf('});', at));
     expect(body.includes('documentBeginsFilling(session)')).toBe(true);
-    expect(body.includes('if (fillsTheForm(session)) {')).toBe(true);
+    expect(body.includes('fillsTheForm(session)')).toBe(true);
+    expect(body.includes('modeOf(session) === MODES.arriving')).toBe(true);
   });
 
   it('keeps reading the document whatever the chat is doing', () => {
@@ -379,5 +381,58 @@ describe('a document does not decide what job the chat is doing', () => {
     const at = runner.indexOf("bot.on(['message:photo', 'message:document']");
     const body = runner.slice(at, runner.indexOf('});', at));
     expect(body.includes('batch.reading(')).toBe(true);
+  });
+});
+
+describe('the arrival card answers when its documents are read', () => {
+  it('shows the declaration again, and does not fill a form', async () => {
+    // Reading a visa and a ticket in silence left the traveller looking at
+    // the list of everything the declaration wanted, sent before either was
+    // read. Nothing was stuck; nothing said so.
+    const { MODES, enterMode, onlyWhenFilling } =
+      await import('../src/evisa-mode.mjs');
+    const session = enterMode({ language: 'en', data: {} }, MODES.arriving);
+    let filled = 0;
+    let shown = 0;
+    const act = onlyWhenFilling({
+      sessions: { get: () => session },
+      log: () => {},
+      fill: async () => {
+        filled += 1;
+      },
+      arrive: async () => {
+        shown += 1;
+      },
+    });
+    await act({}, 1);
+    expect(shown).toBe(1);
+    expect(filled).toBe(0);
+  });
+
+  it('still fills nothing for a chat doing neither', async () => {
+    const { MODES, enterMode, onlyWhenFilling } =
+      await import('../src/evisa-mode.mjs');
+    const session = enterMode({}, MODES.lookingUp);
+    let acted = 0;
+    const act = onlyWhenFilling({
+      sessions: { get: () => session },
+      log: () => {},
+      fill: async () => {
+        acted += 1;
+      },
+      arrive: async () => {
+        acted += 1;
+      },
+    });
+    await act({}, 1);
+    expect(acted).toBe(0);
+  });
+
+  it('waits out the quiet window, so one burst gets one answer', () => {
+    // Four files forwarded together are one thing to answer, not four.
+    const at = runner.indexOf("bot.on(['message:photo'");
+    const body = runner.slice(at, runner.indexOf('batch.reading(', at));
+    expect(body.includes('modeOf(session) === MODES.arriving')).toBe(true);
+    expect(body.includes('armIdleFill(ctx, ctx.chat.id)')).toBe(true);
   });
 });

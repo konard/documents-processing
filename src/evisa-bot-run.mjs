@@ -96,9 +96,10 @@ import { startPolling, MENU } from './evisa-start.mjs';
 import { countNoise, watchBrowser } from './evisa-noise.mjs';
 import { createLookup, isCommand } from './evisa-lookup.mjs';
 import { createArrivalDocuments } from './evisa-arrival-documents.mjs';
-import { pdfText } from './pdf-to-lino.mjs';
+import { showArrival } from './evisa-prearrival.mjs';
 import {
   MODES,
+  modeOf,
   enterMode,
   fillsTheForm,
   documentBeginsFilling,
@@ -172,6 +173,7 @@ const { batch, armIdleFill, holdIdleFill, disarmIdleFill } = createFillBatcher({
     sessions,
     log,
     fill: (ctx, chatId) => fillNow(ctx, chatId, 'quiet window'),
+    arrive: showArrival({ sessions, MESSAGES, describeDeclaration, log }),
   }),
 });
 
@@ -1154,7 +1156,6 @@ const tookArrivalDocument = createArrivalDocuments({
   MESSAGES,
   log,
   describeFields,
-  pdfText,
 });
 
 bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
@@ -1188,10 +1189,10 @@ bot.on(['message:photo', 'message:document'], (ctx) => {
     enterMode(session, MODES.filling);
   }
   // The window opens when a message lands: a passport that takes a minute to
-  // read must not let the window of the message before it run out. It is
-  // armed only where a fill is the point; the reading happens regardless,
-  // since every job wants what the document says.
-  if (fillsTheForm(session)) {
+  // read must not let the window of the message before it run out. Both jobs
+  // that documents feed answer at the end of it — the form is filled, or the
+  // declaration is shown again with what the documents just added.
+  if (fillsTheForm(session) || modeOf(session) === MODES.arriving) {
     armIdleFill(ctx, ctx.chat.id);
   }
   // Documents are read at the same time, each on its own worker, and what

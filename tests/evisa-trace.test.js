@@ -161,9 +161,9 @@ describe('a value written into the record', () => {
       'PLACEHOLDER',
       'NHA TRANG WARD',
       '2026-09-10T16:38:45.000Z',
-      '18/4 [REDACTED], Loc Tho Ward, Nha Trang',
+      '18/4 Sample Street, Example Ward, Nha Trang',
       'traveller@example.com',
-      '+7 925 [REDACTED]',
+      '+7 925 123-45-67',
       'МОСКВА/USSR',
       'building#4',
     ]) {

@@ -172,15 +172,8 @@ async function main() {
     process.exit(1);
   }
 
-  const listFile = path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'redact-')),
-    'replacements.txt'
-  );
-  fs.writeFileSync(listFile, replacementsFile(wanted), { mode: 0o600 });
-
   console.log('\nRewriting. Every commit keeps its place; only values change.');
   rewrite(repo, wanted);
-  fs.rmSync(path.dirname(listFile), { recursive: true, force: true });
 
   const left = commitsHolding(repo, wanted);
   console.log(
@@ -195,15 +188,49 @@ async function main() {
   );
 }
 
+/** Whether git-filter-repo is installed and can be used. */
+function hasFilterRepo(repo) {
+  try {
+    execFileSync('git', ['-C', repo, 'filter-repo', '--version'], {
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Replaces the values with git-filter-repo, which does this natively.
+ *
+ * It is given the replacements in a file, so no value reaches a command
+ * line where a process list would show it. `--partial` keeps the remotes,
+ * since this mends a repository that goes on being used.
+ */
+function rewriteWithFilterRepo(repo, values) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'redact-'));
+  const listFile = path.join(dir, 'replacements.txt');
+  fs.writeFileSync(listFile, replacementsFile(values), { mode: 0o600 });
+  try {
+    execFileSync(
+      'git',
+      ['-C', repo, 'filter-repo', '--replace-text', listFile, '--partial'],
+      { stdio: 'inherit' }
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Replaces the values in every blob of every commit.
  *
- * git's own filter-branch is used, since it ships with git and needs no
- * dependency installed to mend a leak. The tree filter reads each file,
- * replaces what it finds and writes it back, so files and commits are all
- * kept and only their contents change.
+ * git's own filter-branch is the fallback, since it ships with git and needs
+ * nothing installed to mend a leak. The tree filter reads each file, replaces
+ * what it finds and writes it back, so files and commits are all kept and
+ * only their contents change.
  */
-function rewrite(repo, values) {
+function rewriteWithFilterBranch(repo, values) {
   const script = path.join(
     fs.mkdtempSync(path.join(os.tmpdir(), 'redact-run-')),
     'redact-tree.mjs'
@@ -255,6 +282,17 @@ walk(process.cwd());
     }
   );
   fs.rmSync(path.dirname(script), { recursive: true, force: true });
+}
+
+/** Rewrites with whichever tool this machine has. */
+function rewrite(repo, values) {
+  if (hasFilterRepo(repo)) {
+    console.log('Using git-filter-repo.');
+    rewriteWithFilterRepo(repo, values);
+    return;
+  }
+  console.log('git-filter-repo is not installed; using filter-branch.');
+  rewriteWithFilterBranch(repo, values);
 }
 
 /** Redacting a single file, for a caller that wants one without the history. */

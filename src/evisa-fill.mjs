@@ -764,9 +764,19 @@ const CAPTCHA_ID = 'basic_captcha';
  * from there without another request.
  */
 export async function readCaptcha(page) {
-  // The review page draws its captcha a moment after the step bar moves.
+  // The image element is on the page before its picture is: the site draws
+  // it with a placeholder src and swaps in the data URL about half a second
+  // later. Waiting for the element alone reads the placeholder and finds no
+  // captcha, so the wait is for the picture itself.
   await page
-    .waitForSelector('img[alt="captcha img"]', { timeout: 15000 })
+    .waitForFunction(
+      () =>
+        /^data:image\//.test(
+          document.querySelector('img[alt="captcha img"]')?.src ?? ''
+        ),
+      undefined,
+      { timeout: 15000 }
+    )
     .catch(() => {});
   const src = await page.evaluate(
     () => document.querySelector('img[alt="captcha img"]')?.src ?? null

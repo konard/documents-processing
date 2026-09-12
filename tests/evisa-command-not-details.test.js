@@ -71,3 +71,31 @@ describe('a lookup opens no application', () => {
     expect(runner.includes('await loadForm(held.page)')).toBe(true);
   });
 });
+
+describe('reading the captcha off a page', () => {
+  it('waits for the picture, not just the element holding it', async () => {
+    // The site puts the img on the page with a placeholder src and swaps in
+    // the data URL about half a second later. Waiting for the element alone
+    // read the placeholder and reported no captcha, which only stayed hidden
+    // while something slow ran first.
+    const { chromium } = await import('playwright');
+    const { readCaptcha } = await import('../src/evisa-fill.mjs');
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.setContent(
+      '<img alt="captcha img" src="https://example.com/placeholder">'
+    );
+    // The swap the site makes, after the element is already there.
+    /* global document */
+    page.evaluate(() => {
+      setTimeout(() => {
+        document.querySelector('img[alt="captcha img"]').src =
+          'data:image/png;base64,aGVsbG8=';
+      }, 300);
+    });
+    const read = await readCaptcha(page);
+    await browser.close();
+    expect(read === null).toBe(false);
+    expect(read.toString()).toBe('hello');
+  });
+});

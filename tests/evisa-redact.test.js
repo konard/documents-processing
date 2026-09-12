@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'test-anywhere';
+import { readFileSync } from 'node:fs';
 import {
   spellingsOf,
   valuesToRedact,
@@ -98,6 +99,38 @@ describe('taking the values out of a piece of text', () => {
   it('writes the replacement list git reads', () => {
     const written = replacementsFile(['SAMPLE']);
     expect(written).toBe(`literal:SAMPLE==>${REDACTED}\n`);
+  });
+});
+
+describe('checking a repository after a rewrite', () => {
+  it('asks what commits hold, not what they changed', () => {
+    // A diff search matches a commit for taking a value out as readily as
+    // for putting it in, so a finished rewrite named every commit it had
+    // just mended and read as having done nothing at all. What matters is
+    // whether any tree still contains the value.
+    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const at = tool.indexOf('function commitsHolding');
+    const body = tool.slice(at, tool.indexOf('\n}\n', at));
+    expect(body.includes("'grep'")).toBe(true);
+    expect(body.includes('-G')).toBe(false);
+  });
+
+  it('leaves the undo refs out of the search', () => {
+    // filter-branch keeps the history as it was under refs/original so a
+    // rewrite can be undone. Searching those reports the leak for ever.
+    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const at = tool.indexOf('function commitsHolding');
+    const body = tool.slice(at, tool.indexOf('\n}\n', at));
+    expect(body.includes("'--branches', '--remotes'")).toBe(true);
+    expect(body.includes("'--all'")).toBe(false);
+  });
+
+  it('refuses to rewrite without a backup beside the repository', () => {
+    // The ids all change and every clone breaks, so there is one chance to
+    // have kept the history as it was.
+    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    expect(tool.includes('hasBackup(repo)')).toBe(true);
+    expect(tool.includes('repo.git')).toBe(true);
   });
 });
 

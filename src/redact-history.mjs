@@ -92,19 +92,33 @@ function readValuesFile(file) {
 }
 
 /**
- * Every commit whose content holds one of the values.
+ * Every commit that holds one of the values, and the files that hold it.
  *
- * Asked of git itself, so it covers every branch and every blob, not just
- * what the working tree has now.
+ * The search is of what each commit's tree actually contains, commit by
+ * commit. A diff search is the wrong question here: it matches a commit for
+ * removing a value as readily as for adding one, so a finished rewrite
+ * reports every commit it just mended as still holding what it took out.
+ *
+ * The refs filter-branch leaves behind under refs/original are the history
+ * as it was, kept so a rewrite can be undone. They are not searched: they
+ * are the backup, and they go when the rewrite is accepted.
  */
 function commitsHolding(repo, values) {
-  const pattern = values.map((v) => v.replace(/[.[\]*+?^${}()|\\]/g, '\\$&'));
   const found = new Map();
-  for (const value of pattern) {
-    const said = git(repo, ['log', '--all', '--oneline', `-G${value}`]);
-    for (const line of said.split('\n').filter(Boolean)) {
-      const id = line.split(' ')[0];
-      found.set(id, (found.get(id) ?? new Set()).add(value));
+  const commits = git(repo, ['rev-list', '--branches', '--remotes'])
+    .split('\n')
+    .filter(Boolean);
+  const pattern = values
+    .map((value) => value.replace(/[.[\]*+?^${}()|\\]/g, '\\$&'))
+    .join('|');
+  for (const commit of commits) {
+    const said = git(repo, ['grep', '-lIE', pattern, commit], { quiet: true });
+    const files = said
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.slice(line.indexOf(':') + 1));
+    if (files.length) {
+      found.set(commit.slice(0, 7), new Set(files));
     }
   }
   return found;
@@ -148,10 +162,18 @@ async function main() {
     console.log('No commit holds any of them. Nothing to do.');
     return;
   }
-  console.log(`${holding.size} commits hold at least one:`);
-  for (const [id] of holding) {
-    const subject = git(repo, ['log', '-1', '--format=%s', id]);
-    console.log(`  ${id} ${subject}`);
+  console.log(`${holding.size} commits hold at least one.`);
+  // The files are what a person needs to see to judge a run: a trace nobody
+  // meant to commit is one thing, a fixture the tests read is another.
+  const inFiles = new Set();
+  for (const [, files] of holding) {
+    for (const file of files) {
+      inFiles.add(file);
+    }
+  }
+  console.log(`${inFiles.size} files across those commits:`);
+  for (const file of [...inFiles].sort()) {
+    console.log(`  ${file}`);
   }
 
   if (!given.write) {

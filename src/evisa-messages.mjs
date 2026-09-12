@@ -25,6 +25,16 @@ export const MESSAGES = {
       'needs the granted visa and the flight. Without it you are still let ' +
       'in, but the queue is longer. Here is what I already have for it.',
     arrivalMissing: 'Still needed for it:',
+    // Said as soon as the landing date is known, and again with the values
+    // read off each document. Nothing is wrong when the window is shut: it is
+    // simply not open yet, and the traveller should not be left wondering
+    // whether their documents failed to arrive.
+    arrivalWindowShut: (arrival, opens, days) =>
+      `You land on ${arrival}, so the site starts taking this declaration ` +
+      `on ${opens} — ${days === 1 ? 'tomorrow' : `in ${days} days`}. It ` +
+      'offers the day you arrive and the two before it, and there is no way ' +
+      'to file it sooner. Keep sending me what it needs in the meantime: I ' +
+      'hold it all, and on the day I fill the form in one go.',
     arrivalCaptcha:
       'The declaration site asks for this code before it draws the form. ' +
       'Send me what you read.',
@@ -298,6 +308,12 @@ export const MESSAGES = {
       'prearrival.immigration.gov.vn, и нужны выданная виза и рейс. Без неё ' +
       'тоже впустят, но очередь будет дольше. Вот что у меня для неё уже есть.',
     arrivalMissing: 'Для неё ещё нужно:',
+    arrivalWindowShut: (arrival, opens, days) =>
+      `Вы прилетаете ${arrival}, поэтому сайт начнёт принимать эту ` +
+      `декларацию ${opens} — ${days === 1 ? 'завтра' : `через ${days} ${days < 5 ? 'дня' : 'дней'}`}. ` +
+      'Он предлагает день прилёта и два дня перед ним, раньше подать никак ' +
+      'нельзя. Присылайте пока всё, что для неё нужно: я всё сохраню и в ' +
+      'нужный день заполню форму за один раз.',
     arrivalCaptcha:
       'Сайт декларации просит этот код, прежде чем показать форму. ' +
       'Пришлите то, что видите.',

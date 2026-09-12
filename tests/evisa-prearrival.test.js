@@ -6,6 +6,8 @@ import {
   fullNameOf,
   hasVisaDetails,
   VISA_FIELDS,
+  windowOpensOn,
+  nowInVietnam,
 } from '../src/evisa-prearrival.mjs';
 
 const APPLICANT = {
@@ -112,5 +114,42 @@ describe('waiting on the granted visa', () => {
     for (const key of VISA_FIELDS) {
       expect(values[key] !== null && values[key] !== undefined).toBe(true);
     }
+  });
+});
+
+describe('the day the site starts taking the declaration', () => {
+  // The site offers the day of arrival and the two before it, so filing for a
+  // flight landing on the 16th opens on the 14th.
+  const sept = (day) => Date.UTC(2026, 8, day);
+
+  it('counts back two days from the landing', () => {
+    const shut = windowOpensOn('16/09/2026', sept(12));
+    expect(shut.opens).toBe('14/09/2026');
+    expect(shut.days).toBe(2);
+  });
+
+  it('says nothing while the window is open', () => {
+    // On the day it opens there is nothing to wait for, and on the day of the
+    // flight itself there is nothing to wait for either.
+    expect(windowOpensOn('16/09/2026', sept(14))).toBe(null);
+    expect(windowOpensOn('16/09/2026', sept(16))).toBe(null);
+  });
+
+  it('says nothing while the flight is unknown', () => {
+    // A traveller who has sent no ticket is told what is missing. A date
+    // computed from nothing would be a date they could act on wrongly.
+    expect(windowOpensOn(null)).toBe(null);
+    expect(windowOpensOn('')).toBe(null);
+    expect(windowOpensOn('sometime in September')).toBe(null);
+  });
+
+  it('counts the days in Vietnam, not where the traveller is', () => {
+    // The site counts its three days in GMT+7. Late evening UTC is already
+    // tomorrow there, and a bot counting in UTC would offer a day the site
+    // has stopped offering.
+    const lateOnThe12thUtc = Date.UTC(2026, 8, 12, 23, 0);
+    expect(nowInVietnam(lateOnThe12thUtc)).toBe(sept(13));
+    // Early morning UTC is the same day in Vietnam.
+    expect(nowInVietnam(Date.UTC(2026, 8, 12, 1, 0))).toBe(sept(12));
   });
 });

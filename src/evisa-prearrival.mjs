@@ -18,6 +18,7 @@
 // The /arrival command is here too, with the declaration it draws.
 
 import { MODES, enterMode } from './evisa-mode.mjs';
+import { ARRIVAL_WINDOW_DAYS } from './evisa-prearrival-form.mjs';
 
 /** The site, and the three things it offers. */
 export const PREARRIVAL_URL = 'https://prearrival.immigration.gov.vn';
@@ -199,6 +200,54 @@ export function buildDeclaration(applicant = {}, extras = {}) {
 }
 
 /**
+ * The day the site will begin taking a declaration for this arrival.
+ *
+ * The form offers the day of arrival and the two before it, counted in GMT+7,
+ * so filing opens two days before landing. Knowing the traveller's own date
+ * turns the rule into a date they can act on.
+ *
+ * `null` when the arrival is unknown or already inside the window: there is
+ * nothing to wait for, and saying so would be noise.
+ */
+export function windowOpensOn(arrivalDate, today = nowInVietnam()) {
+  const lands = dayFromDeclaration(arrivalDate);
+  if (!lands) {
+    return null;
+  }
+  const opens = lands - (ARRIVAL_WINDOW_DAYS - 1) * 86400000;
+  if (opens <= today) {
+    return null;
+  }
+  return { opens: asDeclarationDay(opens), days: (opens - today) / 86400000 };
+}
+
+/** Today in GMT+7, the timezone the site counts its three days in. */
+export function nowInVietnam(at = Date.now()) {
+  const there = new Date(at + 7 * 3600000);
+  return Date.UTC(
+    there.getUTCFullYear(),
+    there.getUTCMonth(),
+    there.getUTCDate()
+  );
+}
+
+/** A DD/MM/YYYY day as a moment, or null when it is not one. */
+function dayFromDeclaration(text) {
+  const said = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(text ?? '').trim());
+  if (!said) {
+    return null;
+  }
+  return Date.UTC(Number(said[3]), Number(said[2]) - 1, Number(said[1]));
+}
+
+/** A moment back as the DD/MM/YYYY the declaration prints. */
+function asDeclarationDay(at) {
+  const day = new Date(at);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(day.getUTCDate())}/${pad(day.getUTCMonth() + 1)}/${day.getUTCFullYear()}`;
+}
+
+/**
  * The traveller's name as the declaration wants it: one field, surname first,
  * matching the passport.
  */
@@ -248,13 +297,24 @@ export async function showDeclaration({
     fullName: fullNameOf(session.data ?? {}),
   };
   const { values, missing } = buildDeclaration(applicant);
+  const strings = MESSAGES[session.language];
   if (intro) {
-    await ctx.reply(MESSAGES[session.language].arrivalIntro);
+    await ctx.reply(strings.arrivalIntro);
   }
   await ctx.reply(describeDeclaration(values, missing, session.language), {
     parse_mode: 'HTML',
   });
-  return { values, missing };
+  // With the flight known, the rule becomes a date. A traveller who sends
+  // every document they own deserves to hear why the form cannot be filled
+  // yet. Given only a list of what is wanted, they are left to guess that
+  // one of their documents failed to arrive.
+  const shut = windowOpensOn(values.arrivalDate);
+  if (shut) {
+    await ctx.reply(
+      strings.arrivalWindowShut(values.arrivalDate, shut.opens, shut.days)
+    );
+  }
+  return { values, missing, shut };
 }
 
 /**
@@ -326,6 +386,26 @@ export function registerArrivalCommand(bot, deps) {
     touch(chatId);
     const session = enterMode(sessions.get(chatId), MODES.arriving);
     session.language = speakTheirLanguage(chatId);
+    // Answered from memory before any browser opens. The site would draw a
+    // captcha, take the reading, and then offer three days that do not
+    // include the flight — a minute of the traveller's attention spent to
+    // be told something already known from the ticket.
+    const { values } = buildDeclaration({
+      ...(session.data ?? {}),
+      fullName: fullNameOf(session.data ?? {}),
+    });
+    const shut = windowOpensOn(values.arrivalDate);
+    if (shut) {
+      log(chatId, `too early to file: the window opens on ${shut.opens}`);
+      await ctx.reply(
+        MESSAGES[session.language].arrivalWindowShut(
+          values.arrivalDate,
+          shut.opens,
+          shut.days
+        )
+      );
+      return;
+    }
     await fillArrival(ctx, chatId);
   });
 }

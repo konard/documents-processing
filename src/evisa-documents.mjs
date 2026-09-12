@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MESSAGES, looksLikeCaptcha } from './evisa-bot.mjs';
 import { refreshCaptcha } from './evisa-fill.mjs';
+import { MODES, enterMode, captchaIsForLookup } from './evisa-mode.mjs';
 
 /** How often the browser is asked whether the payment has gone through. */
 const PAYMENT_POLL_MS = 60_000;
@@ -104,7 +105,10 @@ async function fetchDocuments(ctx, chatId, code, deps) {
     await deps.askCaptcha(ctx, chatId, strings.captchaAgain, page);
     return;
   }
-  session.lookingUp = null;
+  // The search answered, so the lookup is over and the chat is between jobs
+  // again. Left in the lookup mode, the next thing said would be read as one
+  // more captcha code for a search that has already run.
+  enterMode(session, MODES.idle);
   log(chatId, `application status: ${result.status}`);
   await ctx.reply(
     strings.applicationStatus(result.status, meaningOf(result.status))
@@ -292,7 +296,7 @@ export function createDocuments({
    * untouched by any of this.
    */
   function tookLookupCaptcha(ctx, chatId, session) {
-    if (!session.lookingUp || !looksLikeCaptcha(ctx.message.text)) {
+    if (!captchaIsForLookup(session) || !looksLikeCaptcha(ctx.message.text)) {
       return false;
     }
     log(chatId, 'captcha code received for the document lookup');

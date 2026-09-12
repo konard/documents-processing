@@ -13,6 +13,8 @@
 // with two fields empty cannot succeed. They are collected up front, and
 // the browser opens when there is something to search with.
 
+import { MODES, enterMode } from './evisa-mode.mjs';
+
 /**
  * Whether a message is a command, as against something said to the bot.
  *
@@ -185,5 +187,19 @@ export function createLookup({
     return true;
   }
 
-  return { continueLookup, tookLookupDetails };
+  /**
+   * Starts a lookup, taking whatever the command itself carried.
+   *
+   * Nothing is taken from what the bot happens to remember: a chat is
+   * shared, an application is not always the last one filed, and fetching
+   * somebody else's documents unasked is worse than asking.
+   */
+  async function startLookup(ctx, chatId) {
+    const said = ctx.message.text.replace(/^\/\S+\s*/, '').trim();
+    const session = enterMode(sessions.get(chatId), MODES.lookingUp);
+    session.gathering = readLookupDetails(said);
+    await continueLookup(ctx, chatId);
+  }
+
+  return { continueLookup, tookLookupDetails, startLookup };
 }

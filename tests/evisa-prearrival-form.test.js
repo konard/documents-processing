@@ -5,6 +5,9 @@ import {
   selectorFor,
   nationalityAsNamedHere,
   chooseArrivalDate,
+  chooseGender,
+  acknowledgeVisaNotes,
+  splitPhone,
   PREARRIVAL_FORM_URL,
   ARRIVAL_WINDOW_DAYS,
 } from '../src/evisa-prearrival-form.mjs';
@@ -90,6 +93,100 @@ describe('the three-day window the site allows', () => {
 
   it('counts the window in days, so the reason can be explained', () => {
     expect(ARRIVAL_WINDOW_DAYS).toBe(3);
+  });
+});
+
+describe('the one phone number the traveller gives', () => {
+  it('is split into the two fields the site asks for', () => {
+    // The site has a Country Code beside the Phone Number. Typed whole into
+    // the number, the code goes in twice and the site refuses it.
+    expect(splitPhone('+7 912 345 67 89')).toEqual({
+      phoneCountryCode: '7',
+      phone: '9123456789',
+    });
+  });
+
+  it('takes the longest code that fits, not the first that matches', () => {
+    // Read shortest-first, +995 is taken for +9 and Georgia is declared
+    // something else. Kazakhstan shares +7 with Russia and the site offers
+    // one entry for the pair, so a Kazakh number keeps the +7 it shares.
+    expect(splitPhone('+995 555 123456').phoneCountryCode).toBe('995');
+    expect(splitPhone('+7 701 234 5678').phoneCountryCode).toBe('7');
+  });
+
+  it('guesses no country for a number given without one', () => {
+    // A bare number is a local one. Naming a country for it would put a
+    // stranger's telephone on a government declaration.
+    expect(splitPhone('912 345 67 89')).toEqual({
+      phoneCountryCode: null,
+      phone: '9123456789',
+    });
+  });
+
+  it('has nothing to split when no number was given', () => {
+    expect(splitPhone(null).phone).toBe(null);
+    expect(splitPhone('').phoneCountryCode).toBe(null);
+  });
+});
+
+describe('the controls that are not text', () => {
+  /** A radio or checkbox that answers like Material UI's does. */
+  function control({ checked = false, takes = true } = {}) {
+    const state = { checked };
+    return {
+      state,
+      waitFor: async () => {},
+      isVisible: async () => true,
+      isChecked: async () => state.checked,
+      check: async () => {
+        if (takes) {
+          state.checked = true;
+        }
+      },
+    };
+  }
+
+  it('reads the gender back, so a tick that did not take is reported', () => {
+    // The radio's input is zero-sized under a drawn circle, and a click that
+    // lands on the decoration leaves the field blank. Reported filled, it
+    // left a required answer empty on a page that looked complete.
+    const radio = control({ takes: false });
+    const page = { getByRole: () => ({ first: () => radio }) };
+    return chooseGender(page, 'Male').then(
+      () => {
+        throw new Error('a tick that did not take was reported as filled');
+      },
+      (error) => expect(error.message.includes('would not tick')).toBe(true)
+    );
+  });
+
+  it('ticks the gender the traveller gave', async () => {
+    const radio = control();
+    const asked = [];
+    const page = {
+      getByRole: (role, options) => {
+        asked.push(`${role}:${options.name}`);
+        return { first: () => radio };
+      },
+    };
+    expect(await chooseGender(page, 'Female')).toBe('Female');
+    expect(asked).toEqual(['radio:Female']);
+    expect(radio.state.checked).toBe(true);
+  });
+
+  it('ticks the box that unlocks the visa section', async () => {
+    // "Please check this box to continue": until it is ticked the site holds
+    // the visa fields behind an error and refuses everything typed there.
+    const box = control();
+    const page = { getByRole: () => ({ first: () => box }) };
+    expect(await acknowledgeVisaNotes(page)).toBe(true);
+    expect(box.state.checked).toBe(true);
+  });
+
+  it('leaves a box the site already ticked alone', async () => {
+    const box = control({ checked: true });
+    const page = { getByRole: () => ({ first: () => box }) };
+    expect(await acknowledgeVisaNotes(page)).toBe(true);
   });
 });
 

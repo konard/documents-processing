@@ -116,6 +116,55 @@ export const FORM_FIELDS = [
 ];
 
 /**
+ * The dialling codes this bot's travellers use, longest first.
+ *
+ * Only enough to split the numbers that actually arrive. Longest first is
+ * what makes the split right: +1 is a prefix of nothing here, but a list read
+ * shortest-first would take the 9 off +995 and call Georgia something else.
+ *
+ * Kazakhstan is absent on purpose. It shares +7 with Russia and the site's
+ * own list offers one entry for the pair, so there is nothing to tell apart.
+ */
+const DIALLING_CODES = [
+  '998',
+  '996',
+  '995',
+  '994',
+  '992',
+  '380',
+  '375',
+  '84',
+  '7',
+  '1',
+];
+
+/**
+ * Splits a phone number into its dialling code and the rest.
+ *
+ * The site asks for the two separately, and the traveller types one thing:
+ * "+7 912 345 67 89". Typed whole into the number field, the code goes in
+ * twice and the site refuses it.
+ */
+export function splitPhone(phone) {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  if (!digits) {
+    return { phoneCountryCode: null, phone: null };
+  }
+  // Without a "+" there is no code to find: a number given bare is a local
+  // one, and guessing a country for it would put a stranger's number on a
+  // declaration.
+  if (!/^\s*\+/.test(String(phone))) {
+    return { phoneCountryCode: null, phone: digits };
+  }
+  for (const code of DIALLING_CODES) {
+    if (digits.startsWith(code) && digits.length > code.length) {
+      return { phoneCountryCode: code, phone: digits.slice(code.length) };
+    }
+  }
+  return { phoneCountryCode: null, phone: digits };
+}
+
+/**
  * A value in the words this site uses for it.
  *
  * The application form and this one describe the same facts differently, and
@@ -424,27 +473,103 @@ export async function chooseArrivalDate(page, arrivalDate) {
   return { chosen: arrivalDate, offered, tooEarly: false };
 }
 
-/** Picks a gender, which the site asks for as radio buttons. */
+/**
+ * Ticks the box saying the visa notes have been read.
+ *
+ * The site refuses the visa section until it is ticked — "Please check this
+ * box to continue" — and the box carries neither a name nor an id, so its own
+ * words are the only handle on it. The notes it acknowledges say what the
+ * traveller is declaring, and the traveller is the one who sends the form, so
+ * ticking it here states nothing they do not go on to confirm.
+ */
+export async function acknowledgeVisaNotes(page) {
+  const box = page.getByRole('checkbox').first();
+  if (!(await box.isVisible().catch(() => false))) {
+    return false;
+  }
+  if (await box.isChecked().catch(() => false)) {
+    return true;
+  }
+  // The label carries the click on this form; the input under it is the thing
+  // React watches, so checking it directly is what makes the error go.
+  await box.check({ force: true }).catch(() => {});
+  return box.isChecked().catch(() => false);
+}
+
+/**
+ * The dialling code, which is its own field beside the phone number.
+ *
+ * The site fills it from the nationality — a Russian passport gets (+7) — so
+ * this only has to correct a traveller whose telephone is somewhere else.
+ * A number typed without its code reaches nobody.
+ */
+export async function choosePhoneCountryCode(page, code, at = 0) {
+  const digits = String(code ?? '').replace(/\D/g, '');
+  if (!digits) {
+    return null;
+  }
+  const input = page.locator(`[name="${at}_phoneCountryCode"]`).first();
+  if (!(await input.isVisible().catch(() => false))) {
+    return null;
+  }
+  if (
+    (await input.inputValue().catch(() => '')).replace(/\D/g, '') === digits
+  ) {
+    return `(+${digits})`;
+  }
+  await chooseFrom(page, input, `(+${digits})`, 'phoneCountryCode');
+  return `(+${digits})`;
+}
+
+/**
+ * Picks a gender, which the site asks for as radio buttons.
+ *
+ * The tick is read back before this returns. A radio that will not take a
+ * click leaves the page looking filled while the one required answer on it is
+ * blank, and a declaration is refused at the end for a field nobody was told
+ * about.
+ */
 export async function chooseGender(page, sex) {
-  const wanted = String(sex ?? '')
-    .toLowerCase()
-    .startsWith('f')
+  const said = String(sex ?? '').toLowerCase();
+  const wanted = said.startsWith('f')
     ? 'Female'
-    : 'Male';
-  await page
-    .getByRole('radio', { name: wanted })
-    .check()
-    .catch(() => {});
+    : said.startsWith('o')
+      ? 'Other'
+      : 'Male';
+  const radio = page.getByRole('radio', { name: wanted, exact: true }).first();
+  await radio.waitFor({ state: 'attached', timeout: 20000 });
+  // Material UI draws its own circle over the input and leaves the input
+  // itself zero-sized, so a plain click lands on the decoration and a plain
+  // check calls the input invisible. The force goes to the input underneath.
+  await radio.check({ force: true });
+  if (!(await radio.isChecked())) {
+    throw new Error(`${wanted} would not tick`);
+  }
   return wanted;
 }
 
 /**
- * The three controls that are not text: the date, the picture, the gender.
+ * The controls that are not text: the date, the picture, the gender, the
+ * dialling code and the box that unlocks the visa section.
  *
- * Each is answered its own way — a button among three, a file, a radio — so
- * they are done together, ahead of the typing.
+ * Each is answered its own way — a button among three, a file, a radio, a
+ * list, a tick — so they are done together, ahead of the typing. The box
+ * comes first of all: until it is ticked the site holds the visa fields
+ * behind an error, and everything typed into them is refused.
  */
-async function fillTheRest(page, applicant, { passportImage, filled, failed }) {
+async function fillTheRest(
+  page,
+  applicant,
+  { passportImage, filled, failed, at = 0 }
+) {
+  if (await acknowledgeVisaNotes(page)) {
+    filled.push('readTheNotes');
+  }
+  if (applicant.phoneCountryCode) {
+    await choosePhoneCountryCode(page, applicant.phoneCountryCode, at)
+      .then(() => filled.push('phoneCountryCode'))
+      .catch((error) => failed.push(`phoneCountryCode: ${error.message}`));
+  }
   if (applicant.arrivalDate) {
     const picked = await chooseArrivalDate(page, applicant.arrivalDate);
     if (picked.tooEarly) {
@@ -462,8 +587,9 @@ async function fillTheRest(page, applicant, { passportImage, filled, failed }) {
       .catch((error) => failed.push(`passportImage: ${error.message}`));
   }
   if (applicant.sex) {
-    await chooseGender(page, applicant.sex);
-    filled.push('sex');
+    await chooseGender(page, applicant.sex)
+      .then(() => filled.push('sex'))
+      .catch((error) => failed.push(`sex: ${error.message}`));
   }
   return null;
 }
@@ -476,17 +602,27 @@ async function fillTheRest(page, applicant, { passportImage, filled, failed }) {
  */
 export async function fillDeclaration(
   page,
-  applicant = {},
+  given = {},
   { at = 0, passportImage = null } = {}
 ) {
   const filled = [];
   const missing = [];
   const failed = [];
 
+  // The traveller gives one phone number and the site wants two fields of it.
+  // The split belongs here, on this site's doorstep: the record goes on
+  // holding the number whole, which is what every other form asks for.
+  const split = splitPhone(given.phone);
+  const applicant = {
+    ...given,
+    ...(split.phone ? split : {}),
+  };
+
   const tooEarly = await fillTheRest(page, applicant, {
     passportImage,
     filled,
     failed,
+    at,
   });
   if (tooEarly) {
     return { filled, missing, failed, arrival: tooEarly };
@@ -499,10 +635,18 @@ export async function fillDeclaration(
       continue;
     }
     const input = inputFor(page, field, at);
-    // The nationality is chosen on the step before this one and the form
-    // then locks it, so it is already right and cannot be typed into.
+    // A locked field cannot be typed into, so what matters is whether the site
+    // has already put the right thing in it. The nationality is chosen a step
+    // earlier and locked holding that choice, which is filled; the issuing
+    // place is locked empty until the visa type is set, and calling that
+    // filled reported a blank field as done.
     if (await input.isDisabled().catch(() => false)) {
-      filled.push(field.key);
+      const already = await input.inputValue().catch(() => '');
+      if (already) {
+        filled.push(field.key);
+      } else {
+        failed.push(`${field.key}: locked and empty`);
+      }
       continue;
     }
     try {

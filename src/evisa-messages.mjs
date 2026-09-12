@@ -40,6 +40,18 @@ export const MESSAGES = {
       'is kept, so there is nothing to send again.',
     arrivalFilled: 'On the declaration now:',
     arrivalStillWanted: 'Still to fill in:',
+    // What the site marks in red under a field, said in the chat instead. The
+    // traveller is not looking at the page, so an unexplained refusal at the
+    // end is the alternative.
+    arrivalRefused: 'The site will not take these as they stand:',
+    arrivalRefusedWhy: {
+      nineDigits:
+        'the e-visa number — the site wants the Số / No. line from the visa ' +
+        'itself, which is 9 digits and no letter',
+      tooCloseToVisa: (days) =>
+        'your passport expiry — the site wants the passport to outlast the ' +
+        `visa by 30 days, and it has ${Math.round(days)}`,
+    },
     arrivalYours:
       'The form is filled and waiting in the browser. Check it, then send ' +
       'it yourself — I do not file it for you.',
@@ -300,6 +312,15 @@ export const MESSAGES = {
       'сказали, сохранено, присылать заново ничего не нужно.',
     arrivalFilled: 'Сейчас в декларации:',
     arrivalStillWanted: 'Ещё нужно заполнить:',
+    arrivalRefused: 'Вот это сайт в таком виде не примет:',
+    arrivalRefusedWhy: {
+      nineDigits:
+        'номер электронной визы — сайту нужна строка Số / No. с самой визы: ' +
+        '9 цифр, без буквы',
+      tooCloseToVisa: (days) =>
+        'срок паспорта — сайту нужно, чтобы паспорт был действителен на 30 ' +
+        `дней дольше визы, а сейчас разница ${Math.round(days)}`,
+    },
     arrivalYours:
       'Форма заполнена и ждёт в браузере. Проверьте и отправьте сами — ' +
       'я её за вас не подаю.',

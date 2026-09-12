@@ -8,6 +8,8 @@ import {
   chooseGender,
   acknowledgeVisaNotes,
   splitPhone,
+  whatThisSiteWillRefuse,
+  PASSPORT_MARGIN_DAYS,
   PREARRIVAL_FORM_URL,
   ARRIVAL_WINDOW_DAYS,
 } from '../src/evisa-prearrival-form.mjs';
@@ -126,6 +128,58 @@ describe('the one phone number the traveller gives', () => {
   it('has nothing to split when no number was given', () => {
     expect(splitPhone(null).phone).toBe(null);
     expect(splitPhone('').phoneCountryCode).toBe(null);
+  });
+});
+
+describe('what the site will refuse, said before it refuses it', () => {
+  const fine = {
+    visaType: 'Electronic Visa (E-Visa)',
+    visaNumber: '712345678',
+    visaExpiryDate: '01/11/2026',
+    passportExpiryDate: '01/01/2031',
+  };
+
+  it('takes a declaration the site has no objection to', () => {
+    expect(whatThisSiteWillRefuse(fine)).toEqual([]);
+  });
+
+  it('wants the nine digits off the visa, not the application code', () => {
+    // The help behind the (?) beside the field: "The E-Visa number must be
+    // numeric and 9 digits long." It is the Số / No. line on the visa itself.
+    const refused = whatThisSiteWillRefuse({
+      ...fine,
+      visaNumber: 'E1234567890',
+    });
+    expect(refused.map((one) => one.key)).toEqual(['visaNumber']);
+    expect(refused[0].why).toBe('nineDigits');
+  });
+
+  it('says nothing about the number on a visa that is not electronic', () => {
+    // The rule is the e-visa's. A paper visa's number is its own shape.
+    expect(
+      whatThisSiteWillRefuse({ ...fine, visaType: 'Visa', visaNumber: 'B3-12' })
+    ).toEqual([]);
+  });
+
+  it('wants the passport to outlast the visa by a month', () => {
+    // "An electronic visa must expire at least 30 days before the passport
+    // expires." A passport running out too soon is a trip to renew it.
+    const refused = whatThisSiteWillRefuse({
+      ...fine,
+      visaExpiryDate: '01/11/2026',
+      passportExpiryDate: '15/11/2026',
+    });
+    expect(refused.map((one) => one.key)).toEqual(['passportExpiryDate']);
+    expect(refused[0].days).toBe(14);
+    expect(PASSPORT_MARGIN_DAYS).toBe(30);
+  });
+
+  it('judges nothing on a date it cannot read', () => {
+    // A date the record has not got is missing, and is reported as missing.
+    // Calling it refused would name a field the traveller never filled.
+    expect(whatThisSiteWillRefuse({ ...fine, passportExpiryDate: '' })).toEqual(
+      []
+    );
   });
 });
 

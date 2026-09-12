@@ -92,6 +92,7 @@ import { createFillBatcher } from './evisa-batch.mjs';
 import { onShutdown } from './evisa-shutdown.mjs';
 import { startPolling, MENU } from './evisa-start.mjs';
 import { countNoise } from './evisa-noise.mjs';
+import { readLookupDetails, createLookup } from './evisa-lookup.mjs';
 import { showStatus as raiseStatus, trackStatuses } from './evisa-status.mjs';
 import { registerVisaCommands, rememberedLanguage } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
@@ -1132,22 +1133,23 @@ bot.command('reset', async (ctx) => {
   await ctx.reply('Cleared. Send /start to begin again.');
 });
 
+const { continueLookup, tookLookupDetails } = createLookup({
+  sessions,
+  MESSAGES,
+  log,
+  shown,
+  lookUpApplication,
+});
+
 bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
   const chatId = ctx.chat.id;
   touch(chatId);
-  const session = sessions.get(chatId);
-  const strings = MESSAGES[session.language];
-  // The number is asked for, and never taken from what the bot happens to
-  // remember: a chat is shared, an application is not always the last one
-  // filed, and fetching somebody else's documents unasked is worse than
-  // asking. The number arrives by email when the application is filed.
-  const number = ctx.message.text.replace(/^\/\S+\s*/, '').trim();
-  if (!number) {
-    await ctx.reply(strings.documentsNeedNumber);
-    return;
-  }
-  log(chatId, `/documents for ${shown(number)}`);
-  await lookUpApplication(ctx, chatId, number);
+  // Nothing is taken from what the bot happens to remember: a chat is
+  // shared, an application is not always the last one filed, and fetching
+  // somebody else's documents unasked is worse than asking.
+  const said = ctx.message.text.replace(/^\/\S+\s*/, '').trim();
+  sessions.get(chatId).gathering = readLookupDetails(said);
+  await continueLookup(ctx, chatId);
 });
 
 /** Downloads a file Telegram holds, without letting the token into an error. */
@@ -1348,6 +1350,27 @@ function followLanguage(ctx, session) {
   session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
 }
 
+/**
+ * Takes a code on the review page as the form's captcha, asked for or not.
+ *
+ * One sent during the countdown replaces the one typed, and the countdown
+ * starts over on it. Reports whether it did, so the caller can stop.
+ */
+function tookReviewCaptcha(ctx, chatId, session) {
+  if (session.stage !== 'review' || !looksLikeCaptcha(ctx.message.text)) {
+    return false;
+  }
+  if (settleCountdown(chatId, 'stop')) {
+    log(chatId, 'another captcha code received during the countdown');
+  } else {
+    log(chatId, 'captcha code received');
+  }
+  typeTheCaptcha(ctx, chatId, ctx.message.text).catch((error) =>
+    log(chatId, `the captcha step failed: ${error.message}`)
+  );
+  return true;
+}
+
 async function receiveText(ctx) {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
@@ -1363,21 +1386,13 @@ async function receiveText(ctx) {
     confirm(ctx, chatId);
     return;
   }
-  if (tookLookupCaptcha(ctx, chatId, session)) {
+  if (
+    tookLookupCaptcha(ctx, chatId, session) ||
+    (await tookLookupDetails(ctx, chatId, session))
+  ) {
     return;
   }
-  if (session.stage === 'review' && looksLikeCaptcha(ctx.message.text)) {
-    // A code on the review page is the captcha's, asked for or not: one
-    // sent during the countdown replaces the one typed, and the countdown
-    // starts over on it.
-    if (settleCountdown(chatId, 'stop')) {
-      log(chatId, 'another captcha code received during the countdown');
-    } else {
-      log(chatId, 'captcha code received');
-    }
-    typeTheCaptcha(ctx, chatId, ctx.message.text).catch((error) =>
-      log(chatId, `the captcha step failed: ${error.message}`)
-    );
+  if (tookReviewCaptcha(ctx, chatId, session)) {
     return;
   }
   if (await refuseIfPastForm(ctx, session)) {

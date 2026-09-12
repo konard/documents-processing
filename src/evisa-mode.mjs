@@ -45,6 +45,24 @@ export function enterMode(session, mode) {
 }
 
 /**
+ * Whether a document means the chat has begun filling an application.
+ *
+ * A passport is not evidence of which job a chat is doing. Every job here
+ * wants one: the application form, and the pre-arrival declaration, which
+ * asks for the passport, the visa and the ticket by name. Read as a reason
+ * to fill an application, the documents somebody sent for their arrival card
+ * opened the form and typed their passport onto it.
+ *
+ * So a document says which job only when no command has. A chat already
+ * fetching or arriving keeps the job it was told; one that has begun
+ * nothing takes a document as the start of an application, which is what it
+ * usually is.
+ */
+export function documentBeginsFilling(session = {}) {
+  return modeOf(session) === MODES.idle;
+}
+
+/**
  * Whether a text message is a detail for the application form.
  *
  * Only a chat that is filling one has details to take. A lookup's messages

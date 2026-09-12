@@ -81,6 +81,7 @@ describe('documents-processing commands', () => {
     'evisa-vietnam-address.mjs',
     'evisa-image-role.mjs',
     'evisa-prearrival.mjs',
+    'evisa-arrival-documents.mjs',
   ]);
 
   const commandFiles = readdirSync('src').filter(

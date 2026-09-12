@@ -160,3 +160,38 @@ export function sweepKeptFiles({
   }
   return removed;
 }
+
+/**
+ * Writes out what the readers made of a passport, and how sure they were.
+ *
+ * Every line here is for diagnosing a misreading later: which readers voted
+ * for a value, which disagreed and by how much, and which failed their check
+ * digit. None of it changes what the bot does, so it is kept away from the
+ * code that does.
+ */
+export function logPassportReading(chatId, read, { log, shown }) {
+  if (read) {
+    const size = Math.round(read.prepared.bytes / 1024);
+    const cut = read.prepared.cropped ? 'data page cut out' : 'kept whole';
+    log(chatId, `prepared: ${cut}, ${size} KB`);
+    for (const note of read.notes ?? []) {
+      log(chatId, `ocr: ${note}`);
+    }
+    for (const [field, info] of Object.entries(read.agreement ?? {})) {
+      log(
+        chatId,
+        `${field}: ${info.votes} votes from ${info.sources.join(', ')}`
+      );
+    }
+    for (const { field, candidates } of read.disputed ?? []) {
+      const said = candidates
+        .map((one) => `"${shown(one.value)}" (${one.votes})`)
+        .join(' vs ');
+      log(chatId, `${field} disputed: ${said}`);
+    }
+    if (read.unverified.length) {
+      log(chatId, `check digit failed for: ${read.unverified.join(', ')}`);
+    }
+  }
+  log(chatId, `read from the document: ${describeFields(read?.data ?? {})}`);
+}

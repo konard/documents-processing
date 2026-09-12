@@ -159,6 +159,24 @@ export const MESSAGES = {
       'I could not tell what this picture is, so I have not put it on the ' +
       'form. A portrait goes in as a photo of a face on a plain background; ' +
       'a passport goes in as the data page.',
+    readEvisa: (values) =>
+      ['Read the e-visa:']
+        .concat(values.visaNumber ? [`• number: ${values.visaNumber}`] : [])
+        .concat(
+          values.visaIssueDate && values.visaExpiryDate
+            ? [`• valid ${values.visaIssueDate} — ${values.visaExpiryDate}`]
+            : []
+        )
+        .concat(values.fullName ? [`• name: ${values.fullName}`] : [])
+        .join('\n'),
+    readTicket: (values) =>
+      ['Read the ticket:']
+        .concat(values.flightNumber ? [`• flight: ${values.flightNumber}`] : [])
+        .concat(values.arrivalDate ? [`• arriving: ${values.arrivalDate}`] : [])
+        .concat(
+          values.departedFrom ? [`• flying from: ${values.departedFrom}`] : []
+        )
+        .join('\n'),
     bookingWithoutAddress:
       'This looks like a booking, but I could not find the address on it. ' +
       'Send the address in Viet Nam as text and I will use that.',
@@ -380,6 +398,24 @@ export const MESSAGES = {
       'Не понял, что на этой картинке, и в анкету её не поставил. ' +
       'Портретное фото — лицо на однотонном фоне; паспорт — страница с ' +
       'данными.',
+    readEvisa: (values) =>
+      ['Прочитал визу:']
+        .concat(values.visaNumber ? [`• номер: ${values.visaNumber}`] : [])
+        .concat(
+          values.visaIssueDate && values.visaExpiryDate
+            ? [`• действует ${values.visaIssueDate} — ${values.visaExpiryDate}`]
+            : []
+        )
+        .concat(values.fullName ? [`• имя: ${values.fullName}`] : [])
+        .join('\n'),
+    readTicket: (values) =>
+      ['Прочитал билет:']
+        .concat(values.flightNumber ? [`• рейс: ${values.flightNumber}`] : [])
+        .concat(values.arrivalDate ? [`• прилёт: ${values.arrivalDate}`] : [])
+        .concat(
+          values.departedFrom ? [`• вылет из: ${values.departedFrom}`] : []
+        )
+        .join('\n'),
     bookingWithoutAddress:
       'Похоже на бронирование, но адреса на нём я не нашёл. Пришлите адрес ' +
       'во Вьетнаме текстом, и я впишу его.',

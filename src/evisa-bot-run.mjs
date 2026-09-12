@@ -18,6 +18,7 @@ import {
   log,
   withholdFromLog,
   describeFields,
+  logPassportReading,
   announce,
   valuesAllowed,
   sweepKeptFiles,
@@ -94,10 +95,13 @@ import { onShutdown } from './evisa-shutdown.mjs';
 import { startPolling, MENU } from './evisa-start.mjs';
 import { countNoise, watchBrowser } from './evisa-noise.mjs';
 import { createLookup, isCommand } from './evisa-lookup.mjs';
+import { createArrivalDocuments } from './evisa-arrival-documents.mjs';
+import { pdfText } from './pdf-to-lino.mjs';
 import {
   MODES,
   enterMode,
   fillsTheForm,
+  documentBeginsFilling,
   onlyWhenFilling,
   pastFormRefusal,
 } from './evisa-mode.mjs';
@@ -1145,6 +1149,14 @@ const { tookLookupDetails, startLookup } = createLookup({
   openBrowserEarly: openLookupBrowser,
 });
 
+const tookArrivalDocument = createArrivalDocuments({
+  sessions,
+  MESSAGES,
+  log,
+  describeFields,
+  pdfText,
+});
+
 bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
   touch(ctx.chat.id);
   await startLookup(ctx, ctx.chat.id);
@@ -1167,12 +1179,21 @@ async function downloadFile(ctx) {
 }
 
 bot.on(['message:photo', 'message:document'], (ctx) => {
-  // A passport or a photograph is for an application and for nothing else,
-  // so sending one says which job the chat is doing as plainly as a command.
-  enterMode(sessions.get(ctx.chat.id), MODES.filling);
+  const session = sessions.get(ctx.chat.id);
+  // Sending a document begins an application, but only for a chat that has
+  // not been told to do something else. The declaration asks for a passport
+  // too, and taking that as a reason to fill a form put somebody's passport
+  // on a visa application they had not asked for.
+  if (documentBeginsFilling(session)) {
+    enterMode(session, MODES.filling);
+  }
   // The window opens when a message lands: a passport that takes a minute to
-  // read must not let the window of the message before it run out.
-  armIdleFill(ctx, ctx.chat.id);
+  // read must not let the window of the message before it run out. It is
+  // armed only where a fill is the point; the reading happens regardless,
+  // since every job wants what the document says.
+  if (fillsTheForm(session)) {
+    armIdleFill(ctx, ctx.chat.id);
+  }
   // Documents are read at the same time, each on its own worker, and what
   // each reading writes into the session is put there in turn.
   return batch.reading(ctx.chat.id, () => receiveDocument(ctx));
@@ -1221,6 +1242,19 @@ async function receiveDocument(ctx) {
     await ctx.reply(MESSAGES[session.language].sentAsPhoto(kb)).catch(() => {});
   }
 
+  // A granted e-visa and an airline's e-ticket are PDFs whose values are
+  // text, not pictures. Read as pictures they yielded a QR code and a
+  // banner, and the applicant was told their visa was unrecognisable.
+  if (extension === '.pdf') {
+    const took = await withTempFile(buffer, extension, (local) =>
+      tookArrivalDocument(ctx, chatId, local)
+    );
+    if (took) {
+      busy();
+      return;
+    }
+  }
+
   // Kept for inspection while debugging: a bad crop or read is only
   // diagnosable against the image that caused it.
   await withTempFile(
@@ -1238,34 +1272,7 @@ async function receiveDocument(ctx) {
           return null;
         }
       );
-      if (read) {
-        log(
-          chatId,
-          `prepared: ${read.prepared.cropped ? 'data page cut out' : 'kept whole'}, ${Math.round(read.prepared.bytes / 1024)} KB`
-        );
-        for (const note of read.notes ?? []) {
-          log(chatId, `ocr: ${note}`);
-        }
-        for (const [field, info] of Object.entries(read.agreement ?? {})) {
-          log(
-            chatId,
-            `${field}: ${info.votes} votes from ${info.sources.join(', ')}`
-          );
-        }
-        for (const { field, candidates } of read.disputed ?? []) {
-          log(
-            chatId,
-            `${field} disputed: ${candidates.map((c) => `"${shown(c.value)}" (${c.votes})`).join(' vs ')}`
-          );
-        }
-        if (read.unverified.length) {
-          log(chatId, `check digit failed for: ${read.unverified.join(', ')}`);
-        }
-      }
-      log(
-        chatId,
-        `read from the document: ${describeFields(read?.data ?? {})}`
-      );
+      logPassportReading(chatId, read, { log, shown });
 
       // Two readings finishing together must not write over each other, so
       // what each puts into the session goes in in turn.

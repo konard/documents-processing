@@ -69,6 +69,21 @@ function inlineCidImages(html, attachments) {
   return out;
 }
 
+// An email's HTML is rendered in a real browser, and a message is whatever its
+// sender made it: scripts, frames, event handlers and refresh directives are
+// removed before rendering, since a printed page needs none of them.
+export function stripActiveContent(html) {
+  return String(html)
+    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+    .replace(/<(iframe|frame|object|embed)\b[\s\S]*?(?:<\/\1\s*>|\/?>)/gi, '')
+    .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(
+      /(href|src|action)\s*=\s*(["']?)\s*javascript:[^"'>\s]*/gi,
+      '$1=$2#'
+    );
+}
+
 // Build one self-contained HTML document: a header block with the key envelope
 // fields, then the message's own HTML body (or its text body as a fallback).
 // options.onePage: emit compact CSS (tighter header, capped banner height) so
@@ -89,7 +104,7 @@ export function emailToHtml(parsed, options = {}) {
     .join('');
 
   const bodyHtml = parsed.html
-    ? inlineCidImages(parsed.html, parsed.attachments || [])
+    ? stripActiveContent(inlineCidImages(parsed.html, parsed.attachments || []))
     : `<pre>${escapeHtml(parsed.text || '')}</pre>`;
 
   // Compact styling for the one-page variant: smaller margin and header type,
@@ -175,9 +190,23 @@ function waitForPageTarget(port, timeoutMs = 15000) {
 // print it to PDF — the real "Print to PDF", not the limited CLI flag.
 // options.onePage: print the whole email as one page (A4 width, height grown
 // to fit the measured content) so nothing is paginated away.
+// A port nothing else is listening on, so two renders in one process, or a
+// render beside another tool's Chrome on 9222, do not share a debugger.
+async function freePort() {
+  const { createServer } = await import('node:net');
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
 async function chromePrintToPdf(chromePath, html, outPath, options = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dp-chrome-'));
-  const port = 9222 + (process.pid % 2000);
+  const port = await freePort();
   const child = spawn(
     chromePath,
     [
@@ -385,19 +414,26 @@ function wkhtmltopdfToPdf(html, outPath) {
   if (which.status !== 0) {
     throw new Error('wkhtmltopdf not installed');
   }
-  const htmlPath = `${outPath}.src.html`;
+  // The source HTML, which is the whole email, goes to a directory of its
+  // own, so two renders never share a file and nothing of it stays behind.
+  const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dp-wkhtml-'));
+  const htmlPath = path.join(sourceDir, 'source.html');
   fs.writeFileSync(htmlPath, html);
   try {
     const result = spawnSync(
       'wkhtmltopdf',
-      ['--enable-local-file-access', '--encoding', 'utf-8', htmlPath, outPath],
+      ['--disable-javascript', '--encoding', 'utf-8', htmlPath, outPath],
       { stdio: 'ignore' }
     );
     if (result.status !== 0) {
       throw new Error(`wkhtmltopdf exited with status ${result.status}`);
     }
   } finally {
-    fs.rmSync(htmlPath, { force: true });
+    try {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort temp cleanup */
+    }
   }
   return outPath;
 }
@@ -471,7 +507,7 @@ async function jsTextToPdf(parsed, dataDir, outPath) {
     }
   }
 
-  fs.writeFileSync(outPath, await pdf.save());
+  fs.writeFileSync(outPath, await pdf.save({ useObjectStreams: false }));
   return outPath;
 }
 

@@ -1,0 +1,220 @@
+// evisa-log.mjs
+//
+// Diagnostics for the bot, verbose by default.
+//
+// The bot keeps nothing about an applicant, which makes a fault report hard to
+// act on: without a trace there is no way to tell a bad crop from a bad read
+// from a field the site refused. These lines fill that gap.
+//
+// Values are recorded as well as the shape of what happened, because a wrong
+// birth date is only diagnosable if the wrong value is visible. That means the
+// log holds personal data, so it is written to one file the operator controls
+// and never leaves the machine. `EVISA_BOT_DEBUG=0` reduces it to shape alone:
+// counts, field names and outcomes, with no values.
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** True when values may be written; otherwise field names alone. */
+export function valuesAllowed() {
+  return process.env.EVISA_BOT_DEBUG !== '0';
+}
+
+/**
+ * Where the log goes; one file, so an operator can find and delete it.
+ *
+ * Beside the application by default. The system's temporary directory is
+ * emptied on a schedule by macOS and lost with the container elsewhere, which
+ * takes the record of a run with it, and the log is what a defect is
+ * diagnosed from days later.
+ */
+export function logPath() {
+  if (process.env.EVISA_BOT_LOG) {
+    return process.env.EVISA_BOT_LOG;
+  }
+  const beside = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    'data'
+  );
+  try {
+    fs.mkdirSync(beside, { recursive: true });
+    return path.join(beside, 'evisa-bot-debug.log');
+  } catch {
+    // A tree that cannot be written to still gets a log, in the old place.
+    return path.join(os.tmpdir(), 'evisa-bot-debug.log');
+  }
+}
+
+const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+/** Strings that must never be written, such as the bot's token. */
+const withheld = new Set();
+
+/** Keeps a secret out of every line written from here on. */
+export function withholdFromLog(secret) {
+  if (secret) {
+    withheld.add(String(secret));
+  }
+}
+
+/**
+ * Writes one line, to the console and the log file.
+ *
+ * A chat is identified by its number alone. That is enough to follow one
+ * conversation through the file without recording who it belongs to. A
+ * secret that found its way into a message, in an error's URL for one, is
+ * blanked before the line is written.
+ */
+export function log(chatId, message) {
+  let text = String(message);
+  for (const secret of withheld) {
+    text = text.split(secret).join('[withheld]');
+  }
+  const line = `${stamp()} [chat ${chatId}] ${text}`;
+  console.log(line);
+  try {
+    fs.appendFileSync(logPath(), `${line}\n`);
+  } catch {
+    // A log that cannot be written must not stop the bot.
+  }
+}
+
+/**
+ * Describes a set of field values for the log.
+ *
+ * With values off, only the field names appear, which still shows what was
+ * read and what was missing.
+ */
+export function describeFields(data) {
+  const entries = Object.entries(data ?? {}).filter(([, value]) => value);
+  if (entries.length === 0) {
+    return 'none';
+  }
+  return valuesAllowed()
+    ? entries.map(([key, value]) => `${key}=${value}`).join(', ')
+    : entries.map(([key]) => key).join(', ');
+}
+
+/** Notes the log's location and what it holds, once at startup. */
+export function announce() {
+  const mode = valuesAllowed()
+    ? 'values included - this file holds personal data'
+    : 'field names only, no values';
+  console.log(`Debug log: ${logPath()} (${mode})`);
+  console.log('Set EVISA_BOT_DEBUG=0 to log field names without values.');
+}
+
+/** How long a kept document stays before the bot removes it. */
+export const RETENTION_DAYS = Number(process.env.EVISA_BOT_RETENTION_DAYS ?? 7);
+
+/**
+ * Removes debugging documents older than the retention window.
+ *
+ * A machine left running for weeks holds every document it was sent, since the
+ * system only empties its temp directory at boot. This sweep bounds that, and
+ * touches nothing outside the directories this bot created.
+ */
+/**
+ * The temporary directories this tool creates, by prefix.
+ *
+ * Each is somewhere a document, a capture or a rendering was written while
+ * something was being worked out, and each holds the applicant's own data.
+ */
+const SWEPT =
+  /^evisa-(bot|doc|docs|shot|step|slice|markup|ocr|fold|scans|archive|private)-/;
+
+export function sweepKeptFiles({
+  days = RETENTION_DAYS,
+  root = os.tmpdir(),
+} = {}) {
+  const cutoff = Date.now() - days * 86400000;
+  let removed = 0;
+
+  let entries = [];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  for (const entry of entries) {
+    // Only the directories this tool made, so nothing else is ever touched.
+    // Every prefix it uses is listed: a working directory left behind holds
+    // a page of somebody's passport as surely as a kept document does, and
+    // one the sweep does not name accumulates for ever.
+    if (!entry.isDirectory() || !SWEPT.test(entry.name)) {
+      continue;
+    }
+    const full = path.join(root, entry.name);
+    try {
+      if (fs.statSync(full).mtimeMs < cutoff) {
+        fs.rmSync(full, { recursive: true, force: true });
+        removed += 1;
+      }
+    } catch {
+      // A directory that vanished or cannot be read is not worth failing over.
+    }
+  }
+  return removed;
+}
+
+/**
+ * Writes out what the readers made of a passport, and how sure they were.
+ *
+ * Every line here is for diagnosing a misreading later: which readers voted
+ * for a value, which disagreed and by how much, and which failed their check
+ * digit. None of it changes what the bot does, so it is kept away from the
+ * code that does.
+ */
+export function logPassportReading(chatId, read, { log, shown }) {
+  if (read) {
+    const size = Math.round(read.prepared.bytes / 1024);
+    const cut = read.prepared.cropped ? 'data page cut out' : 'kept whole';
+    log(chatId, `prepared: ${cut}, ${size} KB`);
+    for (const note of read.notes ?? []) {
+      log(chatId, `ocr: ${note}`);
+    }
+    for (const [field, info] of Object.entries(read.agreement ?? {})) {
+      log(
+        chatId,
+        `${field}: ${info.votes} votes from ${info.sources.join(', ')}`
+      );
+    }
+    for (const { field, candidates } of read.disputed ?? []) {
+      const said = candidates
+        .map((one) => `"${shown(one.value)}" (${one.votes})`)
+        .join(' vs ');
+      log(chatId, `${field} disputed: ${said}`);
+    }
+    if (read.unverified.length) {
+      log(chatId, `check digit failed for: ${read.unverified.join(', ')}`);
+    }
+  }
+  log(chatId, `read from the document: ${describeFields(read?.data ?? {})}`);
+}
+
+/**
+ * Writes a page's markup to a file beside the kept documents, named for the
+ * moment: the empty form, the filled one, the page after Next.
+ *
+ * When a fill goes wrong, the markup at each point shows whether the site or
+ * this code is at fault. Kept on the same terms as the documents, since a
+ * filled page holds the applicant's details, and removed by the same sweep.
+ */
+export async function keepMarkup(chatId, page, moment) {
+  if (!valuesAllowed()) {
+    return;
+  }
+  try {
+    const html = await page.content();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-markup-'));
+    const file = path.join(dir, `${moment}.html`);
+    fs.writeFileSync(file, html);
+    log(chatId, `markup (${moment}) written to ${file}`);
+  } catch (error) {
+    log(chatId, `could not keep the markup (${moment}): ${error.message}`);
+  }
+}

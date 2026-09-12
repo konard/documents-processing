@@ -1,7 +1,7 @@
 /**
  * Tests for npm badge version normalization in release notes.
- * Reproduces issue #40: language-prefixed tags must not be interpolated
- * directly into shields.io static badge URLs.
+ * Language-prefixed tags must not be interpolated directly into shields.io
+ * static badge URLs.
  */
 
 import { describe, it, expect } from 'test-anywhere';

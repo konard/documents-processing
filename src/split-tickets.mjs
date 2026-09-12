@@ -133,7 +133,7 @@ for (const t of tickets) {
   const base = t.name ? toFilenameBase(t.name) : `PASSENGER-${t.start + 1}`;
   const fileName = `${base}-TICKET.pdf`;
   const outPath = path.join(OUT_DIR, fileName);
-  fs.writeFileSync(outPath, await out.save());
+  fs.writeFileSync(outPath, await out.save({ useObjectStreams: false }));
 
   const pageCount = t.end - t.start + 1;
   written.push({

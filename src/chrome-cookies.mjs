@@ -261,9 +261,11 @@ export function readChromeCookies(domainFilter = '', options = {}) {
 
   if (cacheDir) {
     fs.mkdirSync(cacheDir, { recursive: true });
+    // Decrypted session cookies: readable by this user alone.
     fs.writeFileSync(
       cacheFile(cacheDir, domainFilter),
-      JSON.stringify({ savedAt: Date.now(), cookies }, null, 2)
+      JSON.stringify({ savedAt: Date.now(), cookies }, null, 2),
+      { mode: 0o600 }
     );
   }
   return cookies;
@@ -272,9 +274,12 @@ export function readChromeCookies(domainFilter = '', options = {}) {
 // Query the SQLite cookie DB with the sqlite3 CLI (no native dependency). Rows
 // come back as tab-separated fields with the encrypted value hex-encoded.
 function queryCookieRows(dbPath, domainFilter) {
-  const where = domainFilter
-    ? `WHERE host_key LIKE '%${domainFilter.replace(/'/g, "''")}%'`
-    : '';
+  // The filter is a host name fragment and goes into SQL text, so it may hold
+  // nothing but what a host name holds.
+  if (domainFilter && !/^[a-z0-9.-]+$/i.test(domainFilter)) {
+    throw new Error(`domain filter is not a host name: ${domainFilter}`);
+  }
+  const where = domainFilter ? `WHERE host_key LIKE '%${domainFilter}%'` : '';
   const sql =
     'SELECT host_key, name, path, is_secure, is_httponly, expires_utc, ' +
     `hex(encrypted_value) FROM cookies ${where};`;

@@ -18,7 +18,7 @@
  * - command-stream: Modern shell command execution with streaming support
  * - lino-arguments: Unified configuration from CLI args, env vars, and .lenv files
  *
- * Note: Uses --release-version instead of --version to avoid conflict with yargs' built-in --version flag.
+ * Note: the option is named --release-version because yargs reserves --version.
  */
 
 import { getJsRoot, parseJsRootConfig } from './js-paths.mjs';
@@ -38,7 +38,7 @@ const { $ } = await use('command-stream');
 const { makeConfig } = await use('lino-arguments');
 
 // Parse CLI arguments using lino-arguments
-// Note: Using --release-version instead of --version to avoid conflict with yargs' built-in --version flag
+// Note: the option is named --release-version because yargs reserves --version
 const config = makeConfig({
   yargs: ({ yargs, getenv }) =>
     yargs

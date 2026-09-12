@@ -58,6 +58,7 @@ You can also run any script directly, e.g. `node src/compress-pdf.mjs in.pdf`.
 | `cforms-to-json`             | Read each Form C into a structured JSON transcript (text layer, else OCR).    |
 | `ocr-passports`              | OCR each passport data page (MRZ + check digits + issue date).                |
 | `extract-text-transcripts`   | Pull fields from text-bearing docs (e-visas / ETAs and tickets).              |
+| `pdf-to-lino`                | Read a text-bearing PDF into links notation (Vietnam e-visa form or any).     |
 | `write-visual-transcripts`   | Emit visual-read transcripts from your `match-checks-data.json`.              |
 | `build-markdown-transcripts` | Render a human-readable Markdown transcript for every document.               |
 | `match-checks`               | Cross-check every field across a person's documents and report mismatches.    |
@@ -141,6 +142,41 @@ npm run lint          # eslint
 npm run format:check  # prettier
 npm run check         # lint + format + duplication
 ```
+
+### Taking personal data out of the history
+
+This repository is public, and a value committed once stays readable in every
+clone even after it is deleted. `src/redact-history.mjs` replaces such values
+with `[REDACTED]` throughout the history.
+
+Commits are kept. Every one holds its place, its message, its author and its
+date, and every file that ever existed still exists at every version it had —
+only the values inside them change, so the history stays readable as the
+record of how the work was done.
+
+```bash
+# What would change, and where. Nothing is written.
+node src/redact-history.mjs --values ../private/values.txt
+
+# The same, reading the values off a passport the way the bot reads one.
+node src/redact-history.mjs --passport scan.jpg
+
+# Rewrite. Refuses to run without a mirror backup beside the repository.
+git clone --mirror . ../documents-processing-backup/repo.git
+node src/redact-history.mjs --values ../private/values.txt --write
+```
+
+The values themselves are never written in this repository: they are read at
+run time from a passport, or from a file kept outside the tree. Keep that file
+outside, one value a line.
+
+Each value is searched for in every spelling it gets written in — a phone
+grouped or run together, a date in either order, a name in upper or title
+case — and longer values are replaced before shorter ones, so no fragment is
+left where a longer value stood. Binary files are left alone.
+
+After a rewrite the commit ids are new: the push has to be forced, and every
+other clone has to be made again.
 
 ## License
 

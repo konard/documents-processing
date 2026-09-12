@@ -1,7 +1,7 @@
 /**
  * Tests for create-github-release.mjs CLI behavior.
- * Reproduces issue #49: failed gh api calls must not be reported as success.
- * Reproduces issue #52: release names should be human-readable titles.
+ * Failed gh api calls must not be reported as success, and release names
+ * should be human-readable titles.
  */
 
 import { describe, it, expect } from 'test-anywhere';
@@ -202,7 +202,7 @@ function getUtf8ByteLength(value) {
 }
 
 describe('create-github-release release note extraction', () => {
-  it('extracts notes for an exact version header instead of a prefix match', () => {
+  it('extracts notes for an exact version header, not a prefix match', () => {
     const changelog = `# Changelog
 
 ## 1.2.3

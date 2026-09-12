@@ -145,6 +145,15 @@ reports/
 # documents-processing: real (private) document data must never be committed.
 # It lives in the data/ folder of your working tree; only the *.example.json
 # templates there are tracked. Copy them and fill in locally.
+# What the bot remembers between runs: chat ids, the language each chose and
+# the applications registered for them. All of it is personal.
+# Every message of every conversation, both sides, and the files sent with
+# them. This is the applicant's passport, address and telephone number.
+data/transcripts/
+# The record of a run holds the applicant's own values, as a transcript does.
+data/traces/
+data/chats.lino
+data/chats.lino.writing
 data/match-checks-data.json
 data/ocr-overrides.json
 # Gmail OAuth secrets and issued token — never commit.
@@ -173,7 +182,29 @@ data/fetch-run.log
 data/gmail-status.log
 # Resume cache of fetched emails (raw message bodies) — never commit.
 data/flight-cancellations-cache/
+# Fetched emails and the exhibits built from them hold personal travel data.
+flight-cancellations-originals/
+flight-cancellation-final/
+# The exhibit list names a real booking; only the example template is tracked.
+data/frro-exhibits.json
 # Cached / downloaded fonts (never shipped in this repo).
 data/fonts/
 # Debug/render artifacts and any real scanned documents kept alongside the code.
 tests/out/
+
+# e-visa application output: filled-form screenshots, prepared passport and
+# portrait images, and resolved applicant records all contain personal data.
+evisa-output/
+evisa-*.png
+evisa-*.jpg
+evisa-*.jpeg
+*.evisa.json
+*.evisa.lino
+# Anchored to the root so they do not swallow the committed test fixtures.
+/applicant.json
+/applicant.lino
+.playwright-mcp/
+
+# Test fixtures are placeholder data and are meant to be committed.
+!tests/fixtures/**
+test-results/

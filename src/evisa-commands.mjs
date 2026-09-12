@@ -6,6 +6,8 @@
 // Both answer from what is already known, so neither waits on a browser. The
 // applicant is told what to send at once; the page opens behind that reply.
 
+import { MODES, enterMode } from './evisa-mode.mjs';
+
 /** Registers /visa and /arrival on a bot. */
 export function registerVisaCommands(bot, deps) {
   const {
@@ -44,7 +46,7 @@ export function registerVisaCommands(bot, deps) {
     log(chatId, '/fill-visa');
     await restartChat(chatId);
     touch(chatId);
-    const session = sessions.get(chatId);
+    const session = enterMode(sessions.get(chatId), MODES.filling);
     session.language = speakTheirLanguage(chatId);
     // The checklist goes out at once. Opening a browser takes seconds, and
     // making the applicant wait on it before they are told what to send buys
@@ -78,7 +80,7 @@ export function registerVisaCommands(bot, deps) {
     const chatId = ctx.chat.id;
     log(chatId, '/arrival');
     touch(chatId);
-    const session = sessions.get(chatId);
+    const session = enterMode(sessions.get(chatId), MODES.arriving);
     const strings = MESSAGES[session.language];
     const { buildDeclaration, fullNameOf } =
       await import('./evisa-prearrival.mjs');
@@ -111,4 +113,31 @@ export function rememberedLanguage(session, read) {
     }
   }
   return session.language;
+}
+
+/**
+ * Keeps a chat in the language its applicant reads, message by message.
+ *
+ * A language the applicant chose stays chosen. Reading it afresh from every
+ * message turns a Russian chat to English on a captcha code, which is digits
+ * and says nothing about the language its writer speaks.
+ */
+export function languageFollower({ store, detectLanguage }) {
+  return function followLanguage(ctx, session) {
+    if (session.languageChosen) {
+      return;
+    }
+    // A restart empties the sessions but not the store, so the first message
+    // after one still answers in the language the applicant chose.
+    const remembered = store.read(ctx.chat.id, 'language');
+    if (remembered) {
+      session.language = remembered;
+      session.languageChosen = true;
+      return;
+    }
+    session.language = detectLanguage(
+      ctx.message.text,
+      ctx.from?.language_code
+    );
+  };
 }

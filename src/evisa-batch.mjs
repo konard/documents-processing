@@ -13,6 +13,13 @@
 // arriving and nothing still being read, then fills, once. Anything that
 // arrives during a fill is not lost: it opens the window again and is filled
 // after that one finishes, still one fill at a time.
+//
+// What counts as arriving is one message from the applicant, counted once,
+// at the moment it lands. A fill runs only against messages nobody has
+// filled yet. That is the whole rule: if the applicant sends nothing, the
+// bot does nothing. A count is what enforces it, because a timestamp is
+// something the bot's own bookkeeping can push — and the end of every
+// handler pushes one, which is a chat that fills itself for ever.
 
 /**
  * Builds the batching for a bot.
@@ -48,6 +55,10 @@ export function createBatcher({
         // Set while a fill is under way, so a message arriving during one
         // is filled after it finishes, never beside it.
         filling: false,
+        // Messages the applicant has sent, and how many of them a fill has
+        // already run against. A fill happens only while these differ.
+        arrived: 0,
+        filled: 0,
         // The most recent message, which is what a reply is sent against.
         ctx: null,
         stopped: false,
@@ -79,8 +90,15 @@ export function createBatcher({
       if (state.stopped) {
         return;
       }
+      // Everything the applicant has sent is about to be filled. Nothing the
+      // fill itself does can add to that, so this is what the runner is
+      // finished with when the fill returns.
+      if (state.arrived === state.filled) {
+        return;
+      }
       state.filling = true;
-      const before = state.touchedAt;
+      const before = state.arrived;
+      state.filled = before;
       // What the fill is about to be told to do. A message landing while it
       // runs is checked against this, so a correction reaches the same fill
       // when it still can.
@@ -105,25 +123,37 @@ export function createBatcher({
       } finally {
         state.filling = false;
       }
-      // Nothing arrived while that fill ran, so there is nothing to fill.
-      if (state.touchedAt === before) {
+      // Nothing the applicant sent went unfilled, so there is nothing to
+      // fill. The runner ends here and the next message starts a new one.
+      if (state.arrived === before) {
         return;
       }
-      // Something did arrive. It gets the same quiet window as anything
-      // else, so a burst landing during a fill is still filled once.
-      log(chatId, 'more arrived while filling; waiting out its window');
+      // The applicant did send something. It gets the same quiet window as
+      // anything else, so a burst landing during a fill is still filled once.
+      log(
+        chatId,
+        `${state.arrived - before} more arrived while filling; waiting out its window`
+      );
     }
   };
 
   return {
     /**
-     * Takes in something that arrived: the window moves, and the runner is
-     * started if it is not already going.
+     * Takes in a message the applicant sent: the window moves, the message
+     * is counted, and the runner is started if it is not already going.
+     *
+     * `again` is false for a call that only holds the window open for work
+     * already counted — reading a passport takes a minute, and the window
+     * must not run out underneath it. Such a call never makes a fill happen
+     * on its own, so nothing the bot does to itself can start one.
      */
-    arrived(chatId, ctx) {
+    arrived(chatId, ctx, { again = true } = {}) {
       const state = stateOf(chatId);
       state.stopped = false;
       state.touchedAt = now();
+      if (again) {
+        state.arrived += 1;
+      }
       // A reply goes against the newest message, so it lands at the bottom
       // of the chat where the applicant is looking.
       state.ctx = ctx ?? state.ctx;
@@ -192,10 +222,21 @@ export function createFillBatcher({ quietMs, log, fill }) {
     fill,
   });
 
-  /** Takes in something that arrived. */
+  /** Takes in a message the applicant sent, which is what a fill is for. */
   const armIdleFill = (ctx, chatId) => {
     batch.arrived(chatId, ctx);
   };
 
-  return { batch, armIdleFill, disarmIdleFill };
+  /**
+   * Holds the quiet window open without asking for a fill.
+   *
+   * For the end of a handler, where the message has already been counted:
+   * reading a passport outlasts the window, so the window waits for the
+   * reading, and no second fill is asked for on the way out.
+   */
+  const holdIdleFill = (ctx, chatId) => {
+    batch.arrived(chatId, ctx, { again: false });
+  };
+
+  return { batch, armIdleFill, holdIdleFill, disarmIdleFill };
 }

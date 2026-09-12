@@ -7,13 +7,99 @@ import { MESSAGES } from '../src/evisa-messages.mjs';
 const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
 
 describe('nothing fills or sends the form on its own', () => {
-  it('fills only when something arrived from the applicant', () => {
-    // The quiet timer is the one thing that starts a fill, and it is armed
-    // where a message or a document has just been taken in.
-    // Two call sites: a text message and a document. The third match is the
-    // declaration itself.
-    const armed = runner.match(/^\s+armIdleFill\(ctx, chatId\);$/gm) ?? [];
-    expect(armed.length).toBe(2);
+  it('fills only when something arrived from the applicant', async () => {
+    // The rule, whole: if the applicant sends nothing, the bot does nothing.
+    // A fill runs against messages that arrived and have not been filled; a
+    // fill of its own accord is the loop, and there is no counter for it.
+    const { createBatcher } = await import('../src/evisa-batch.mjs');
+    let fills = 0;
+    const batch = createBatcher({
+      quietMs: 0,
+      fill: async () => {
+        fills += 1;
+      },
+      wait: () => Promise.resolve(),
+    });
+    await batch.arrived(1, {});
+    expect(fills).toBe(1);
+    // Holding the window open is not a message, so it fills nothing.
+    await batch.arrived(1, {}, { again: false });
+    expect(fills).toBe(1);
+    // A second message is a second fill, and no more than that.
+    await batch.arrived(1, {});
+    expect(fills).toBe(2);
+  });
+
+  it('does not fill again for work the fill itself reported', async () => {
+    // Every handler ends by holding the window open, which used to push the
+    // timestamp the runner watched: the fill finished, saw a newer stamp,
+    // and filled again, for ever, sending the same blank form each time.
+    const { createBatcher } = await import('../src/evisa-batch.mjs');
+    let fills = 0;
+    const batch = createBatcher({
+      quietMs: 0,
+      fill: async (ctx, chatId) => {
+        fills += 1;
+        // What the end of a handler does, while the fill is running.
+        batch.arrived(chatId, {}, { again: false });
+      },
+      wait: () => Promise.resolve(),
+    });
+    await batch.arrived(1, {});
+    expect(fills).toBe(1);
+  });
+
+  it('fills once more for a message that landed during a fill', async () => {
+    // The other half: what the applicant sent while a fill ran is not lost.
+    const { createBatcher } = await import('../src/evisa-batch.mjs');
+    let fills = 0;
+    const batch = createBatcher({
+      quietMs: 0,
+      fill: async (ctx, chatId) => {
+        fills += 1;
+        if (fills === 1) {
+          batch.arrived(chatId, {});
+        }
+      },
+      wait: () => Promise.resolve(),
+    });
+    await batch.arrived(1, {});
+    expect(fills).toBe(2);
+  });
+
+  it('holds the window open for a reading that outlasts it', () => {
+    // A passport takes longer to read than the window is wide. The reading
+    // is what the fill waits for; it asks for no fill of its own.
+    expect(runner.includes('holdIdleFill(ctx, chatId)')).toBe(true);
+    // And the two places a fill is actually asked for are the two places a
+    // message from the applicant lands: a text, and a document.
+    const armed = runner.match(/^\s+armIdleFill\(ctx, ctx\.chat\.id\);$/gm);
+    expect((armed ?? []).length).toBe(2);
+  });
+
+  it('fills nothing for a chat that is not filling anything in', async () => {
+    // The last word, wherever the request came from: /download_visa fetches
+    // a filed application, and a browser opened for one has no form on it.
+    const { onlyWhenFilling, MODES, enterMode } =
+      await import('../src/evisa-mode.mjs');
+    const held = new Map();
+    let fills = 0;
+    const guarded = onlyWhenFilling({
+      sessions: { get: (chatId) => held.get(chatId) },
+      log: () => {},
+      fill: () => {
+        fills += 1;
+      },
+    });
+    held.set(1, enterMode({}, MODES.lookingUp));
+    await guarded({}, 1);
+    expect(fills).toBe(0);
+    held.set(2, {});
+    await guarded({}, 2);
+    expect(fills).toBe(0);
+    held.set(3, enterMode({}, MODES.filling));
+    await guarded({}, 3);
+    expect(fills).toBe(1);
   });
 
   it('does not fill the form again when a review page comes up empty', () => {
@@ -136,9 +222,11 @@ describe('asking the bot to stop', () => {
     // neither is a command: this handler sees those too.
     const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
     const handler = runner.slice(runner.indexOf("bot.on('message:text'"));
-    const body = handler.slice(0, handler.indexOf('});'));
-    expect(body.includes('!isCancellation(ctx.message.text)')).toBe(true);
-    expect(body.includes('!isCommand(ctx.message)')).toBe(true);
+    const body = handler.slice(0, handler.indexOf('\n});'));
+    expect(body.includes('isCancellation(ctx.message.text)')).toBe(true);
+    expect(body.includes('isCommand(ctx.message)')).toBe(true);
+    // And a window opens only for a chat whose job is filling a form in.
+    expect(body.includes('fillsTheForm(session)')).toBe(true);
   });
 
   it('is offered in the menu, so it can be found without being known', () => {

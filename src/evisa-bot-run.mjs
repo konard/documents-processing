@@ -93,9 +93,20 @@ import { createFillBatcher } from './evisa-batch.mjs';
 import { onShutdown } from './evisa-shutdown.mjs';
 import { startPolling, MENU } from './evisa-start.mjs';
 import { countNoise, watchBrowser } from './evisa-noise.mjs';
-import { readLookupDetails, createLookup, isCommand } from './evisa-lookup.mjs';
+import { createLookup, isCommand } from './evisa-lookup.mjs';
+import {
+  MODES,
+  enterMode,
+  fillsTheForm,
+  onlyWhenFilling,
+  pastFormRefusal,
+} from './evisa-mode.mjs';
 import { showStatus as raiseStatus, trackStatuses } from './evisa-status.mjs';
-import { registerVisaCommands, rememberedLanguage } from './evisa-commands.mjs';
+import {
+  registerVisaCommands,
+  rememberedLanguage,
+  languageFollower,
+} from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import { verifyAddress } from './evisa-geocode.mjs';
@@ -150,10 +161,14 @@ const { showStatus, clearStatus } = trackStatuses(raiseStatus, log);
  * Forwarded documents land in the same second. Each is read at once, and one
  * fill follows the quiet window, carrying all of them.
  */
-const { batch, armIdleFill, disarmIdleFill } = createFillBatcher({
+const { batch, armIdleFill, holdIdleFill, disarmIdleFill } = createFillBatcher({
   quietMs: IDLE_FILL_MS,
   log,
-  fill: (ctx, chatId) => fillNow(ctx, chatId, 'quiet window'),
+  fill: onlyWhenFilling({
+    sessions,
+    log,
+    fill: (ctx, chatId) => fillNow(ctx, chatId, 'quiet window'),
+  }),
 });
 
 // Chats counting down to Next, each with the function that ends the count.
@@ -722,6 +737,9 @@ function settleCountdown(chatId, verdict) {
   return true;
 }
 
+/** Turns away details that arrive after the site has taken the form. */
+const refuseIfPastForm = pastFormRefusal({ MESSAGES, log, settleCountdown });
+
 /**
  * Presses Next and sends back the page it led to, with what happened under
  * it: the stage the site reached, or the same page with the site's own
@@ -970,7 +988,9 @@ bot.command('start', async (ctx) => {
   const chatId = ctx.chat.id;
   log(chatId, `/start from language_code=${ctx.from?.language_code ?? '?'}`);
   await restartChat(chatId);
-  const session = sessions.get(chatId);
+  // The welcome offers the bot's jobs and starts none of them, so whatever a
+  // chat was doing is over and the next command is what decides.
+  const session = enterMode(sessions.get(chatId), MODES.idle);
   // A choice made before wins. Telegram's own guess is the fallback for a
   // chat never seen, so most applicants are never asked, and the buttons are
   // there for anyone it gets wrong.
@@ -1084,6 +1104,9 @@ function confirm(ctx, chatId) {
 bot.command('fill', async (ctx) => {
   touch(ctx.chat.id);
   log(ctx.chat.id, '/fill');
+  // Asked to fill, so that is the job now, and what arrives next is details
+  // for the form however the chat came to be here.
+  enterMode(sessions.get(ctx.chat.id), MODES.filling);
   // Past the form there is nothing to fill: the page has moved on.
   if (await refuseIfPastForm(ctx, sessions.get(ctx.chat.id))) {
     return;
@@ -1112,7 +1135,7 @@ bot.command('reset', async (ctx) => {
   await ctx.reply('Cleared. Send /start to begin again.');
 });
 
-const { continueLookup, tookLookupDetails } = createLookup({
+const { tookLookupDetails, startLookup } = createLookup({
   sessions,
   MESSAGES,
   log,
@@ -1121,14 +1144,8 @@ const { continueLookup, tookLookupDetails } = createLookup({
 });
 
 bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
-  const chatId = ctx.chat.id;
-  touch(chatId);
-  // Nothing is taken from what the bot happens to remember: a chat is
-  // shared, an application is not always the last one filed, and fetching
-  // somebody else's documents unasked is worse than asking.
-  const said = ctx.message.text.replace(/^\/\S+\s*/, '').trim();
-  sessions.get(chatId).gathering = readLookupDetails(said);
-  await continueLookup(ctx, chatId);
+  touch(ctx.chat.id);
+  await startLookup(ctx, ctx.chat.id);
 });
 
 /** Downloads a file Telegram holds, without letting the token into an error. */
@@ -1148,6 +1165,9 @@ async function downloadFile(ctx) {
 }
 
 bot.on(['message:photo', 'message:document'], (ctx) => {
+  // A passport or a photograph is for an application and for nothing else,
+  // so sending one says which job the chat is doing as plainly as a command.
+  enterMode(sessions.get(ctx.chat.id), MODES.filling);
   // The window opens when a message lands: a passport that takes a minute to
   // read must not let the window of the message before it run out.
   armIdleFill(ctx, ctx.chat.id);
@@ -1283,53 +1303,31 @@ async function receiveDocument(ctx) {
     { keep: valuesAllowed() }
   ).finally(busy);
 
-  armIdleFill(ctx, chatId);
-}
-
-/**
- * Details sent after the site took the form cannot reach it. The chat is
- * told, and a countdown is stopped: details are not a word to send.
- */
-async function refuseIfPastForm(ctx, session) {
-  if ((session.stage ?? 'form') === 'form') {
-    return false;
-  }
-  settleCountdown(ctx.chat.id, 'stop');
-  log(ctx.chat.id, 'details received past the form; refused');
-  await ctx.reply(MESSAGES[session.language].pastForm);
-  return true;
+  // The document was counted when it landed. Reading it took longer than the
+  // quiet window, so the window is held open for the fill that follows; the
+  // reading does not ask for a fill of its own.
+  holdIdleFill(ctx, chatId);
 }
 
 bot.on('message:text', (ctx) => {
-  // A command is not a detail for the form. This handler sees commands too,
-  // so arming here on one asked /download_visa to fill in an application.
-  if (!isCancellation(ctx.message.text) && !isCommand(ctx.message)) {
+  // Only a chat that is filling in an application has details to take. A
+  // lookup's messages are its own, a command speaks for itself, and a word
+  // that stops the bot is not a reason to start one.
+  //
+  // This runs before the command handlers do, so the mode it reads is the
+  // one the message arrived into, not the one the message is about to set.
+  // That is why a command is stepped over here and its handler says what
+  // the chat does next.
+  const session = sessions.get(ctx.chat.id);
+  const aside = isCommand(ctx.message) || isCancellation(ctx.message.text);
+  if (!aside && fillsTheForm(session)) {
     armIdleFill(ctx, ctx.chat.id);
   }
   return inTurn(ctx.chat.id, () => receiveText(ctx));
 });
 
-/**
- * Keeps the chat in the language its applicant reads.
- *
- * A language the applicant chose stays chosen. Reading it afresh from every
- * message turns a Russian chat to English on a captcha code, which is digits
- * and says nothing about the language its writer speaks.
- */
-function followLanguage(ctx, session) {
-  if (session.languageChosen) {
-    return;
-  }
-  // A restart empties the sessions but not the store, so the first message
-  // after one still answers in the language the applicant chose.
-  const remembered = store.read(ctx.chat.id, 'language');
-  if (remembered) {
-    session.language = remembered;
-    session.languageChosen = true;
-    return;
-  }
-  session.language = detectLanguage(ctx.message.text, ctx.from?.language_code);
-}
+/** Keeps a chat in the language its applicant reads, message by message. */
+const followLanguage = languageFollower({ store, detectLanguage });
 
 /**
  * Takes a code on the review page as the form's captcha, asked for or not.
@@ -1384,6 +1382,9 @@ async function receiveText(ctx) {
   if (await refuseIfPastForm(ctx, session)) {
     return;
   }
+  // Nothing above claimed the message, so it is details for an application,
+  // and saying so is how a chat that has sent no command yet begins one.
+  enterMode(session, MODES.filling);
   // New details end a countdown, since the form they go on is about to
   // change, and restart the quiet timer; the fill that follows puts only
   // what changed on the form, and explains only that.
@@ -1417,7 +1418,9 @@ async function receiveText(ctx) {
       await verifyAddress(chatId, session, field, { log, shown });
     }
   }
-  armIdleFill(ctx, chatId);
+  // Counted when it landed, like a document: checking an address against the
+  // map takes time, and only the window needs holding open for it.
+  holdIdleFill(ctx, chatId);
 }
 
 // A handler that throws must not stop the bot for every other chat: the

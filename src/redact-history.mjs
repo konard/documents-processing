@@ -36,7 +36,10 @@
 //   {
 //     "values": ["<a value>", "<another spelling of it>"],
 //     "valuesFile": "values.txt",
-//     "passports": ["scan.jpg"],
+//     "passports": [
+//       "scan.jpg",
+//       { "file": "mine.jpg", "skip": ["surname", "givenName"] }
+//     ],
 //     "only": ["src/**", "tests/**"],
 //     "except": ["docs/case-studies/**", "tests/translit.test.js"],
 //     "keep": ["a public nickname", "a public place name"]
@@ -45,6 +48,10 @@
 // `only` and `except` are globs, and they are the answer to a word that is
 // personal data in one file and not in another: a surname is data where the
 // application uses it and a public name where a transliteration test does.
+//
+// A passport given with `skip` is read without those fields, for a person
+// whose name is public though their passport number and dates are not.
+//
 // `keep` names values that must survive, and is checked against the list, so
 // a nickname cannot be redacted by a spelling rule that reached too far.
 //
@@ -99,7 +106,12 @@ function readConfig(file) {
     valuesFiles: [config.valuesFile, ...(config.valuesFiles ?? [])]
       .filter(Boolean)
       .map(near),
-    passports: (config.passports ?? []).map(near),
+    // A passport is a path, or a path with the fields to leave out of it.
+    passports: (config.passports ?? []).map((one) =>
+      typeof one === 'string'
+        ? { file: near(one), skip: [] }
+        : { file: near(one.file), skip: one.skip ?? [] }
+    ),
     only: config.only ?? [],
     except: config.except ?? [],
     keep: config.keep ?? [],
@@ -198,14 +210,28 @@ function commitsHolding(repo, values, chosen = () => true) {
   return found;
 }
 
-/** Every value the config asks for, longest first. */
+/**
+ * Every value the config asks for, longest first.
+ *
+ * A passport may be listed with fields to leave out of the reading. One
+ * person's name can be public while their passport number and dates are
+ * not, and the whole reading is otherwise all or nothing.
+ */
 async function valuesWanted(config) {
   const values = [...valuesToRedact({}, config.values)];
   for (const passport of config.passports) {
-    console.log(`Reading ${passport} …`);
-    const reading = await readThePassport(passport);
+    const { file, skip: leaveOut = [] } = passport;
+    const skip = new Set(leaveOut);
+    console.log(`Reading ${file} …`);
+    const reading = await readThePassport(file);
+    for (const field of skip) {
+      delete reading[field];
+    }
     const named = Object.keys(reading).filter((key) => reading[key]);
-    console.log(`  read: ${named.join(', ') || 'nothing'}`);
+    console.log(
+      `  read: ${named.join(', ') || 'nothing'}` +
+        `${skip.size ? `; left out: ${[...skip].join(', ')}` : ''}`
+    );
     values.push(...valuesToRedact(reading));
   }
   for (const file of config.valuesFiles) {
@@ -283,7 +309,7 @@ function configFor(given) {
         keep: [],
       };
   if (given.passport) {
-    config.passports.push(given.passport);
+    config.passports.push({ file: given.passport, skip: [] });
   }
   if (given.values) {
     config.valuesFiles.push(given.values);

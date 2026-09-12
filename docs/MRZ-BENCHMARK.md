@@ -46,7 +46,7 @@ than purpose-built MRZ readers. Reaching that took fixing three bugs in this
 repository, each of which had been making an engine look worse than it is:
 
 - Line 1 of an MRZ holds only letters, so a digit there is a misread. The
-  parser deleted them, turning `NIK0LAI` into `NIKLAI` and losing a letter;
+  parser deleted them, turning `LE0NID` into `LENID` and losing a letter;
   they are now mapped back (`0` to `O`, `1` to `I`, and so on).
 - A line 2 that lost a character shifts every field after the gap, producing a
   wrong number and a wrong date that both still look plausible. Such a line is

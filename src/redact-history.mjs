@@ -211,6 +211,35 @@ function commitsHolding(repo, values, chosen = () => true) {
 }
 
 /**
+ * What the checked-out tree still holds, value by value.
+ *
+ * The history search answers what was published; this answers what is about
+ * to be. The difference matters, because a rewrite turns a value into
+ * [REDACTED] wherever it stands, including in a fixture the tests read, and
+ * a test asserting on [REDACTED] is a test that has stopped saying anything.
+ *
+ * So these are named before a run, not after it: whoever decides what counts
+ * as personal data also gets to replace it with something of the same shape
+ * that belongs to nobody, and the rewrite then finds the tree already clean.
+ */
+export function treeHolding(repo, values, chosen = () => true) {
+  const found = new Map();
+  const files = git(repo, ['ls-files']).split('\n').filter(Boolean);
+  for (const file of files.filter(chosen)) {
+    const full = path.join(repo, file);
+    if (!fs.existsSync(full)) {
+      continue;
+    }
+    const text = fs.readFileSync(full, 'utf8').toLowerCase();
+    const hits = values.filter((value) => text.includes(value.toLowerCase()));
+    if (hits.length) {
+      found.set(file, hits);
+    }
+  }
+  return found;
+}
+
+/**
  * Every value the config asks for, longest first.
  *
  * A passport may be listed with fields to leave out of the reading. One
@@ -238,6 +267,27 @@ async function valuesWanted(config) {
     values.push(...valuesToRedact({}, readValuesFile(file)));
   }
   return [...new Set(values)].sort((a, b) => b.length - a.length);
+}
+
+/** Says what the checked-out tree still holds, and why that wants a hand. */
+function reportTheTree(repo, wanted, chosen) {
+  const inTree = treeHolding(repo, wanted, chosen);
+  if (!inTree.size) {
+    return;
+  }
+  console.log(
+    `\n${inTree.size} files in the working tree still hold a value.\n` +
+      'A rewrite replaces it there too, so a test reading one as a fixture\n' +
+      'would then be asserting on [REDACTED]. Replace these by hand first,\n' +
+      'with values of the same shape that belong to nobody:'
+  );
+  for (const [file, hits] of [...inTree].sort()) {
+    console.log(`  ${file}`);
+    for (const hit of hits) {
+      console.log(`      ${hit}`);
+    }
+  }
+  console.log('');
 }
 
 /** Takes the mirror backup a rewrite is undone from. */
@@ -356,6 +406,8 @@ async function main() {
         `${config.except.length ? `, except ${config.except.join(', ')}` : ''}`
     );
   }
+
+  reportTheTree(repo, wanted, chosen);
 
   const holding = commitsHolding(repo, wanted, chosen);
   if (!holding.size) {

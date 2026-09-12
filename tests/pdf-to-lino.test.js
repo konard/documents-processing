@@ -13,14 +13,14 @@ const FORM = [
   '                                                            VIET NAM E-VISA APPLICATION FORM',
   ' PERSONAL INFORMATION',
   '                                                         Surname: TRAVELLER                             Given name: JOHN ALEX',
-  '                                                         1-2. Sex:                                      1.3. Date of birth (dd/mm/yyyy): [REDACTED]',
+  '                                                         1-2. Sex:                                      1.3. Date of birth (dd/mm/yyyy): 04/11/1988',
   'Portrait of applicant (recent photo, size 4x6cm,         1.4. Nationality: Wonderland                   1.5. Place of birth: Capital City, Wonderland',
   'straight, no hat, no glasses, polite clothes, white      1.6. ID Card number:                           1.7. Religion: Christianity',
   '2.1. To issue e-Visa for:                                2.2. E-Visa duration: 16/09/2026',
   'Single - entry             Multiple - entry              E- Visa valid from (dd/mm/yyyy): 16/09/2026 to: 14/12/2026',
   '3.2. Passport number: 712345678                                                                         3.3. Issuing Authority/Place of issue: CONSULATE',
   '                                                                                                        GENERAL, SOMEWHERE',
-  '3.4. Date of issue (dd/mm/yyyy): [REDACTED]                                                             3.5. Expiry date (dd/mm/yyyy): [REDACTED]',
+  '3.4. Date of issue (dd/mm/yyyy): 09/09/2025                                                             3.5. Expiry date (dd/mm/yyyy): 09/09/2030',
   '4.1. Contact address: Wonderland, 100000, Capital City, Long Boulevard 7B, apt. 3',
   '4.2. Current residential address (if contact address is different from current residential address): Wonderland, 100000, Capital City, Long',
   'Boulevard 7B, apt. 3',
@@ -58,9 +58,9 @@ describe('reading a Vietnam e-visa application form', () => {
 
   it('reads the passport fields', () => {
     expect(record.passportNumber).toBe('712345678');
-    expect(record.dateOfBirth).toBe('[REDACTED]');
-    expect(record.passportIssueDate).toBe('[REDACTED]');
-    expect(record.passportExpiryDate).toBe('[REDACTED]');
+    expect(record.dateOfBirth).toBe('04/11/1988');
+    expect(record.passportIssueDate).toBe('09/09/2025');
+    expect(record.passportExpiryDate).toBe('09/09/2030');
   });
 
   it('joins a value that wraps under its own label', () => {

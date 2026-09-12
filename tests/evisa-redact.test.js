@@ -212,6 +212,22 @@ describe('checking a repository after a rewrite', () => {
     expect(body.includes('Nothing was pushed.')).toBe(true);
   });
 
+  it('says what the checked-out tree still holds, before rewriting it', () => {
+    // A rewrite replaces a value wherever it stands, fixtures included, and a
+    // test left asserting on [REDACTED] has stopped saying anything. So the
+    // tree is reported first, for a person to replace by hand with something
+    // of the same shape that belongs to nobody.
+    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const at = tool.indexOf('export function treeHolding');
+    const body = tool.slice(at, tool.indexOf('\n}\n', at));
+    expect(body.includes("'ls-files'")).toBe(true);
+    // Redaction ignores case, so the report has to as well, or it names
+    // fewer files than the rewrite is about to change.
+    expect(body.includes('toLowerCase()')).toBe(true);
+    // Reported in the dry run, where it can still be acted on.
+    expect(tool.includes('reportTheTree(repo, wanted, chosen)')).toBe(true);
+  });
+
   it('runs the repository´s own tests, not a check of its own', () => {
     // A check written here would drift from what the repository actually
     // requires. What it runs is what anybody runs.

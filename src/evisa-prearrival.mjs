@@ -37,6 +37,13 @@ export const ENTRY_POINTS = {
  */
 export const PREARRIVAL_FIELDS = [
   // Lead passenger: all of this the visa application already holds.
+  {
+    key: 'passportType',
+    label: 'Passport Type',
+    from: 'passportType',
+    fixed: 'P - Popular Passport',
+    group: 'passenger',
+  },
   { key: 'fullName', label: 'Full Name', from: 'fullName', group: 'passenger' },
   { key: 'gender', label: 'Gender', from: 'sex', group: 'passenger' },
   {
@@ -146,15 +153,21 @@ export function valueFor(field, applicant = {}, extras = {}) {
   ) {
     return extras[field.key];
   }
-  if (field.fixed) {
-    return field.fixed;
-  }
+  // A field with both a `fixed` value and a `from` takes the record's word
+  // when it has one: the fixed value is what most travellers have, not what
+  // all of them have. Read the other way round, a diplomatic passport would
+  // be declared an ordinary one, which is a false statement to an
+  // immigration department.
   if (
     field.from &&
     applicant[field.from] !== null &&
-    applicant[field.from] !== undefined
+    applicant[field.from] !== undefined &&
+    applicant[field.from] !== ''
   ) {
     return applicant[field.from];
+  }
+  if (field.fixed) {
+    return field.fixed;
   }
   // A field the visa or the ticket supplies is kept under the name the
   // declaration itself uses, there being nothing on the application form to

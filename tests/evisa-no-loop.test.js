@@ -157,9 +157,12 @@ describe('nothing fills or sends the form on its own', () => {
 
   it('lets a correction unstick the form', () => {
     // Whatever the applicant sends next is worth filling and showing again.
-    const cleared = runner.match(/session\.lastFill = null/g) ?? [];
+    // Both ways in count: a document the bot read, handled by the runner, and
+    // a sentence the applicant typed, handled where typed details are taken.
+    const sent = runner + readFileSync('src/evisa-details.mjs', 'utf8');
+    const cleared = sent.match(/session\.lastFill = null/g) ?? [];
     expect(cleared.length >= 2).toBe(true);
-    const untold = runner.match(/session\.toldWhatIsStuck = false/g) ?? [];
+    const untold = sent.match(/session\.toldWhatIsStuck = false/g) ?? [];
     expect(untold.length >= 2).toBe(true);
   });
 });

@@ -21,17 +21,11 @@ import {
   fillDeclaration,
   readDeclaration,
   offeredArrivalDates,
+  readCaptchaImage,
+  refreshCaptchaImage,
+  readCaptchaText,
 } from './evisa-prearrival-form.mjs';
 import { buildDeclaration, fullNameOf } from './evisa-prearrival.mjs';
-
-/** What the declaration wants that no document supplies. */
-export const ASKED_FOR = [
-  'email',
-  'phone',
-  'departureDate',
-  'accommodationType',
-  'accommodationAddress',
-];
 
 /**
  * The arrival gate the ticket lands at, as the declaration names it.
@@ -79,6 +73,9 @@ export async function startDeclaration({
   log,
   askCaptcha,
   MESSAGES,
+  describeFilled,
+  ocr = null,
+  tries = 6,
   headless = true,
   debugPort = 0,
 }) {
@@ -91,6 +88,32 @@ export async function startDeclaration({
     log(chatId, 'the declaration opened with no captcha on it');
     return { asked: false, page: opened.page };
   }
+
+  // Reading it is free to get wrong: a refused code only draws another
+  // picture. So the bot tries for itself first, and the traveller is asked
+  // only for the pictures it cannot read.
+  if (ocr) {
+    const solved = await solveCaptcha({
+      page: opened.page,
+      chatId,
+      log,
+      ocr,
+      tries,
+    });
+    if (solved) {
+      session.arrival.stage = 'form';
+      await fillAndShow({
+        ctx,
+        chatId,
+        sessions,
+        log,
+        MESSAGES,
+        describeFilled,
+      });
+      return { asked: false, solved: true, page: opened.page };
+    }
+  }
+
   const asked = await askCaptcha(
     ctx,
     chatId,
@@ -102,6 +125,58 @@ export async function startDeclaration({
     `declaration captcha ${asked ? 'sent to the chat' : 'not found'}`
   );
   return { asked, page: opened.page };
+}
+
+/**
+ * How many of the readings must agree before a code is worth submitting.
+ *
+ * Measured against the live site: accepted codes carried most of the votes,
+ * refused ones two to four. Below this a fresh picture is the better move.
+ */
+export const CONFIDENT_VOTES = 6;
+
+/**
+ * Reads the captcha and tries it, for as many pictures as it takes.
+ *
+ * Each refusal draws a fresh picture, and the pictures differ in how legible
+ * they are, so trying again is worth more than trying harder at one of them.
+ */
+export async function solveCaptcha({ page, chatId, log, ocr, tries = 6 }) {
+  const { renderImage, withImageFile, ...rest } = ocr;
+  for (let round = 1; round <= tries; round += 1) {
+    const bytes =
+      round === 1
+        ? await readCaptchaImage(page)
+        : await refreshCaptchaImage(page);
+    if (!bytes) {
+      log(chatId, 'no captcha picture to read');
+      return false;
+    }
+    const img = await withImageFile(bytes, (file) => renderImage(file));
+    const { code, agreed } = readCaptchaText(img, { renderImage, ...rest });
+    if (!code) {
+      log(chatId, `captcha ${round}: nothing readable`);
+      continue;
+    }
+    // How many readings agreed says how likely the code is right: every code
+    // the site accepted had most of them behind it, and every one it refused
+    // had a handful. A picture this hard to read is cheaper to replace than
+    // to submit, since a refusal costs a round trip and a new picture is free.
+    if (agreed < CONFIDENT_VOTES && round < tries) {
+      log(
+        chatId,
+        `captcha ${round}: "${code}" only ${agreed} agreed; redrawing`
+      );
+      continue;
+    }
+    if (await answerCaptcha(page, code)) {
+      log(chatId, `captcha ${round}: "${code}" accepted (${agreed} agreed)`);
+      return true;
+    }
+    log(chatId, `captcha ${round}: "${code}" refused (${agreed} agreed)`);
+  }
+  log(chatId, `the captcha beat ${tries} readings; asking the chat`);
+  return false;
 }
 
 /**
@@ -168,9 +243,13 @@ export async function fillAndShow({
     log(chatId, `the nationality did not take: ${error.message}`)
   );
 
+  // The built declaration wins over the raw record. It holds the values that
+  // are the same for every e-visa traveller — the visa type, the issuing
+  // department — which the record has no field for at all, so a record laid
+  // over the top puts those back to nothing.
   const result = await fillDeclaration(held.page, {
-    ...values,
     ...applicant,
+    ...values,
   });
 
   if (result.arrival?.tooEarly) {
@@ -183,6 +262,13 @@ export async function fillAndShow({
     return result;
   }
 
+  if (result.expired) {
+    log(chatId, `the declaration expired: ${result.expired}`);
+    await closeDeclaration(session);
+    await ctx.reply(strings.arrivalExpired);
+    return result;
+  }
+
   const onThePage = await readDeclaration(held.page);
   log(
     chatId,
@@ -192,6 +278,28 @@ export async function fillAndShow({
     parse_mode: 'HTML',
   });
   return result;
+}
+
+/**
+ * Puts what the chat has just sent onto the declaration already open.
+ *
+ * The same promise the visa form makes: send a correction in your own words
+ * and the form is filled again from everything known, with the page coming
+ * back. Nothing is asked for one field at a time.
+ */
+export function declarationRefiller(deps) {
+  const { sessions, log } = deps;
+  return async function refill(ctx, chatId) {
+    const held = sessions.get(chatId).arrival;
+    if (!held || held.stage !== 'form') {
+      return;
+    }
+    try {
+      await fillAndShow({ ...deps, ctx, chatId });
+    } catch (error) {
+      log(chatId, `the declaration did not take it: ${error.message}`);
+    }
+  };
 }
 
 /**

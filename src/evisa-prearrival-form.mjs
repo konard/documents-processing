@@ -51,6 +51,30 @@ const NATIONALITY_NAMES = new Map([
   ['russian federation', 'Russian Federation'],
 ]);
 
+/**
+ * The site's own wording for a kind of passport.
+ *
+ * Its options read "P - Popular Passport", so the letter the visa
+ * application records matches all three of them and none of them exactly.
+ */
+const PASSPORT_TYPES = new Map([
+  ['p', 'P - Popular Passport'],
+  ['ordinary passport', 'P - Popular Passport'],
+  ['popular passport', 'P - Popular Passport'],
+  ['d', 'D - Diplomatic Passport'],
+  ['diplomatic passport', 'D - Diplomatic Passport'],
+  ['o', 'O - Official Passport'],
+  ['official passport', 'O - Official Passport'],
+]);
+
+/** What this site calls the kind of passport the application recorded. */
+export function passportTypeAsNamedHere(type) {
+  if (!type) {
+    return null;
+  }
+  return PASSPORT_TYPES.get(String(type).trim().toLowerCase()) ?? type;
+}
+
 /** What this site calls the nationality the application recorded. */
 export function nationalityAsNamedHere(nationality) {
   if (!nationality) {
@@ -91,6 +115,23 @@ export const FORM_FIELDS = [
   },
 ];
 
+/**
+ * A value in the words this site uses for it.
+ *
+ * The application form and this one describe the same facts differently, and
+ * a value that matches no option is refused outright, so the two fields whose
+ * wording differs are translated on the way in.
+ */
+export function valueAsNamedHere(field, applicant = {}) {
+  if (field.key === 'nationality') {
+    return nationalityAsNamedHere(applicant.nationality);
+  }
+  if (field.key === 'passportType') {
+    return passportTypeAsNamedHere(applicant.passportType);
+  }
+  return applicant[field.key];
+}
+
 /** The selector for a field, for the passenger at `at`. */
 export function selectorFor(field, at = 0) {
   return `[name="${field.index ? `${at}_` : ''}${field.name}"]`;
@@ -107,7 +148,12 @@ export function inputFor(page, field, at = 0) {
   if (field.name) {
     return page.locator(selectorFor(field, at)).first();
   }
-  return page.getByLabel(field.label, { exact: true }).first();
+  // A required field's label ends in the asterisk that marks it, inside the
+  // same element as the words, so an exact match on the words alone finds
+  // "Surname" and never "Given Name *".
+  return page
+    .getByLabel(new RegExp(`^\\s*${field.label}\\s*\\*?\\s*$`))
+    .first();
 }
 
 /**
@@ -120,7 +166,13 @@ export function inputFor(page, field, at = 0) {
  */
 export async function typeInto(input, value, named = 'the field') {
   await input.waitFor({ state: 'visible', timeout: 20000 });
-  await input.fill('');
+  // Clearing is done from the keyboard, not by fill(''). A field this form
+  // has already put a value in keeps it through fill(), and the typing that
+  // follows lands on the end of what was there: a passport number typed
+  // twice reads as both at once.
+  await input.click();
+  await input.press('ControlOrMeta+a');
+  await input.press('Backspace');
   await input.type(String(value), { delay: 15 });
   const shows = await input.inputValue();
   if (shows !== String(value)) {
@@ -183,6 +235,14 @@ export async function openDeclaration({
     viewport ? { viewport } : { viewport: null }
   );
   const page = await context.newPage();
+  // The site expires a declaration after a while and says so in a native
+  // alert. Nothing dismisses one of those on a driven page, so the browser
+  // stops answering entirely and the fill hangs with no error to report.
+  // Taking the dialog here turns that into an expiry the caller can see.
+  page.on('dialog', (dialog) => {
+    page.expired = dialog.message();
+    dialog.accept().catch(() => {});
+  });
   await page.goto(PREARRIVAL_FORM_URL, { waitUntil: 'domcontentloaded' });
   // The page answers before React has drawn the gate, so a caller asking
   // straight away is told there is no captcha and walks into one.
@@ -202,6 +262,97 @@ export function captchaIsUp(page) {
     .locator('[role=dialog]:has-text("CAPTCHA")')
     .isVisible()
     .catch(() => false);
+}
+
+/**
+ * The captcha picture, as bytes.
+ *
+ * The element is drawn before its picture arrives, so the wait is for a data
+ * URL on it, not for the element itself. This site marks the image
+ * `alt="captcha"`
+ * and the visa form marks it `alt="captcha img"`, so each site needs its own
+ * reader.
+ */
+/* global document */
+export async function readCaptchaImage(page) {
+  await page
+    .waitForFunction(
+      () =>
+        /^data:image\//.test(
+          document.querySelector('[role=dialog] img')?.src ?? ''
+        ),
+      undefined,
+      { timeout: 15000 }
+    )
+    .catch(() => {});
+  const src = await page.evaluate(
+    () => document.querySelector('[role=dialog] img')?.src ?? null
+  );
+  const match = src && /^data:image\/\w+;base64,\s*(.+)$/s.exec(src);
+  return match ? Buffer.from(match[1], 'base64') : null;
+}
+
+/** Asks the site for another picture, when one cannot be read. */
+export async function refreshCaptchaImage(page) {
+  await page
+    .getByRole('button', { name: 'Reload CAPTCHA' })
+    .click()
+    .catch(() => {});
+  await page.waitForTimeout(700);
+  return readCaptchaImage(page);
+}
+
+/**
+ * How many characters the site's captcha has, which is how a reading is
+ * judged plausible before it is tried.
+ */
+export const CAPTCHA_LENGTHS = [4, 5];
+
+/**
+ * Reads a captcha picture, by agreement between several treatments of it.
+ *
+ * No single pass is reliable: the picture carries a line through it, and the
+ * treatments that erase the line also erase thin strokes. Reading it several
+ * ways and taking what most of them say is steadier than any one, and a
+ * reading of the wrong length is discarded before it is counted, since the
+ * site's codes are four or five characters.
+ *
+ * Returns the best reading and how many ways agreed on it, so a caller can
+ * decide whether to try it or ask a person.
+ */
+export function readCaptchaText(img, tools) {
+  const { upscale, grayscale, binarize, ocrCanvas } = tools;
+  const votes = new Map();
+  for (const scale of [3, 5]) {
+    for (const make of [
+      () => upscale(img, scale),
+      () => grayscale(upscale(img, scale)),
+      () => binarize(grayscale(upscale(img, scale)), 160),
+    ]) {
+      for (const psm of [7, 8, 13]) {
+        let said = '';
+        try {
+          said = ocrCanvas(make(), {
+            psm,
+            config: {
+              tessedit_char_whitelist:
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
+            },
+          });
+        } catch {
+          continue;
+        }
+        const clean = said.replace(/[^A-Za-z0-9]/g, '');
+        if (!CAPTCHA_LENGTHS.includes(clean.length)) {
+          continue;
+        }
+        votes.set(clean, (votes.get(clean) ?? 0) + 1);
+      }
+    }
+  }
+  const ranked = [...votes.entries()].sort((a, b) => b[1] - a[1]);
+  const [best, agreed] = ranked[0] ?? [null, 0];
+  return { code: best, agreed, votes: ranked };
 }
 
 /**
@@ -342,15 +493,18 @@ export async function fillDeclaration(
   }
 
   for (const field of FORM_FIELDS) {
-    const value =
-      field.key === 'nationality'
-        ? nationalityAsNamedHere(applicant.nationality)
-        : applicant[field.key];
+    const value = valueAsNamedHere(field, applicant);
     if (value === null || value === undefined || value === '') {
       missing.push(field.key);
       continue;
     }
     const input = inputFor(page, field, at);
+    // The nationality is chosen on the step before this one and the form
+    // then locks it, so it is already right and cannot be typed into.
+    if (await input.isDisabled().catch(() => false)) {
+      filled.push(field.key);
+      continue;
+    }
     try {
       // A date here is a plain DD/MM/YYYY text field, not the readonly picker
       // the visa form uses, so it is typed like any other text.
@@ -365,7 +519,9 @@ export async function fillDeclaration(
     }
   }
 
-  return { filled, missing, failed, arrival: null };
+  // An expiry caught mid-fill makes everything typed after it meaningless:
+  // the page is still drawn, but the site has forgotten the declaration.
+  return { filled, missing, failed, arrival: null, expired: page.expired };
 }
 
 /** What the page holds now, read back so a fill can be checked. */

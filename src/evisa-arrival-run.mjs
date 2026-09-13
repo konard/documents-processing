@@ -328,16 +328,19 @@ export async function fillAndShow({
  * back. Nothing is asked for one field at a time.
  */
 export function declarationRefiller(deps) {
-  const { sessions, log } = deps;
+  const { sessions, log, showStatus = () => () => {} } = deps;
   return async function refill(ctx, chatId) {
     const held = sessions.get(chatId).arrival;
     if (!held || held.stage !== 'form') {
       return;
     }
+    const busy = showStatus(ctx, 'typing');
     try {
       await fillAndShow({ ...deps, ctx, chatId });
     } catch (error) {
       log(chatId, `the declaration did not take it: ${error.message}`);
+    } finally {
+      busy();
     }
   };
 }
@@ -349,9 +352,19 @@ export function declarationRefiller(deps) {
  * back would be read against whichever page was found first.
  */
 export function declarationOpener(deps) {
-  const { sessions, log, MESSAGES } = deps;
+  const {
+    sessions,
+    log,
+    MESSAGES,
+    // Telegram's "typing…", held for as long as the work runs. Opening the
+    // site, reading captchas until one is accepted and filling seventeen
+    // fields takes the better part of a minute, and a chat with nothing on
+    // it for that long is read as a bot that has died.
+    showStatus = () => () => {},
+  } = deps;
   return async function begin(ctx, chatId) {
     await closeDeclaration(sessions.get(chatId));
+    const busy = showStatus(ctx, 'typing');
     try {
       await startDeclaration({ ...deps, ctx, chatId });
     } catch (error) {
@@ -359,6 +372,8 @@ export function declarationOpener(deps) {
       await ctx
         .reply(MESSAGES[sessions.get(chatId).language].browserGone)
         .catch(() => {});
+    } finally {
+      busy();
     }
   };
 }
@@ -371,17 +386,24 @@ export function declarationOpener(deps) {
  * — so only a chat with a declaration open can claim it.
  */
 export function declarationCaptchaTaker(deps) {
-  const { sessions, looksLikeCaptcha } = deps;
-  return function tookIt(ctx, chatId) {
+  const { sessions, looksLikeCaptcha, showStatus = () => () => {} } = deps;
+  return async function tookIt(ctx, chatId) {
     if (!sessions.get(chatId).arrival || !looksLikeCaptcha(ctx.message.text)) {
       return false;
     }
-    return tookDeclarationCaptcha({
-      ...deps,
-      ctx,
-      chatId,
-      code: ctx.message.text,
-    });
+    // A code that is accepted is followed by the whole fill, which is the
+    // long part. The chat should see that something is happening.
+    const busy = showStatus(ctx, 'typing');
+    try {
+      return await tookDeclarationCaptcha({
+        ...deps,
+        ctx,
+        chatId,
+        code: ctx.message.text,
+      });
+    } finally {
+      busy();
+    }
   };
 }
 

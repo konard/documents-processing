@@ -243,7 +243,10 @@ describe('asked for the arrival card, the bot goes and gets it', () => {
     const bot = fakeBot();
     registerArrivalCommand(bot, {
       sessions: {
-        get: () => ({ language: 'en', data: { entryDate: '14/09/2026' } }),
+        get: () => ({
+          language: 'en',
+          data: { entryDate: '14/09/2026', nationality: 'Russia' },
+        }),
       },
       log: () => {},
       touch: () => {},
@@ -295,5 +298,33 @@ describe('asked for the arrival card, the bot goes and gets it', () => {
     });
     expect(typeof bot.handlers.get('fill_arrival')).toBe('function');
     expect(typeof bot.handlers.get('arrival')).toBe('function');
+  });
+});
+
+describe('the nationality that gates the whole form', () => {
+  it('opens no browser when the record has none', async () => {
+    // The site draws no field until a nationality is chosen. Without one the
+    // browser opens, a captcha is read, and the page stops on an empty box
+    // with nothing said — which is what a lost session looks like from the
+    // chat, and what a restart had actually caused.
+    const filled = [];
+    const handlers = new Map();
+    registerArrivalCommand(
+      {
+        command: (n, run) => [].concat(n).forEach((o) => handlers.set(o, run)),
+      },
+      {
+        sessions: {
+          get: () => ({ language: 'en', data: { entryDate: '14/09/2026' } }),
+        },
+        log: () => {},
+        touch: () => {},
+        describeDeclaration: () => 'the declaration',
+        MESSAGES: { en: { arrivalIntro: 'the rule' } },
+        fillArrival: (ctx, chatId) => filled.push(chatId),
+      }
+    );
+    await handlers.get('arrival')({ chat: { id: 7 }, reply: async () => {} });
+    expect(filled).toEqual([]);
   });
 });

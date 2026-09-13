@@ -495,6 +495,12 @@ export async function answerCaptcha(page, code) {
  */
 export async function chooseNationality(page, nationality) {
   const named = nationalityAsNamedHere(nationality);
+  // Nothing known to type. The nationality gates every field behind it: the
+  // site draws no form until one is chosen, so name the cause here. Typing a
+  // blank would fail a moment later with an error about types, not about data.
+  if (!named) {
+    throw new Error('no nationality to choose: the record has none');
+  }
   const box = page.locator('input[name="nationality"]');
   await box.waitFor({ state: 'visible', timeout: 20000 });
   await box.fill('');

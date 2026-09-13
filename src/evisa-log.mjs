@@ -197,6 +197,42 @@ export function logPassportReading(chatId, read, { log, shown }) {
 }
 
 /**
+ * Writes out what a fill did to the form: what took, what the site rewrote,
+ * and what would not go in at all.
+ *
+ * The counts are the shape of the fill at a glance; the lines under them name
+ * the fields, which is what a later reading of the log needs to tell a broken
+ * selector from a control that rebuilds itself.
+ */
+export function logFill(chatId, result, { log, shown }) {
+  log(
+    chatId,
+    `filled ${result.filled.length} (typed ${result.typed?.length ?? 0})` +
+      `, failed ${result.failures.length}` +
+      `, site agreed on ${result.agreed?.length ?? 0}` +
+      `, corrected ${result.corrected?.length ?? 0}` +
+      `, set again ${result.refilled?.length ?? 0}`
+  );
+  if (result.refilled?.length) {
+    // Which fields the site emptied after they were written: the same names
+    // recurring point at a control that rebuilds itself.
+    log(
+      chatId,
+      `emptied by the site, set again: ${result.refilled.join(', ')}`
+    );
+  }
+  for (const failure of result.failures) {
+    log(
+      chatId,
+      `could not fill ${failure.field}: ${failure.error.split('\n')[0]}`
+    );
+  }
+  for (const change of result.corrected ?? []) {
+    log(chatId, `corrected ${change.field}: site had "${shown(change.was)}"`);
+  }
+}
+
+/**
  * Writes a page's markup to a file beside the kept documents, named for the
  * moment: the empty form, the filled one, the page after Next.
  *

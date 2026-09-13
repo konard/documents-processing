@@ -19,6 +19,7 @@ import {
   withholdFromLog,
   describeFields,
   logPassportReading,
+  logFill,
   keepMarkup,
   announce,
   valuesAllowed,
@@ -257,7 +258,6 @@ const PRINTED_SIDE = [
   'passportIssuingAuthority',
 ];
 
-/** The address fields, each checked against the map when it arrives. */
 /**
  * True within a minute of the chat hearing that its browser closed: a
  * fill that dies of the same closing needs no second message.
@@ -522,34 +522,6 @@ async function fillPage(ctx, chatId, page, dir) {
 }
 
 /** Writes what a fill did to the log, one line per thing worth knowing. */
-function logFill(chatId, result) {
-  log(
-    chatId,
-    `filled ${result.filled.length} (typed ${result.typed?.length ?? 0})` +
-      `, failed ${result.failures.length}` +
-      `, site agreed on ${result.agreed?.length ?? 0}` +
-      `, corrected ${result.corrected?.length ?? 0}` +
-      `, set again ${result.refilled?.length ?? 0}`
-  );
-  if (result.refilled?.length) {
-    // Which fields the site emptied after they were written: the same names
-    // recurring point at a control that rebuilds itself.
-    log(
-      chatId,
-      `emptied by the site, set again: ${result.refilled.join(', ')}`
-    );
-  }
-  for (const failure of result.failures) {
-    log(
-      chatId,
-      `could not fill ${failure.field}: ${failure.error.split('\n')[0]}`
-    );
-  }
-  for (const change of result.corrected ?? []) {
-    log(chatId, `corrected ${change.field}: site had "${shown(change.was)}"`);
-  }
-}
-
 /**
  * Fills the form with what the chat has provided and sends back the page.
  *
@@ -582,7 +554,7 @@ async function fillAndShow(ctx, chatId, round = 1) {
       page,
       dir
     );
-    logFill(chatId, result);
+    logFill(chatId, result, { log, shown });
     if (repeat) {
       // The same values, with the same fields refusing them: the applicant
       // has this form already and a correction is what moves it on.
@@ -1139,6 +1111,10 @@ const arrivalDeps = {
   sessions,
   log,
   looksLikeCaptcha,
+  // "typing…" for as long as the declaration is being opened and filled: a
+  // captcha read several times over and seventeen fields typed take the
+  // better part of a minute, and a silent chat is read as a dead bot.
+  showStatus: (...args) => showStatus(...args),
   askCaptcha: (...args) => askCaptcha(...args),
   MESSAGES,
   describeFilled,

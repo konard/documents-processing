@@ -401,6 +401,14 @@ export function registerArrivalCommand(bot, deps) {
       log(chatId, `too early to file: the window opens on ${shut.opens}`);
       return;
     }
+    // The nationality gates the whole form: the site draws no field until one
+    // is chosen. Without it the browser opens, a captcha is read, and the page
+    // stops on an empty box with nothing said — which is what a restart, and
+    // the lost session it takes with it, looks like from the chat.
+    if (!values.nationality) {
+      log(chatId, 'nothing to fill with: the record has no nationality');
+      return;
+    }
     await fillArrival(ctx, chatId);
   }
 

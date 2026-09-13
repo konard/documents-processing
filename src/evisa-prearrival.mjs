@@ -407,6 +407,8 @@ export function registerArrivalCommand(bot, deps) {
     // the lost session it takes with it, looks like from the chat.
     if (!values.nationality) {
       log(chatId, 'nothing to fill with: the record has no nationality');
+      const strings = MESSAGES[session.language] ?? MESSAGES.en;
+      await ctx.reply(strings.arrivalNothingToFill).catch(() => {});
       return;
     }
     await fillArrival(ctx, chatId);

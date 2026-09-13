@@ -320,11 +320,23 @@ describe('the nationality that gates the whole form', () => {
         log: () => {},
         touch: () => {},
         describeDeclaration: () => 'the declaration',
-        MESSAGES: { en: { arrivalIntro: 'the rule' } },
+        MESSAGES: {
+          en: {
+            arrivalIntro: 'the rule',
+            arrivalNothingToFill: 'no fields without a nationality',
+          },
+        },
         fillArrival: (ctx, chatId) => filled.push(chatId),
       }
     );
-    await handlers.get('arrival')({ chat: { id: 7 }, reply: async () => {} });
+    const said = [];
+    await handlers.get('arrival')({
+      chat: { id: 7 },
+      reply: async (text) => said.push(text),
+    });
     expect(filled).toEqual([]);
+    // And it says why. A list of what is wanted, with no sign that anything
+    // was waiting on it, reads as a bot that stopped.
+    expect(said.includes('no fields without a nationality')).toBe(true);
   });
 });

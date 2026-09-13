@@ -14,6 +14,8 @@ import {
   PASSPORT_MARGIN_DAYS,
   PREARRIVAL_FORM_URL,
   ARRIVAL_WINDOW_DAYS,
+  FIELD_TIMEOUT_MS,
+  GONE_TIMEOUT_MS,
 } from '../src/evisa-prearrival-form.mjs';
 
 describe('the declaration form the site actually draws', () => {
@@ -406,5 +408,91 @@ describe('what a failure looks like to someone reading a chat', () => {
     const { saidBriefly } = await import('../src/evisa-messages.mjs');
     expect(saidBriefly('plain words')).toBe('plain words');
     expect(saidBriefly(null)).toBe('null');
+  });
+});
+
+describe('a form the site never drew', () => {
+  /**
+   * A page with no fields on it, counting what each wait was asked to allow.
+   *
+   * This is the declaration as it stands when the nationality never took: the
+   * site draws nothing until one is chosen, so every field behind it is
+   * absent and every wait for one runs out.
+   */
+  function emptyPage(waits) {
+    const input = {
+      isDisabled: async () => false,
+      inputValue: async () => '',
+      waitFor: async ({ timeout }) => {
+        waits.push(timeout);
+        throw new Error(`locator.waitFor: Timeout ${timeout}ms exceeded.`);
+      },
+    };
+    return {
+      locator: () => ({
+        first: () => input,
+        allTextContents: async () => [],
+      }),
+      getByRole: () => ({ first: () => input }),
+      getByLabel: () => ({ first: () => input }),
+    };
+  }
+
+  it('asks briefly for the fields after the first one that is absent', async () => {
+    // Three fields timing out at twenty seconds apiece spent a minute
+    // learning the same thing, while the chat said nothing at all.
+    const waits = [];
+    const result = await fillDeclaration(emptyPage(waits), {
+      passportNumber: '712345678',
+      surname: 'TRAVELLER',
+      givenName: 'JOHN',
+      email: 'traveller@example.com',
+    });
+    expect(result.filled).toEqual([]);
+    expect(waits.length > 1).toBe(true);
+    // The first pays the full wait, since a field arriving late is normal.
+    expect(waits[0]).toBe(FIELD_TIMEOUT_MS);
+    // Every one after it is asked briefly.
+    expect(waits.slice(1).every((one) => one === GONE_TIMEOUT_MS)).toBe(true);
+  });
+
+  it('names every absent field, so none is passed over in silence', async () => {
+    const waits = [];
+    const result = await fillDeclaration(emptyPage(waits), {
+      passportNumber: '712345678',
+      surname: 'TRAVELLER',
+    });
+    // The box that unlocks the visa section is not drawn either, and is
+    // reported alongside the fields.
+    const named = result.failed.map((one) => one.split(':')[0]);
+    expect(named.includes('passportNumber')).toBe(true);
+    expect(named.includes('surname')).toBe(true);
+    expect(result.filled).toEqual([]);
+  });
+
+  it('keeps the full wait while fields are going in', async () => {
+    // A form that is being drawn in pieces must not be cut short by one slow
+    // field: the short wait is for a form that is not there at all.
+    const waits = [];
+    const page = emptyPage(waits);
+    let seen = 0;
+    const good = {
+      isDisabled: async () => false,
+      inputValue: async () => '712345678',
+      waitFor: async ({ timeout }) => waits.push(timeout),
+      click: async () => {},
+      press: async () => {},
+      type: async () => {},
+    };
+    page.locator = () => ({
+      first: () => (seen++ === 0 ? good : good),
+      allTextContents: async () => [],
+    });
+    page.getByLabel = () => ({ first: () => good });
+    await fillDeclaration(page, {
+      passportNumber: '712345678',
+      surname: 'TRAVELLER',
+    });
+    expect(waits.every((one) => one === FIELD_TIMEOUT_MS)).toBe(true);
   });
 });

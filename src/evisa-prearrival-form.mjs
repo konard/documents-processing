@@ -174,6 +174,24 @@ function dayFrom(text) {
   return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
 }
 
+/**
+ * How long to wait for a field the site should have drawn, in milliseconds.
+ *
+ * Generous, because this form draws itself in pieces as the values above each
+ * field are settled, and a field arriving late is normal.
+ */
+export const FIELD_TIMEOUT_MS = 20000;
+
+/**
+ * How long to wait for a field where the form is known not to be there.
+ *
+ * A declaration whose nationality never took has no fields at all behind it,
+ * since the site draws none until one is chosen. The full wait for each of
+ * them costs a minute to learn the same thing three times over. The first
+ * timeout is the evidence; the rest are asked for briefly.
+ */
+export const GONE_TIMEOUT_MS = 1000;
+
 /** How long the passport must outlast the visa, in days. */
 export const PASSPORT_MARGIN_DAYS = 30;
 
@@ -281,8 +299,13 @@ export function inputFor(page, field, at = 0) {
  * is shown but not kept: the form submits the empty string it still believes
  * in. Everything here is typed for that reason.
  */
-export async function typeInto(input, value, named = 'the field') {
-  await input.waitFor({ state: 'visible', timeout: 20000 });
+export async function typeInto(
+  input,
+  value,
+  named = 'the field',
+  { timeout = FIELD_TIMEOUT_MS } = {}
+) {
+  await input.waitFor({ state: 'visible', timeout });
   // Clearing is done from the keyboard, not by fill(''). A field this form
   // has already put a value in keeps it through fill(), and the typing that
   // follows lands on the end of what was there: a passport number typed
@@ -305,8 +328,14 @@ export async function typeInto(input, value, named = 'the field') {
  * one option that contains the value is taken. Anything more ambiguous than
  * that raises, since guessing at somebody's nationality is not safe.
  */
-export async function chooseFrom(page, input, value, named = 'the field') {
-  await input.waitFor({ state: 'visible', timeout: 20000 });
+export async function chooseFrom(
+  page,
+  input,
+  value,
+  named = 'the field',
+  { timeout = FIELD_TIMEOUT_MS } = {}
+) {
+  await input.waitFor({ state: 'visible', timeout });
   await input.fill('');
   await input.type(String(value), { delay: 25 });
   const options = page.locator('[role=option]');
@@ -729,6 +758,44 @@ async function fillTheRest(
 }
 
 /**
+ * Puts one value in one field, saying what became of it.
+ *
+ * `drawn` says whether the form is believed to be there. Where it is not, the
+ * wait is short: the answer is the same and comes sixty times sooner.
+ */
+async function putOneIn(page, field, value, { at, drawn }) {
+  const input = inputFor(page, field, at);
+  // A locked field cannot be typed into, so what matters is whether the site
+  // has already put the right thing in it. The nationality is chosen a step
+  // earlier and locked holding that choice, which is filled; the issuing
+  // place is locked empty until the visa type is set, and calling that
+  // filled reported a blank field as done.
+  if (await input.isDisabled().catch(() => false)) {
+    const already = await input.inputValue().catch(() => '');
+    return already
+      ? { ok: true }
+      : { ok: false, why: 'locked and empty', absent: false };
+  }
+  const waiting = { timeout: drawn ? FIELD_TIMEOUT_MS : GONE_TIMEOUT_MS };
+  try {
+    // A date here is a plain DD/MM/YYYY text field, not the readonly picker
+    // the visa form uses, so it is typed like any other text.
+    if (field.how === 'select') {
+      await chooseFrom(page, input, value, field.key, waiting);
+    } else {
+      await typeInto(input, value, field.key, waiting);
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      why: saidBriefly(error),
+      absent: isMissingFromPage(error),
+    };
+  }
+}
+
+/**
  * Fills the declaration with everything known about one traveller.
  *
  * Nothing is invented: a value the record has not got is left empty and named
@@ -742,6 +809,9 @@ export async function fillDeclaration(
   const filled = [];
   const missing = [];
   const failed = [];
+  // Whether the site has drawn the form at all. Assumed until a field that
+  // should be there is not.
+  let drawn = true;
 
   // The traveller gives one phone number and the site wants two fields of it.
   // The split belongs here, on this site's doorstep: the record goes on
@@ -768,32 +838,20 @@ export async function fillDeclaration(
       missing.push(field.key);
       continue;
     }
-    const input = inputFor(page, field, at);
-    // A locked field cannot be typed into, so what matters is whether the site
-    // has already put the right thing in it. The nationality is chosen a step
-    // earlier and locked holding that choice, which is filled; the issuing
-    // place is locked empty until the visa type is set, and calling that
-    // filled reported a blank field as done.
-    if (await input.isDisabled().catch(() => false)) {
-      const already = await input.inputValue().catch(() => '');
-      if (already) {
-        filled.push(field.key);
-      } else {
-        failed.push(`${field.key}: locked and empty`);
-      }
+    const went = await putOneIn(page, field, value, { at, drawn });
+    if (went.ok) {
+      filled.push(field.key);
+      // Something was there to take it, so the form is drawn after all and
+      // the fields after this one are worth the full wait again.
+      drawn = true;
       continue;
     }
-    try {
-      // A date here is a plain DD/MM/YYYY text field, not the readonly picker
-      // the visa form uses, so it is typed like any other text.
-      if (field.how === 'select') {
-        await chooseFrom(page, input, value, field.key);
-      } else {
-        await typeInto(input, value, field.key);
-      }
-      filled.push(field.key);
-    } catch (error) {
-      failed.push(`${field.key}: ${saidBriefly(error)}`);
+    failed.push(`${field.key}: ${went.why}`);
+    // Nothing has gone in yet and this one was not even drawn. The site draws
+    // no field until the nationality is chosen, so the rest are almost
+    // certainly absent too: ask briefly and report them together.
+    if (!filled.length && went.absent) {
+      drawn = false;
     }
   }
 
@@ -809,6 +867,18 @@ export async function fillDeclaration(
     // whole point: the traveller cannot see the red text under the field.
     refused: whatThisSiteWillRefuse(applicant),
   };
+}
+
+/**
+ * True when a failure says the element was never there.
+ *
+ * A timeout waiting for a field to become visible is the site not having
+ * drawn it. Anything else — a value that would not take, a list with no
+ * matching option — is about a field that does exist, and says nothing about
+ * the rest of the form.
+ */
+export function isMissingFromPage(error) {
+  return /Timeout .* exceeded/i.test(String(error?.message ?? error));
 }
 
 /** What the page holds now, read back so a fill can be checked. */

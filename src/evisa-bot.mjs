@@ -300,6 +300,7 @@ export function describeChecklist(fields, language) {
 const ARRIVAL_LABELS = {
   en: {
     fullName: 'full name',
+    passportType: 'passport type',
     gender: 'sex',
     dateOfBirth: 'date of birth',
     nationality: 'nationality',
@@ -324,6 +325,7 @@ const ARRIVAL_LABELS = {
   },
   ru: {
     fullName: 'имя и фамилия',
+    passportType: 'тип паспорта',
     gender: 'пол',
     dateOfBirth: 'дата рождения',
     nationality: 'гражданство',
@@ -355,6 +357,40 @@ export { sectionName } from './evisa-sections.mjs';
 const HYPHEN_NOTED = ['surname', 'givenName', 'emergencyName'];
 
 /** The three parts a pre-arrival declaration is printed in. */
+/**
+ * What each field will take, shown by example.
+ *
+ * A field name alone says what is wanted and not what shape it comes in, and
+ * the declaration site refuses several of these outright for their shape: a
+ * date in the wrong order, a telephone without its country, a visa number
+ * with the suffix the visa itself prints. An example answers that before the
+ * traveller types, where a refusal answers it afterwards.
+ */
+const ARRIVAL_EXAMPLES = {
+  en: {
+    dateOfBirth: '[REDACTED]',
+    passportExpiryDate: '[REDACTED]',
+    email: 'you@example.com',
+    phone: '+7 912 345 67 89, with the country code',
+    visaExpiryDate: '[REDACTED]',
+    departureDate: '[REDACTED]',
+    borderGate: 'e.g. Tan Son Nhat',
+    accommodationType: 'hotel, apartment, a friend´s home',
+    accommodationAddress: 'as the booking spells it',
+  },
+  ru: {
+    dateOfBirth: '[REDACTED]',
+    passportExpiryDate: '[REDACTED]',
+    email: 'you@example.com',
+    phone: '+7 912 345 67 89, обязательно с кодом страны',
+    visaExpiryDate: '[REDACTED]',
+    departureDate: '[REDACTED]',
+    borderGate: 'например Tan Son Nhat',
+    accommodationType: 'отель, квартира, у друзей',
+    accommodationAddress: 'как написано в брони',
+  },
+};
+
 const ARRIVAL_GROUPS = {
   en: { passenger: 'Passenger', visa: 'Visa', trip: 'Trip' },
   ru: { passenger: 'Пассажир', visa: 'Виза', trip: 'Поездка' },
@@ -385,7 +421,24 @@ export function describeDeclaration(values, missing, language) {
   }
   if (missing.length) {
     parts.push(`<b>${strings.arrivalMissing}</b>`);
-    parts.push(...missing.map((key) => `• ${labels[key] ?? key}`));
+    // Grouped like the values above, and each one shown by example. A flat
+    // nineteen-line list is read as a form to work through; the same fields
+    // under their headings, each saying what it will take, are read as a
+    // handful of things to type in one message.
+    const shown = ARRIVAL_EXAMPLES[language] ?? ARRIVAL_EXAMPLES.en;
+    for (const [key, heading] of Object.entries(groups)) {
+      const lines = PREARRIVAL_ORDER.filter(
+        (field) => field.group === key && missing.includes(field.key)
+      ).map((field) => {
+        const named = labels[field.key] ?? field.label;
+        const example = shown[field.key];
+        return example ? `• ${named} — ${example}` : `• ${named}`;
+      });
+      if (lines.length) {
+        parts.push('', `<i>${heading}</i>`, ...lines);
+      }
+    }
+    parts.push('', strings.arrivalHowToSend);
   }
   return parts.join('\n').trim();
 }

@@ -397,11 +397,39 @@ describe('what the arrival declaration tells the applicant', () => {
     for (const language of ['en', 'ru']) {
       const said = MESSAGES[language].arrivalIntro;
       expect(`${language}:${said.includes('72')}`).toBe(`${language}:true`);
-      expect(
-        `${language}:${said.includes('prearrival.immigration.gov.vn')}`
-      ).toBe(`${language}:true`);
     }
     expect(MESSAGES.ru.arrivalIntro.includes('незадолго')).toBe(false);
+  });
+
+  it('says the one rule and stops', () => {
+    // The traveller asked for their arrival card, not a briefing. Advice on
+    // when people usually fill it in, what it costs, and what happens at the
+    // border is text between them and the thing they asked for — and the bot
+    // drives the site itself, so even the address is theirs to never type.
+    for (const language of ['en', 'ru']) {
+      const said = MESSAGES[language].arrivalIntro;
+      expect(`${language}:${said.length < 90}`).toBe(`${language}:true`);
+      expect(`${language}:${said.split('\n').length}`).toBe(`${language}:1`);
+    }
+  });
+
+  it('groups what is wanted and shows what each field takes', async () => {
+    // Nineteen lines in one list read as a form to work through. Under their
+    // headings, each saying what it will take, they read as a few things to
+    // type in one message — and the site refuses several of these for their
+    // shape alone, which an example answers before the traveller types.
+    const { describeDeclaration } = await import('../src/evisa-bot.mjs');
+    const said = describeDeclaration(
+      { fullName: 'TRAVELLER SAMPLE' },
+      ['phone', 'email', 'accommodationAddress', 'departureDate'],
+      'ru'
+    );
+    expect(said.includes('<i>Пассажир</i>')).toBe(true);
+    expect(said.includes('<i>Поездка</i>')).toBe(true);
+    // The phone is refused without its country code, so the example says so.
+    expect(said.includes('+7')).toBe(true);
+    // And the whole promise: one message, their own words.
+    expect(said.includes('одним сообщением')).toBe(true);
   });
 });
 

@@ -16,15 +16,17 @@ export const MESSAGES = {
       '/arrival — the pre-arrival declaration, for after the visa\n' +
       '/stop — stop, and close the browser window\n\n' +
       'The buttons below change the language.',
+    // Short on purpose. The traveller wants their arrival card filled, not a
+    // briefing: the one rule that constrains them is the 72 hours, and the
+    // rest belongs in what they are asked for.
     arrivalIntro:
-      'The pre-arrival declaration is filed within 72 hours of landing — the ' +
-      'site takes the day you arrive or either of the two days before it, ' +
-      'and nothing earlier. The evening before you fly is the usual time: ' +
-      'that leaves room to correct a mistake, and a correction means filling ' +
-      'it in again. It is free at prearrival.immigration.gov.vn, and it ' +
-      'needs the granted visa and the flight. Without it you are still let ' +
-      'in, but the queue is longer. Here is what I already have for it.',
-    arrivalMissing: 'Still needed for it:',
+      'The declaration can be filed no earlier than 72 hours before arrival.',
+    arrivalMissing: 'Still needed:',
+    // The whole promise in one line: write it however you like, all at once.
+    // Without it the list above reads as a questionnaire to be answered a
+    // line at a time, which is what this bot exists to avoid.
+    arrivalHowToSend:
+      'Send it all in one message, in your own words — I will sort it out.',
     // Said as soon as the landing date is known, and again with the values
     // read off each document. Nothing is wrong when the window is shut: it is
     // simply not open yet, and the traveller should not be left wondering
@@ -309,13 +311,10 @@ export const MESSAGES = {
       '/stop — остановиться и закрыть окно браузера\n\n' +
       'Кнопки ниже меняют язык.',
     arrivalIntro:
-      'Декларацию подают не раньше чем за 72 часа до прилёта — сайт принимает ' +
-      'день прилёта и два дня перед ним, раньше нельзя. Обычно её заполняют ' +
-      'вечером накануне вылета: останется время исправить ошибку, а исправить ' +
-      'её можно только заполнив заново. Это бесплатно, на ' +
-      'prearrival.immigration.gov.vn, и нужны выданная виза и рейс. Без неё ' +
-      'тоже впустят, но очередь будет дольше. Вот что у меня для неё уже есть.',
-    arrivalMissing: 'Для неё ещё нужно:',
+      'Подать декларацию можно не ранее чем за 72 часа до прибытия.',
+    arrivalMissing: 'Ещё нужно:',
+    arrivalHowToSend:
+      'Пришлите всё одним сообщением, своими словами — я разберу.',
     arrivalWindowShut: (arrival, opens, days) =>
       `Вы прилетаете ${arrival}, поэтому сайт начнёт принимать эту ` +
       `декларацию ${opens} — ${days === 1 ? 'завтра' : `через ${days} ${days < 5 ? 'дня' : 'дней'}`}. ` +

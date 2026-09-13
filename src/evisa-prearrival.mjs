@@ -362,9 +362,17 @@ export function registerArrivalCommand(bot, deps) {
     rehearsing = () => false,
   } = deps;
 
-  bot.command('arrival', async (ctx) => {
+  /**
+   * Asked for the arrival card: show what is known and go and fill it in.
+   *
+   * Showing and filling are one act, not two. Asked for the arrival card, the
+   * bot goes and gets the arrival card; a chat told what it knows and then
+   * left waiting for a second command it was never told about has been asked
+   * a question, which is the one thing this bot does not do.
+   */
+  async function doTheArrivalCard(ctx, said) {
     const chatId = ctx.chat.id;
-    log(chatId, '/arrival');
+    log(chatId, said);
     touch(chatId);
     const session = enterMode(sessions.get(chatId), MODES.arriving);
     session.language = speakTheirLanguage(chatId);
@@ -375,21 +383,9 @@ export function registerArrivalCommand(bot, deps) {
       describeDeclaration,
       intro: true,
     });
-  });
-
-  // Showing the declaration and filling it in are separate asks. The first
-  // costs nothing and answers from memory; the second opens a browser on a
-  // government site and puts a captcha in front of the traveller, which is
-  // not something to do to somebody who only wanted to see the list.
-  if (!fillArrival) {
-    return;
-  }
-  bot.command(['fill_arrival', 'fill-arrival'], async (ctx) => {
-    const chatId = ctx.chat.id;
-    log(chatId, '/fill_arrival');
-    touch(chatId);
-    const session = enterMode(sessions.get(chatId), MODES.arriving);
-    session.language = speakTheirLanguage(chatId);
+    if (!fillArrival) {
+      return;
+    }
     // Answered from memory before any browser opens. The site would draw a
     // captcha, take the reading, and then offer three days that do not
     // include the flight — a minute of the traveller's attention spent to
@@ -403,15 +399,13 @@ export function registerArrivalCommand(bot, deps) {
     const shut = rehearsing() ? null : windowOpensOn(values.arrivalDate);
     if (shut) {
       log(chatId, `too early to file: the window opens on ${shut.opens}`);
-      await ctx.reply(
-        MESSAGES[session.language].arrivalWindowShut(
-          values.arrivalDate,
-          shut.opens,
-          shut.days
-        )
-      );
       return;
     }
     await fillArrival(ctx, chatId);
-  });
+  }
+
+  bot.command('arrival', (ctx) => doTheArrivalCard(ctx, '/arrival'));
+  bot.command(['fill_arrival', 'fill-arrival'], (ctx) =>
+    doTheArrivalCard(ctx, '/fill_arrival')
+  );
 }

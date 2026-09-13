@@ -8,6 +8,7 @@ import {
   VISA_FIELDS,
   windowOpensOn,
   nowInVietnam,
+  registerArrivalCommand,
 } from '../src/evisa-prearrival.mjs';
 import {
   arrivalDateOverride,
@@ -217,5 +218,82 @@ describe('the rehearsal that fills the form for a day the site offers', () => {
     } finally {
       delete process.env.EVISA_ARRIVAL_DATE_OVERRIDE;
     }
+  });
+});
+
+describe('asked for the arrival card, the bot goes and gets it', () => {
+  /** A bot that records the commands registered on it. */
+  function fakeBot() {
+    const handlers = new Map();
+    return {
+      handlers,
+      command: (name, run) => {
+        for (const one of [].concat(name)) {
+          handlers.set(one, run);
+        }
+      },
+    };
+  }
+
+  it('fills the form on /arrival, without a second command', async () => {
+    // Showing what is known and then waiting for a command nobody mentioned
+    // is asking a question, which is the one thing this bot does not do.
+    const filled = [];
+    const replies = [];
+    const bot = fakeBot();
+    registerArrivalCommand(bot, {
+      sessions: {
+        get: () => ({ language: 'en', data: { entryDate: '14/09/2026' } }),
+      },
+      log: () => {},
+      touch: () => {},
+      describeDeclaration: () => 'the declaration',
+      MESSAGES: { en: { arrivalIntro: 'the rule' } },
+      fillArrival: (ctx, chatId) => filled.push(chatId),
+    });
+    await bot.handlers.get('arrival')({
+      chat: { id: 7 },
+      reply: async (text) => replies.push(text),
+    });
+    expect(filled).toEqual([7]);
+    // And it said what it knew first, so the fill is not a silent surprise.
+    expect(replies.includes('the declaration')).toBe(true);
+  });
+
+  it('opens nothing when the site will not take the declaration yet', async () => {
+    // A browser and a captcha spent to be told what the ticket already said.
+    const filled = [];
+    const bot = fakeBot();
+    registerArrivalCommand(bot, {
+      sessions: {
+        get: () => ({ language: 'en', data: { entryDate: '31/12/2030' } }),
+      },
+      log: () => {},
+      touch: () => {},
+      describeDeclaration: () => 'the declaration',
+      MESSAGES: {
+        en: { arrivalIntro: 'the rule', arrivalWindowShut: () => 'not yet' },
+      },
+      fillArrival: (ctx, chatId) => filled.push(chatId),
+    });
+    await bot.handlers.get('arrival')({
+      chat: { id: 7 },
+      reply: async () => {},
+    });
+    expect(filled).toEqual([]);
+  });
+
+  it('answers /fill_arrival the same way', async () => {
+    const bot = fakeBot();
+    registerArrivalCommand(bot, {
+      sessions: { get: () => ({ language: 'en', data: {} }) },
+      log: () => {},
+      touch: () => {},
+      describeDeclaration: () => 'the declaration',
+      MESSAGES: { en: { arrivalIntro: 'the rule' } },
+      fillArrival: () => {},
+    });
+    expect(typeof bot.handlers.get('fill_arrival')).toBe('function');
+    expect(typeof bot.handlers.get('arrival')).toBe('function');
   });
 });

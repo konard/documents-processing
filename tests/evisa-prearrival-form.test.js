@@ -220,28 +220,58 @@ describe('what the site will refuse, said before it refuses it', () => {
 });
 
 describe('the controls that are not text', () => {
-  /** A radio or checkbox that answers like Material UI's does. */
-  function control({ checked = false, takes = true } = {}) {
-    const state = { checked };
+  /**
+   * A radio or checkbox that answers like Material UI's does.
+   *
+   * `takes` says which ways in the control accepts: `check` for one that sets
+   * from its own input, `label` for one whose handler hangs on the label, and
+   * `dispatch` for one that only listens. The site has drawn all three.
+   */
+  function control({ checked = false, takes = true, disabled = false } = {}) {
+    const state = { checked, clicked: [] };
+    const accepts = (way) =>
+      takes === true ? way === 'check' : [].concat(takes).includes(way);
+    const set = (way) => {
+      state.clicked.push(way);
+      if (accepts(way)) {
+        state.checked = true;
+      }
+    };
+    const label = {
+      click: async () => set('label'),
+    };
     return {
       state,
+      label,
       waitFor: async () => {},
       isVisible: async () => true,
+      isDisabled: async () => disabled,
       isChecked: async () => state.checked,
       check: async () => {
-        if (takes) {
-          state.checked = true;
+        set('check');
+        if (!accepts('check')) {
+          throw new Error('Clicking the checkbox did not change its state');
         }
       },
+      dispatchEvent: async () => set('dispatch'),
+      // The ancestor label, reached the way chooseGender reaches it.
+      locator: () => ({ or: () => ({ first: () => label }) }),
     };
   }
+
+  /** A page holding one control, which is all these ask for. */
+  const pageWith = (one) => ({
+    getByRole: () => ({ first: () => one }),
+    getByText: () => one.label,
+    locator: () => ({ filter: () => ({ first: () => one.label }) }),
+  });
 
   it('reads the gender back, so a tick that did not take is reported', () => {
     // The radio's input is zero-sized under a drawn circle, and a click that
     // lands on the decoration leaves the field blank. Reported filled, it
     // left a required answer empty on a page that looked complete.
-    const radio = control({ takes: false });
-    const page = { getByRole: () => ({ first: () => radio }) };
+    const radio = control({ takes: [] });
+    const page = pageWith(radio);
     return chooseGender(page, 'Male').then(
       () => {
         throw new Error('a tick that did not take was reported as filled');
@@ -254,6 +284,7 @@ describe('the controls that are not text', () => {
     const radio = control();
     const asked = [];
     const page = {
+      ...pageWith(radio),
       getByRole: (role, options) => {
         asked.push(`${role}:${options.name}`);
         return { first: () => radio };
@@ -264,18 +295,53 @@ describe('the controls that are not text', () => {
     expect(radio.state.checked).toBe(true);
   });
 
+  it('clicks the label when the input swallows the click', async () => {
+    // Material UI hangs its handler on the label, and React rerenders over an
+    // input clicked directly, putting it back the way it was. This is the
+    // failure the live form actually gave: "Clicking the checkbox did not
+    // change its state", with the gender left blank on a page reported full.
+    const radio = control({ takes: 'label' });
+    expect(await chooseGender(pageWith(radio), 'Male')).toBe('Male');
+    expect(radio.state.checked).toBe(true);
+    expect(radio.state.clicked).toEqual(['check', 'label']);
+  });
+
+  it('dispatches the event when nothing can be clicked', async () => {
+    const radio = control({ takes: 'dispatch' });
+    expect(await chooseGender(pageWith(radio), 'Male')).toBe('Male');
+    expect(radio.state.clicked).toEqual(['check', 'label', 'dispatch']);
+  });
+
+  it('stops at the first way in that works', async () => {
+    const radio = control({ takes: 'check' });
+    await chooseGender(pageWith(radio), 'Male');
+    expect(radio.state.clicked).toEqual(['check']);
+  });
+
+  it('refuses to force a control the site has locked', async () => {
+    // Dispatching a click at a disabled input does set `checked`, which would
+    // report a gender the form has not got.
+    const radio = control({ disabled: true });
+    return chooseGender(pageWith(radio), 'Male').then(
+      () => {
+        throw new Error('a disabled radio was reported as ticked');
+      },
+      (error) => expect(error.message.includes('disabled')).toBe(true)
+    );
+  });
+
   it('ticks the box that unlocks the visa section', async () => {
     // "Please check this box to continue": until it is ticked the site holds
     // the visa fields behind an error and refuses everything typed there.
     const box = control();
-    const page = { getByRole: () => ({ first: () => box }) };
+    const page = pageWith(box);
     expect(await acknowledgeVisaNotes(page)).toBe(true);
     expect(box.state.checked).toBe(true);
   });
 
   it('leaves a box the site already ticked alone', async () => {
     const box = control({ checked: true });
-    const page = { getByRole: () => ({ first: () => box }) };
+    const page = pageWith(box);
     expect(await acknowledgeVisaNotes(page)).toBe(true);
   });
 });
@@ -297,5 +363,48 @@ describe('the declaration is never sent on the traveller´s behalf', () => {
     expect(
       PREARRIVAL_FORM_URL.startsWith('https://prearrival.immigration.gov.vn')
     ).toBe(true);
+  });
+});
+
+describe('what a failure looks like to someone reading a chat', () => {
+  it('keeps the reason and drops the call log', async () => {
+    // A Playwright error carries forty lines of selectors and click actions
+    // in `message`. All of it reached the chat, under the traveller's own
+    // values, as a wall of "waiting for locator(...)".
+    const { saidBriefly } = await import('../src/evisa-messages.mjs');
+    const escape = String.fromCharCode(27);
+    const said = saidBriefly(
+      new Error(
+        'locator.check: Clicking the checkbox did not change its state\n' +
+          'Call log:\n' +
+          `${escape}[2m  - waiting for getByRole('radio')${escape}[22m\n` +
+          `${escape}[2m  - attempting click action${escape}[22m`
+      )
+    );
+    expect(said).toBe(
+      'locator.check: Clicking the checkbox did not change its state'
+    );
+  });
+
+  it('strips the dimming codes, escape or no escape', async () => {
+    const { saidBriefly } = await import('../src/evisa-messages.mjs');
+    // Telegram shows these as a literal "[2m" where the escape was lost on
+    // the way through, so both spellings have to go.
+    expect(saidBriefly('[2m  - waiting for locator(x)[22m')).toBe(
+      '- waiting for locator(x)'
+    );
+  });
+
+  it('caps a single line that runs on', async () => {
+    const { saidBriefly } = await import('../src/evisa-messages.mjs');
+    const said = saidBriefly(new Error('x'.repeat(500)));
+    expect(said.length).toBe(120);
+    expect(said.endsWith('...')).toBe(true);
+  });
+
+  it('takes something that is not an error at all', async () => {
+    const { saidBriefly } = await import('../src/evisa-messages.mjs');
+    expect(saidBriefly('plain words')).toBe('plain words');
+    expect(saidBriefly(null)).toBe('null');
   });
 });

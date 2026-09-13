@@ -25,7 +25,7 @@ import {
 import { PREARRIVAL_FIELDS as PREARRIVAL_ORDER } from './evisa-prearrival.mjs';
 import { canonicalBorderGate } from './evisa-data.mjs';
 import { BORDER_GATES } from './evisa-schema.mjs';
-import { MESSAGES, FIELD_PROMPTS } from './evisa-messages.mjs';
+import { MESSAGES, FIELD_PROMPTS, saidBriefly } from './evisa-messages.mjs';
 
 /**
  * How long a chat may go quiet before the bot fills the form on its own.
@@ -544,7 +544,7 @@ export function describeOutcome(result, outstanding, language) {
   if (failures.length) {
     parts.push('');
     for (const failure of failures.slice(0, 5)) {
-      parts.push(strings.failed(failure.field, failure.error.split('\n')[0]));
+      parts.push(strings.failed(failure.field, saidBriefly(failure.error)));
     }
   }
   if (outstanding.length) {

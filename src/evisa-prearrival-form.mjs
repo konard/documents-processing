@@ -27,6 +27,7 @@
 //     only within three days of landing, so one cannot be filed early.
 
 import { giveBackTheFront, whatIsInFront } from './evisa-window.mjs';
+import { saidBriefly } from './evisa-messages.mjs';
 
 /** Where a declaration is made. */
 export const PREARRIVAL_FORM_URL =
@@ -613,14 +614,60 @@ export async function chooseGender(page, sex) {
       : 'Male';
   const radio = page.getByRole('radio', { name: wanted, exact: true }).first();
   await radio.waitFor({ state: 'attached', timeout: 20000 });
+  // A control the site has locked is not one to force. Dispatching a click at
+  // a disabled input does set `checked`, which would report a gender the form
+  // has not got, so it is asked about before anything is tried.
+  if (await radio.isDisabled().catch(() => false)) {
+    throw new Error(`${wanted} is disabled on this form`);
+  }
+
   // Material UI draws its own circle over the input and leaves the input
   // itself zero-sized, so a plain click lands on the decoration and a plain
-  // check calls the input invisible. The force goes to the input underneath.
-  await radio.check({ force: true });
-  if (!(await radio.isChecked())) {
-    throw new Error(`${wanted} would not tick`);
+  // check calls the input invisible. Three ways in, because the one that
+  // works depends on where this control keeps its state: the input itself,
+  // the label MUI hangs its handler on, or React, which re-renders from its
+  // own state and puts a directly-clicked input back the way it was.
+  const ways = [
+    // The input under the circle, which is what `check` aims at. This is the
+    // one that reported "Clicking the checkbox did not change its state".
+    () => radio.check({ force: true, timeout: 5000 }),
+    // The label. MUI wires the handler here, so a click on it goes through
+    // React and the state it re-renders from is the state that changes.
+    () => labelOf(page, radio, wanted).click({ timeout: 5000 }),
+    // The event on its own, for a control that listens without being
+    // clickable: nothing is scrolled, nothing is aimed at.
+    () => radio.dispatchEvent('click'),
+  ];
+
+  let last = null;
+  for (const way of ways) {
+    await way().catch((error) => {
+      last = error;
+    });
+    // Read back from the page, not from what the click returned. A control
+    // that swallows the click leaves the page looking filled while the one
+    // required answer on it is blank, and the declaration is refused at the
+    // end for a field nobody was told about.
+    if (await radio.isChecked().catch(() => false)) {
+      return wanted;
+    }
   }
-  return wanted;
+  throw new Error(
+    `${wanted} would not tick${last ? `: ${saidBriefly(last)}` : ''}`
+  );
+}
+
+/**
+ * The label that belongs to a radio, for a click that goes through MUI.
+ *
+ * The input's own label where it has one, and the row of the group carrying
+ * the word otherwise, since the site does not label every one the same way.
+ */
+function labelOf(page, radio, wanted) {
+  return radio
+    .locator('xpath=ancestor::label[1]')
+    .or(page.getByText(wanted, { exact: true }))
+    .first();
 }
 
 /**
@@ -658,11 +705,11 @@ async function fillTheRest(
         failed.push('readTheNotes: the box would not tick');
       }
     })
-    .catch((error) => failed.push(`readTheNotes: ${error.message}`));
+    .catch((error) => failed.push(`readTheNotes: ${saidBriefly(error)}`));
   if (applicant.phoneCountryCode) {
     await choosePhoneCountryCode(page, applicant.phoneCountryCode, at)
       .then(() => filled.push('phoneCountryCode'))
-      .catch((error) => failed.push(`phoneCountryCode: ${error.message}`));
+      .catch((error) => failed.push(`phoneCountryCode: ${saidBriefly(error)}`));
   }
   if (passportImage) {
     // The site reads the picture on its own server and fills what it finds
@@ -671,12 +718,12 @@ async function fillTheRest(
     await page
       .setInputFiles('input[name="passportImage"]', passportImage)
       .then(() => page.waitForTimeout(3000))
-      .catch((error) => failed.push(`passportImage: ${error.message}`));
+      .catch((error) => failed.push(`passportImage: ${saidBriefly(error)}`));
   }
   if (applicant.sex) {
     await chooseGender(page, applicant.sex)
       .then(() => filled.push('sex'))
-      .catch((error) => failed.push(`sex: ${error.message}`));
+      .catch((error) => failed.push(`sex: ${saidBriefly(error)}`));
   }
   return null;
 }
@@ -746,7 +793,7 @@ export async function fillDeclaration(
       }
       filled.push(field.key);
     } catch (error) {
-      failed.push(`${field.key}: ${error.message}`);
+      failed.push(`${field.key}: ${saidBriefly(error)}`);
     }
   }
 

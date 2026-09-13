@@ -645,3 +645,29 @@ export const FIELD_PROMPTS = {
     exitBorderGate: 'через какой аэропорт или границу выезжаете',
   },
 };
+
+/**
+ * The codes Playwright dims its call log with.
+ *
+ * Built from the character code so no formatter can turn the escape into a
+ * raw byte in the source. The escape is optional here: stripped of it on the
+ * way through, the codes still reach a chat as a literal "[2m".
+ */
+const DIMMED = new RegExp(`${String.fromCharCode(27)}?\\[\\d+m`, 'g');
+
+/**
+ * One line naming what went wrong, for someone reading a chat.
+ *
+ * A Playwright error carries its whole call log in `message`: forty lines of
+ * selectors, click actions and escape codes. That belongs in the log, where a
+ * failing selector is diagnosed. The traveller needs the field and a reason
+ * they can act on, so only the first line comes through, capped.
+ */
+export function saidBriefly(error) {
+  const first = String(error?.message ?? error)
+    .split('\n')[0]
+    .replace(DIMMED, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return first.length > 120 ? `${first.slice(0, 117)}...` : first;
+}

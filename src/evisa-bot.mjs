@@ -1164,19 +1164,25 @@ function addressFieldFor(line, inContact) {
 }
 
 /**
- * Holds one chat's collected values in memory.
+ * Holds one chat's collected values.
  *
- * Nothing here is written to disk. A chat's entry lives until /reset, or
- * until the chat has been quiet for the chat lifetime and its browser is
- * closed, so an applicant can add to a form for as long as they are at it.
+ * A chat's entry lives until /reset, or until the chat has been quiet for the
+ * chat lifetime and its browser is closed, so an applicant can add to a form
+ * for as long as they are at it.
+ *
+ * The values read out of their documents are kept in `keep`, so a restart of
+ * the bot does not ask them to send five documents again. Nothing else is:
+ * the browser, its uploads and the work queue all belong to a process that is
+ * gone. When `keep` is absent the store is memory only, which is what the
+ * tests use.
  */
-export function createSessionStore() {
+export function createSessionStore({ keep = null } = {}) {
   const sessions = new Map();
   return {
     get(chatId) {
       if (!sessions.has(chatId)) {
         sessions.set(chatId, {
-          data: {},
+          data: keep?.read(chatId) ?? {},
           uploads: {},
           // What has been put on the page, so it is not uploaded again.
           uploaded: {},
@@ -1185,6 +1191,15 @@ export function createSessionStore() {
         });
       }
       return sessions.get(chatId);
+    },
+    /**
+     * Writes a chat's collected values out, so they outlive this process.
+     *
+     * Called where values arrive, not on every touch of the session: the
+     * other fields change constantly and none of them is worth keeping.
+     */
+    async save(chatId) {
+      await keep?.write(chatId, sessions.get(chatId)?.data ?? {});
     },
     /** Every chat id with a session, for sweeps. */
     ids() {
@@ -1200,6 +1215,7 @@ export function createSessionStore() {
     clear(chatId) {
       const kept = sessions.get(chatId)?.language;
       sessions.delete(chatId);
+      keep?.forget(chatId);
       if (kept) {
         this.get(chatId).language = kept;
       }

@@ -133,7 +133,12 @@ import {
 import { prepareStore, openStore } from './evisa-store.mjs';
 import { sortUnreadableImage } from './evisa-image-role.mjs';
 import { verifyAddress } from './evisa-geocode.mjs';
-import { downloadFile, takeTypedDetails } from './evisa-details.mjs';
+import {
+  downloadFile,
+  keepForUpload,
+  takeTypedDetails,
+} from './evisa-details.mjs';
+import { keepCollectedValues } from './evisa-keep.mjs';
 
 loadEnv();
 
@@ -162,7 +167,12 @@ const STORE_DIR =
   path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'data');
 const store = await openStore(STORE_DIR);
 
-const sessions = createSessionStore();
+const collected = keepCollectedValues({
+  directory: STORE_DIR,
+  valuesAllowed,
+  retentionDays: RETENTION_DAYS,
+});
+const sessions = createSessionStore({ keep: collected });
 /**
  * Runs a chat's work one piece at a time, in the order it arrived, so a
  * correction never lands before the value it corrects.
@@ -415,24 +425,6 @@ async function sweepIdleChats() {
       await endChat(chatId);
     }
   }
-}
-
-/**
- * Copies a document somewhere it will outlive the temporary file it arrived in,
- * since the form is uploaded from it long after the message was handled.
- *
- * The destination is whatever the system reports as its temp directory, so
- * `TMPDIR` decides where these land. In a container that is the mounted volume,
- * which is what makes the documents reachable for diagnosis and subject to the
- * same sweep as the log.
- */
-function keepForUpload(source, name) {
-  const kept = path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-doc-')),
-    name
-  );
-  fs.copyFileSync(source, kept);
-  return kept;
 }
 
 /**
@@ -1189,8 +1181,26 @@ bot.on(['message:photo', 'message:document'], (ctx) => {
   }
   // Documents are read at the same time, each on its own worker, and what
   // each reading writes into the session is put there in turn.
-  return batch.reading(ctx.chat.id, () => receiveDocument(ctx));
+  return batch.reading(ctx.chat.id, () => andKeep(ctx, receiveDocument));
 });
+
+/**
+ * Runs a handler, then writes out whatever it added to the chat's values.
+ *
+ * Saving after the work, not before, is the point: a reading that takes a
+ * minute has written nothing until it finishes. A failed save is logged and
+ * passed over, since the values are in memory either way and refusing the
+ * message would lose them for certain.
+ */
+async function andKeep(ctx, handle) {
+  try {
+    return await handle(ctx);
+  } finally {
+    await sessions
+      .save(ctx.chat.id)
+      .catch((error) => log(ctx.chat.id, `could not keep values: ${error}`));
+  }
+}
 
 async function receiveDocument(ctx) {
   const chatId = ctx.chat.id;
@@ -1325,7 +1335,7 @@ bot.on('message:text', (ctx) => {
   if (!aside && fillsTheForm(session)) {
     armIdleFill(ctx, ctx.chat.id);
   }
-  return inTurn(ctx.chat.id, () => receiveText(ctx));
+  return inTurn(ctx.chat.id, () => andKeep(ctx, receiveText));
 });
 
 /** Keeps a chat in the language its applicant reads, message by message. */
@@ -1459,10 +1469,23 @@ if (sweptTranscripts) {
 }
 // And the traces, which hold the same details in another shape.
 sweepTracesIn(STORE_DIR, RETENTION_DAYS);
+// And the collected values, which are those details as the bot holds them.
+const sweptValues = collected.sweep();
+if (sweptValues) {
+  console.log(
+    `Collected values older than ${RETENTION_DAYS} days removed: ${sweptValues}`
+  );
+}
 console.log(
   `Kept documents older than ${RETENTION_DAYS} days removed: ${swept}`
 );
-setInterval(() => sweepKeptFiles(), 24 * 60 * 60 * 1000).unref();
+setInterval(
+  () => {
+    sweepKeptFiles();
+    collected.sweep();
+  },
+  24 * 60 * 60 * 1000
+).unref();
 // Browsers of chats that have gone quiet are closed on the same principle.
 setInterval(() => sweepIdleChats(), 10 * 60 * 1000).unref();
 

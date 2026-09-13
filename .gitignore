@@ -152,6 +152,9 @@ reports/
 data/transcripts/
 # The record of a run holds the applicant's own values, as a transcript does.
 data/traces/
+# What was read out of an applicant's documents, kept so a restart of the bot
+# does not ask them to send every one of them again.
+data/collected/
 data/chats.lino
 data/chats.lino.writing
 data/match-checks-data.json

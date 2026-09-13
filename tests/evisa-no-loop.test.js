@@ -520,3 +520,69 @@ describe('the arrival card answers when its documents are read', () => {
     expect(body.includes('armIdleFill(ctx, ctx.chat.id)')).toBe(true);
   });
 });
+
+describe('the values outlive the process that collected them', () => {
+  it('reads back what a previous run kept', async () => {
+    // A restart used to empty the session, so five documents already sent
+    // were gone and the next fill found no nationality to choose.
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    const written = new Map();
+    const keep = {
+      read: (chatId) => written.get(chatId) ?? {},
+      write: async (chatId, data) => written.set(chatId, { ...data }),
+      forget: (chatId) => written.delete(chatId),
+    };
+
+    const before = createSessionStore({ keep });
+    before.get(9).data.nationality = 'Russia';
+    await before.save(9);
+
+    const after = createSessionStore({ keep });
+    expect(after.get(9).data.nationality).toBe('Russia');
+  });
+
+  it('keeps nothing the browser owns', async () => {
+    // The uploads name files in a temporary directory of a process that has
+    // gone, and a queue of its work is worse than useless.
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    let kept = null;
+    const sessions = createSessionStore({
+      keep: {
+        read: () => ({}),
+        write: async (chatId, data) => {
+          kept = data;
+        },
+        forget: () => {},
+      },
+    });
+    const session = sessions.get(10);
+    session.data.surname = 'TRAVELLER';
+    session.uploads = { portrait: '/tmp/gone/portrait.jpg' };
+    await sessions.save(10);
+    expect(kept).toEqual({ surname: 'TRAVELLER' });
+  });
+
+  it('forgets them on /reset, along with the session', async () => {
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    const written = new Map([[11, { surname: 'TRAVELLER' }]]);
+    const sessions = createSessionStore({
+      keep: {
+        read: (chatId) => written.get(chatId) ?? {},
+        write: async () => {},
+        forget: (chatId) => written.delete(chatId),
+      },
+    });
+    expect(sessions.get(11).data.surname).toBe('TRAVELLER');
+    sessions.clear(11);
+    expect(written.has(11)).toBe(false);
+    expect(sessions.get(11).data).toEqual({});
+  });
+
+  it('works without a keep at all, which is what the tests use', async () => {
+    const { createSessionStore } = await import('../src/evisa-bot.mjs');
+    const sessions = createSessionStore();
+    sessions.get(12).data.surname = 'TRAVELLER';
+    await sessions.save(12);
+    expect(sessions.get(12).data.surname).toBe('TRAVELLER');
+  });
+});

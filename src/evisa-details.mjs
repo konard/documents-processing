@@ -13,6 +13,8 @@
 // declaration take their values from the same record, so a correction sent
 // while the declaration is open reaches the declaration.
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 /**
@@ -90,4 +92,22 @@ export async function takeTypedDetails({
     }
   }
   return parsed;
+}
+
+/**
+ * Copies a document somewhere it will outlive the temporary file it arrived in,
+ * since the form is uploaded from it long after the message was handled.
+ *
+ * The destination is whatever the system reports as its temp directory, so
+ * `TMPDIR` decides where these land. In a container that is the mounted volume,
+ * which is what makes the documents reachable for diagnosis and subject to the
+ * same sweep as the log.
+ */
+export function keepForUpload(source, name) {
+  const kept = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-doc-')),
+    name
+  );
+  fs.copyFileSync(source, kept);
+  return kept;
 }

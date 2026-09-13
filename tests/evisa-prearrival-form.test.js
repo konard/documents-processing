@@ -16,6 +16,8 @@ import {
   ARRIVAL_WINDOW_DAYS,
   FIELD_TIMEOUT_MS,
   GONE_TIMEOUT_MS,
+  choosePhoneCountryCode,
+  chooseFrom,
 } from '../src/evisa-prearrival-form.mjs';
 
 describe('the declaration form the site actually draws', () => {
@@ -494,5 +496,79 @@ describe('a form the site never drew', () => {
       surname: 'TRAVELLER',
     });
     expect(waits.every((one) => one === FIELD_TIMEOUT_MS)).toBe(true);
+  });
+});
+
+describe('a dialling code several countries share', () => {
+  /** A list that offers the given options, recording which was clicked. */
+  function listOf(texts, clicked) {
+    const input = {
+      waitFor: async () => {},
+      fill: async () => {},
+      type: async () => {},
+      isVisible: async () => true,
+      inputValue: async () => '',
+    };
+    const options = {
+      first: () => ({ waitFor: async () => {} }),
+      allTextContents: async () => texts,
+      nth: (index) => ({ click: async () => clicked.push(texts[index]) }),
+    };
+    return {
+      input,
+      page: {
+        locator: (what) =>
+          what === '[role=option]' ? options : { first: () => input },
+      },
+    };
+  }
+
+  it('takes the first of the countries that share the code', async () => {
+    // The site names each country separately, so "(+1)" is offered as the
+    // United States, Canada and the Dominican Republic. All three put the
+    // same code in the field, which is all the field holds.
+    const clicked = [];
+    const { page } = listOf(
+      ['United States (+1)', 'Canada (+1)', 'Dominican Republic (+1)'],
+      clicked
+    );
+    expect(await choosePhoneCountryCode(page, '1')).toBe('(+1)');
+    expect(clicked).toEqual(['United States (+1)']);
+  });
+
+  it('still refuses where the options are not the same answer', async () => {
+    // The list filters on the text typed, so asking for "(+1)" brings back
+    // rows whose code is not +1 at all. A row naming two codes is not one
+    // answer, and picking it would put the wrong code on a government form.
+    const clicked = [];
+    const { page } = listOf(
+      ['United States (+1)', 'Elsewhere (+1) (+44)'],
+      clicked
+    );
+    return choosePhoneCountryCode(page, '1').then(
+      () => {
+        throw new Error('a genuinely ambiguous list was not refused');
+      },
+      (error) => {
+        expect(error.message.includes('matches')).toBe(true);
+        expect(clicked).toEqual([]);
+      }
+    );
+  });
+
+  it('leaves an ambiguous nationality refused, as it was', async () => {
+    // The allowance is passed only for the dialling code. Guessing at
+    // somebody's nationality is still not safe.
+    const clicked = [];
+    const { page, input } = listOf(
+      ['Republic of Sudan', 'South Sudan'],
+      clicked
+    );
+    return chooseFrom(page, input, 'Sudan', 'nationality').then(
+      () => {
+        throw new Error('an ambiguous nationality was chosen anyway');
+      },
+      (error) => expect(error.message.includes('matches 2 of 2')).toBe(true)
+    );
   });
 });

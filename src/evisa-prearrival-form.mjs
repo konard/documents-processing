@@ -327,13 +327,18 @@ export async function typeInto(
  * is typed and then the option clicked. An exact match wins; otherwise the
  * one option that contains the value is taken. Anything more ambiguous than
  * that raises, since guessing at somebody's nationality is not safe.
+ *
+ * `sameIf` is for a list where several options are the same answer: every
+ * country sharing a dialling code puts that same code in the field. Where the
+ * caller can say two options are interchangeable and they all are, the first
+ * is taken. It does not loosen the refusal anywhere it is not passed.
  */
 export async function chooseFrom(
   page,
   input,
   value,
   named = 'the field',
-  { timeout = FIELD_TIMEOUT_MS } = {}
+  { timeout = FIELD_TIMEOUT_MS, sameIf = null } = {}
 ) {
   await input.waitFor({ state: 'visible', timeout });
   await input.fill('');
@@ -347,7 +352,13 @@ export async function chooseFrom(
     const holding = texts
       .map((t, index) => ({ t, index }))
       .filter(({ t }) => t.toLowerCase().includes(wanted));
-    if (holding.length !== 1) {
+    // Several options can be the same answer: the countries sharing a
+    // dialling code all put that code in the field. Where the caller says so,
+    // and they agree, the first is as good as any. Without that, an ambiguous
+    // match is refused: guessing at somebody's nationality is not safe.
+    const agree =
+      sameIf && holding.length > 1 && holding.every(({ t }) => sameIf(t));
+    if (holding.length !== 1 && !agree) {
       throw new Error(
         `${named}: "${value}" matches ${holding.length} of ${texts.length} options`
       );
@@ -622,8 +633,25 @@ export async function choosePhoneCountryCode(page, code, at = 0) {
   ) {
     return `(+${digits})`;
   }
-  await chooseFrom(page, input, `(+${digits})`, 'phoneCountryCode');
+  await chooseFrom(page, input, `(+${digits})`, 'phoneCountryCode', {
+    // Several countries share a dialling code, and the list names each one
+    // separately: "(+1)" is offered as United States, Canada and Dominican
+    // Republic. Any of them puts the same code in the field, which is all
+    // this field holds, so the first is taken where they agree on the code.
+    sameIf: (text) => codeIn(text) === digits,
+  });
   return `(+${digits})`;
+}
+
+/**
+ * The one dialling code an option names, as digits, or null.
+ *
+ * A row naming two is not one answer, whatever the first of them says, so it
+ * is refused the way any other ambiguity is.
+ */
+function codeIn(text) {
+  const found = String(text ?? '').match(/\(\+(\d+)\)/g) ?? [];
+  return found.length === 1 ? found[0].replace(/\D/g, '') : null;
 }
 
 /**

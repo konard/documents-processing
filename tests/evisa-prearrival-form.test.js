@@ -26,6 +26,7 @@ import {
   photographDeclaration,
   uploadPassport,
   PASSPORT_READ_MS,
+  readDeclaration,
 } from '../src/evisa-prearrival-form.mjs';
 
 describe('the declaration form the site actually draws', () => {
@@ -243,6 +244,32 @@ describe('the one phone number the traveller gives', () => {
   it('has nothing to split when no number was given', () => {
     expect(splitPhone(null).phone).toBe(null);
     expect(splitPhone('').phoneCountryCode).toBe(null);
+  });
+
+  it('sets the dialling code only after every passport-driven redraw', () => {
+    // The live site can redraw Country Code while it finishes reading the
+    // uploaded passport. Choosing the code before that scan reported success
+    // and then left the required control blank by the time Next was pressed.
+    const source = readFileSync('src/evisa-prearrival-form.mjs', 'utf8');
+    const start = source.indexOf('export async function fillDeclaration');
+    const end = source.indexOf('/**\n * The fields where', start);
+    const filling = source.slice(start, end);
+    expect(filling.indexOf('for (const field of FORM_FIELDS)')).toBeLessThan(
+      filling.indexOf('finishPhoneCountryCode')
+    );
+  });
+
+  it('reads the dialling code back with the rest of the passenger page', async () => {
+    // A fill claim is useful only if the value survived on the final page.
+    const empty = { first: () => ({ inputValue: async () => '' }) };
+    const page = {
+      locator: (selector) =>
+        selector === '[name="0_phoneCountryCode"]'
+          ? { first: () => ({ inputValue: async () => '(+7)' }) }
+          : empty,
+      getByLabel: () => empty,
+    };
+    expect(await readDeclaration(page)).toEqual({ phoneCountryCode: '(+7)' });
   });
 });
 
@@ -776,22 +803,49 @@ describe('a form the site never drew', () => {
     });
     expect(waits.every((one) => one === FIELD_TIMEOUT_MS)).toBe(true);
   });
+
+  it('does not call an absent dialling-code control filled', async () => {
+    // A redraw can briefly remove the control. Returning null from its helper
+    // must be a visible failure, not a successful fill that Next later rejects.
+    const waits = [];
+    const page = emptyPage(waits);
+    const absentCode = {
+      isVisible: async () => false,
+      inputValue: async () => '',
+    };
+    const locate = page.locator;
+    page.locator = (selector) =>
+      selector === '[name="0_phoneCountryCode"]'
+        ? { first: () => absentCode }
+        : locate(selector);
+    const result = await fillDeclaration(page, { phone: '+7 912 345 67 89' });
+    expect(result.filled.includes('phoneCountryCode')).toBe(false);
+    expect(
+      result.failed.some((one) => one.startsWith('phoneCountryCode:'))
+    ).toBe(true);
+  });
 });
 
 describe('a dialling code several countries share', () => {
   /** A list that offers the given options, recording which was clicked. */
   function listOf(texts, clicked) {
+    let selected = '';
     const input = {
       waitFor: async () => {},
       fill: async () => {},
       type: async () => {},
       isVisible: async () => true,
-      inputValue: async () => '',
+      inputValue: async () => selected,
     };
     const options = {
       first: () => ({ waitFor: async () => {} }),
       allTextContents: async () => texts,
-      nth: (index) => ({ click: async () => clicked.push(texts[index]) }),
+      nth: (index) => ({
+        click: async () => {
+          clicked.push(texts[index]);
+          selected = texts[index].match(/\(\+\d+\)/)?.[0] ?? texts[index];
+        },
+      }),
     };
     return {
       input,

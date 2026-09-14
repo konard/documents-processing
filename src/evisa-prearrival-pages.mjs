@@ -38,6 +38,16 @@ export const STEPS = [
 /** How long to give the site to draw the page after a step is left. */
 export const TURN_MS = 15000;
 
+/** A page result for the trace: field names and outcomes, never their values. */
+function pageResult(result) {
+  const names = (items) => items.map((item) => String(item).split(':')[0]);
+  return (
+    `${result.filled.length} filled [${names(result.filled).join(', ')}], ` +
+    `${result.missing.length} missing [${names(result.missing).join(', ')}], ` +
+    `${result.failed.length} failed [${names(result.failed).join(', ')}]`
+  );
+}
+
 /**
  * Which step the site is showing.
  *
@@ -163,10 +173,7 @@ export async function walkTheDeclaration({
   // Page one: the traveller and the passport, already filled by the caller
   // since it is what the captcha gates and what the passport upload feeds.
   const passenger = await fillPassenger();
-  log(
-    `page 1/3 ${STEPS[0]}: ${passenger.filled.length} filled, ` +
-      `${passenger.missing.length} missing, ${passenger.failed.length} failed`
-  );
+  log(`page 1/3 ${STEPS[0]}: ${pageResult(passenger)}`);
   await took(0, STEPS[0], passenger);
   if (passenger.arrival?.tooEarly || passenger.expired) {
     return { pages, reached: 0, stopped: 'the site will not take this date' };
@@ -182,10 +189,7 @@ export async function walkTheDeclaration({
   log(`page 1/3 turned; on ${STEPS[1]}`);
 
   const trip = await fillTrip();
-  log(
-    `page 2/3 ${STEPS[1]}: ${trip.filled.length} filled, ` +
-      `${trip.missing.length} missing, ${trip.failed.length} failed`
-  );
+  log(`page 2/3 ${STEPS[1]}: ${pageResult(trip)}`);
   await took(1, STEPS[1], trip);
 
   const toReview = await turnTo(page, STEPS[2]);

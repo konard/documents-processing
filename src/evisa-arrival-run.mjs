@@ -26,12 +26,19 @@ import {
   refreshCaptchaImage,
   readCaptchaText,
 } from './evisa-prearrival-form.mjs';
-import { fillTrip } from './evisa-prearrival-trip.mjs';
+import {
+  fillTrip,
+  provinceAsNamedHere,
+  readTrip,
+  wardAsNamedHere,
+} from './evisa-prearrival-trip.mjs';
 import {
   walkTheDeclaration,
   fileTheDeclaration,
 } from './evisa-prearrival-pages.mjs';
 import { buildDeclaration, fullNameOf } from './evisa-prearrival.mjs';
+import { parseVietnamAddress } from './evisa-vietnam-address.mjs';
+import { FIELD_DEFAULTS } from './evisa-schema.mjs';
 
 /**
  * The arrival gate the ticket lands at, as the declaration names it.
@@ -506,7 +513,9 @@ export async function fillAndShow({
       `the declaration stopped on ${walk.stopped}: ${walk.refused?.join('; ') || 'no reason given'}`
     );
     await ctx
-      .reply(strings.arrivalPageRefused(walk.stopped, walk.refused ?? []))
+      .reply(strings.arrivalPageRefused(walk.stopped, walk.refused ?? []), {
+        parse_mode: 'HTML',
+      })
       .catch(() => {});
   } else {
     // On the review, filled and waiting. The last press is the traveller's.
@@ -520,23 +529,133 @@ export async function fillAndShow({
  * What the trip page is filled from.
  *
  * The record holds the journey under the names the rest of the bot uses, and
- * the trip page wants its own. Nothing is invented: a value not there is left
- * out and the page reports it as missing.
+ * the trip page wants its own. The ticket gives the flight and where the
+ * journey began, the visa gives its validity window, and a booking can give
+ * the place to stay. Where no booking was sent, the same editable Ho Chi Minh
+ * address used by the e-visa application completes the required cascade.
  */
 export function tripFrom(applicant = {}, values = {}) {
-  const both = { ...applicant, ...values };
+  // `values` contains generic declaration defaults as well as copied record
+  // values. Read the source record first so those defaults cannot overwrite
+  // a trip detail the traveller supplied explicitly.
+  const sources = [applicant, values];
+  const staying = whereTheyAreStaying(applicant, values);
   return {
-    modeOfTravel: both.modeOfTravel ?? 'Air',
-    vehicleNumber: both.vehicleNumber ?? both.flightNumber ?? null,
-    departedFrom: both.departedFrom ?? null,
-    purpose: both.purpose ?? null,
-    accommodationType: both.accommodationType ?? null,
-    province: both.province ?? null,
-    ward: both.ward ?? null,
-    accommodationAddress: both.accommodationAddress ?? null,
-    workplace: both.workplace ?? null,
-    departureDate: both.departureDate ?? null,
+    modeOfTravel: firstKnown(firstFrom(sources, 'modeOfTravel'), 'Air'),
+    vehicleNumber: firstFrom(sources, 'vehicleNumber', 'flightNumber'),
+    departedFrom: countryFlownFrom(...sources),
+    purpose: firstKnown(firstFrom(sources, 'purpose'), 'Tourist'),
+    accommodationType: firstKnown(
+      firstFrom(sources, 'accommodationType'),
+      'Hotel'
+    ),
+    province: staying.province,
+    ward: staying.ward,
+    accommodationAddress: staying.address,
+    workplace: firstFrom(sources, 'workplace'),
+    // With no return ticket, the visa's final valid day is the last departure
+    // the available documents support. It stays editable on the review.
+    departureDate: firstFrom(sources, 'departureDate', 'visaExpiryDate'),
   };
+}
+
+/** The first value that is present, treating a blank string as no value. */
+function firstKnown(...values) {
+  return (
+    values.find(
+      (value) =>
+        value !== null &&
+        value !== undefined &&
+        (typeof value !== 'string' || value.trim())
+    ) ?? null
+  );
+}
+
+/** The first named value in the first record that knows one. */
+function firstFrom(records, ...keys) {
+  for (const record of records) {
+    const found = firstKnown(...keys.map((key) => record?.[key]));
+    if (found !== null) {
+      return found;
+    }
+  }
+  return null;
+}
+
+/** The stay, translated from the record into one coherent three-field tuple. */
+function whereTheyAreStaying(applicant, values) {
+  const tripAddress = firstKnown(applicant.accommodationAddress);
+  const tripProvince = firstKnown(applicant.province, values.province);
+  const tripWard = firstKnown(applicant.ward, values.ward);
+  if (tripAddress || tripProvince || tripWard) {
+    const parsed = tripAddress ? parseVietnamAddress(tripAddress) : {};
+    return {
+      province: provinceAsNamedHere(
+        firstKnown(tripProvince, parsed.provinceInVietnam)
+      ),
+      ward: wardAsNamedHere(
+        firstKnown(tripWard, parsed.wardInVietnam, parsed.townInVietnam)
+      ),
+      address: tripAddress
+        ? firstKnown(parsed.addressInVietnam, tripAddress)
+        : null,
+    };
+  }
+
+  // The e-visa address is a separate, older tuple. `buildDeclaration` copies
+  // it to `values.accommodationAddress`, so keep its administrative fields
+  // with it and use none of them when a trip-specific tuple was supplied.
+  const evisaAddress = firstKnown(
+    applicant.addressInVietnam,
+    values.addressInVietnam,
+    values.accommodationAddress
+  );
+  const evisaProvince = firstKnown(
+    applicant.provinceInVietnam,
+    values.provinceInVietnam
+  );
+  const evisaWard = firstKnown(applicant.wardInVietnam, values.wardInVietnam);
+  if (!evisaAddress && !evisaProvince && !evisaWard) {
+    return {
+      province: provinceAsNamedHere(FIELD_DEFAULTS.provinceInVietnam),
+      ward: wardAsNamedHere(FIELD_DEFAULTS.wardInVietnam),
+      address: FIELD_DEFAULTS.addressInVietnam,
+    };
+  }
+  if (!evisaAddress) {
+    return {
+      province: provinceAsNamedHere(evisaProvince),
+      ward: wardAsNamedHere(evisaWard),
+      address: null,
+    };
+  }
+  const parsed = parseVietnamAddress(evisaAddress);
+  return {
+    province: provinceAsNamedHere(
+      firstKnown(evisaProvince, parsed.provinceInVietnam)
+    ),
+    ward: wardAsNamedHere(
+      firstKnown(evisaWard, parsed.wardInVietnam, parsed.townInVietnam)
+    ),
+    address: firstKnown(parsed.addressInVietnam, evisaAddress),
+  };
+}
+
+/** The country behind the origin wording an inbound ticket prints. */
+function countryFlownFrom(...records) {
+  const said = String(
+    firstFrom(records, 'departedFrom', 'departureAirport', 'flightFrom') ?? ''
+  ).trim();
+  if (!said) {
+    return null;
+  }
+  // The current ticket reader returns the airport name. These are the origin
+  // names present on the Air India itinerary this flow already understands.
+  if (/\b(?:goa|mopa|delhi|india)\b/i.test(said)) {
+    return 'India';
+  }
+  // A value supplied as a country already belongs to the declaration.
+  return said;
 }
 
 /**
@@ -570,11 +689,17 @@ async function showThePage({
   // page those fields are on. Asked for them anywhere else, every one of them
   // waits out its timeout for a field that page has not got — twenty seconds
   // apiece, which is the walk stopped dead in front of the traveller.
+  const onThePage =
+    at === 0
+      ? await readDeclaration(page).catch(() => ({}))
+      : at === 1
+        ? await readTrip(page).catch(() => ({}))
+        : {};
   const said =
     at === 2
       ? strings.arrivalReviewShot
       : `${strings.arrivalPageOf(at + 1, 3, title)}\n\n${describeFilled(
-          at === 0 ? await readDeclaration(page).catch(() => ({})) : {},
+          onThePage,
           result,
           session.language
         )}`;

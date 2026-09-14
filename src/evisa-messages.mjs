@@ -124,6 +124,8 @@ export const MESSAGES = {
     arrivalYours:
       'The form is filled and waiting in the browser. Check it, then send ' +
       'it yourself — I do not file it for you.',
+    arrivalNeedsWork:
+      'This page is not complete yet. The browser stays open for corrections.',
     checklistDocuments: 'Send these',
     checklistDetails: 'Tell me these',
     checklistFooter:
@@ -446,6 +448,8 @@ export const MESSAGES = {
     arrivalYours:
       'Форма заполнена и ждёт в браузере. Проверьте и отправьте сами — ' +
       'я её за вас не подаю.',
+    arrivalNeedsWork:
+      'Страница ещё не заполнена. Браузер остаётся открытым для исправлений.',
     checklistDocuments: 'Пришлите',
     checklistDetails: 'Напишите',
     checklistFooter:

@@ -88,16 +88,30 @@ export function stayAsNamedHere(kind) {
 /**
  * The province as this page spells it.
  *
- * Its list prints the kind of place after the name — "Khanh Hoa Province" —
- * and a booking says "Khanh Hoa". The match is left to the list itself where
- * the name alone picks one option; this only supplies what the name alone
- * cannot.
+ * The two immigration sites put the kind of place on opposite sides of its
+ * name — `HO CHI MINH City` and `Ho Chi Minh City`. The bare place name is
+ * the stable part and uniquely filters this page's current list.
  */
 export function provinceAsNamedHere(province) {
   if (!province) {
     return null;
   }
-  return String(province).trim();
+  return String(province)
+    .trim()
+    .replace(/\s+(?:City|Province)$/i, '')
+    .trim();
+}
+
+/** The stable part of a ward or commune name, for filtering its live list. */
+export function wardAsNamedHere(ward) {
+  if (!ward) {
+    return null;
+  }
+  return String(ward)
+    .trim()
+    .replace(/^(?:PHUONG|XA)\s+/i, '')
+    .replace(/\s+(?:Ward|Commune)$/i, '')
+    .trim();
 }
 
 /** The fields this page holds, by the heading printed above each one. */
@@ -120,7 +134,12 @@ export const TRIP_FIELDS = [
     heading: 'Accommodation Address',
     how: 'address',
   },
-  { key: 'workplace', heading: 'Workplace Information', how: 'text' },
+  {
+    key: 'workplace',
+    heading: 'Workplace Information',
+    how: 'text',
+    required: false,
+  },
   {
     key: 'departureDate',
     heading: 'Expected date of departure from Vietnam',
@@ -247,12 +266,7 @@ export async function enterAddress(page, address) {
  * where the state lives depends on the control.
  */
 export async function tickOneOf(page, name, { timeout = 10000 } = {}) {
-  const radio = page
-    .locator(
-      `xpath=//*[normalize-space(text())=${JSON.stringify(name)}]` +
-        `/preceding::input[@type='radio'][1]`
-    )
-    .first();
+  const radio = radioBeside(page, name);
   await radio.waitFor({ state: 'attached', timeout });
   // Already the site's own answer: these rows come with one of them chosen,
   // and ticking the one that is ticked would be work for nothing.
@@ -279,6 +293,16 @@ export async function tickOneOf(page, name, { timeout = 10000 } = {}) {
   );
 }
 
+/** A radio located by the visible words beside it, not unstable attributes. */
+function radioBeside(page, name) {
+  return page
+    .locator(
+      `xpath=//*[normalize-space(text())=${JSON.stringify(name)}]` +
+        `/preceding::input[@type='radio'][1]`
+    )
+    .first();
+}
+
 /**
  * Fills the trip page from what is known about the journey.
  *
@@ -294,7 +318,9 @@ export async function fillTrip(page, trip = {}, { log = () => {} } = {}) {
 
   const put = async (key, what, doing) => {
     if (what === null || what === undefined || what === '') {
-      missing.push(key);
+      if (TRIP_FIELDS.find((field) => field.key === key)?.required !== false) {
+        missing.push(key);
+      }
       return;
     }
     await doing()
@@ -329,19 +355,21 @@ export async function fillTrip(page, trip = {}, { log = () => {} } = {}) {
     tickOneOf(page, stayAsNamedHere(trip.accommodationType))
   );
   // The province draws the ward, and the ward draws the address.
-  await put('province', trip.province, () =>
+  const province = provinceAsNamedHere(trip.province);
+  await put('province', province, () =>
     chooseFrom(
       page,
       boxUnder(page, 'Province / City of Hotel'),
-      trip.province,
+      province,
       'the province'
     ).then(() => page.waitForTimeout(CASCADE_MS))
   );
-  await put('ward', trip.ward, () =>
+  const ward = wardAsNamedHere(trip.ward);
+  await put('ward', ward, () =>
     chooseFrom(
       page,
       boxUnder(page, 'Ward / Commune of Hotel'),
-      trip.ward,
+      ward,
       'the ward'
     ).then(() => page.waitForTimeout(CASCADE_MS))
   );
@@ -364,11 +392,34 @@ export async function fillTrip(page, trip = {}, { log = () => {} } = {}) {
   return { filled, missing, failed };
 }
 
+const RADIO_CHOICES = {
+  modeOfTravel: ['Air', 'Land', 'Sea'],
+  accommodationType: ['Hotel', 'Residential', 'Others'],
+};
+
+/** The visible words beside a selected radio, whose own value is empty. */
+async function checkedChoice(page, field) {
+  for (const choice of RADIO_CHOICES[field] ?? []) {
+    if (
+      await radioBeside(page, choice)
+        .isChecked()
+        .catch(() => false)
+    ) {
+      return choice;
+    }
+  }
+  return null;
+}
+
 /** What the trip page holds now, read back so a fill can be checked. */
 export async function readTrip(page) {
   const values = {};
   for (const field of TRIP_FIELDS) {
     if (field.how === 'radio' || field.how === 'stay') {
+      const value = await checkedChoice(page, field.key);
+      if (value) {
+        values[field.key] = value;
+      }
       continue;
     }
     const box =

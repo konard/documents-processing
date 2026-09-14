@@ -73,6 +73,7 @@ export const FIELD_LABELS = {
     placeOfBirth: 'place of birth',
     passportNumber: 'passport number',
     passportType: 'passport type',
+    passportImage: 'passport image',
     passportIssueDate: 'passport issued on',
     passportExpiryDate: 'passport expires on',
     passportIssuingAuthority: 'passport issued by',
@@ -301,6 +302,7 @@ const ARRIVAL_LABELS = {
   en: {
     fullName: 'full name',
     passportType: 'passport type',
+    passportImage: 'passport image',
     gender: 'sex',
     dateOfBirth: 'date of birth',
     nationality: 'nationality',
@@ -308,6 +310,7 @@ const ARRIVAL_LABELS = {
     passportExpiryDate: 'passport expires',
     email: 'email',
     phone: 'phone',
+    phoneCountryCode: 'phone country code',
     visaType: 'visa type',
     visaNumber: 'visa number',
     visaIssueDate: 'visa issued',
@@ -321,11 +324,15 @@ const ARRIVAL_LABELS = {
     borderGate: 'arriving at',
     vehicleNumber: 'flight number',
     accommodationType: 'staying in',
+    province: 'province or city of stay',
+    ward: 'ward or commune of stay',
     accommodationAddress: 'address in Viet Nam',
+    workplace: 'workplace (optional)',
   },
   ru: {
     fullName: 'имя и фамилия',
     passportType: 'тип паспорта',
+    passportImage: 'фото паспорта',
     gender: 'пол',
     dateOfBirth: 'дата рождения',
     nationality: 'гражданство',
@@ -333,6 +340,7 @@ const ARRIVAL_LABELS = {
     passportExpiryDate: 'паспорт действует до',
     email: 'почта',
     phone: 'телефон',
+    phoneCountryCode: 'телефонный код страны',
     visaType: 'тип визы',
     visaNumber: 'номер визы',
     visaIssueDate: 'виза выдана',
@@ -346,7 +354,10 @@ const ARRIVAL_LABELS = {
     borderGate: 'пункт прибытия',
     vehicleNumber: 'номер рейса',
     accommodationType: 'где остановитесь',
+    province: 'город или провинция проживания',
+    ward: 'район или коммуна проживания',
     accommodationAddress: 'адрес во Вьетнаме',
+    workplace: 'место работы (необязательно)',
   },
 };
 
@@ -461,29 +472,46 @@ export function describeFilled(onThePage, result, language) {
       parts.push(`• ${named(field.key)}: ${escapeHtml(onThePage[field.key])}`);
     }
   }
-  const wanted = [...(result.missing ?? [])].filter((key) => !onThePage[key]);
+  // A driver failure belongs in the same traveller-facing list as an absent
+  // value. Its detail is an internal locator/click trace; the field name is
+  // the only actionable part, while the full reason remains in the log.
+  const wanted = stillWanted(onThePage, result);
   if (wanted.length) {
     parts.push('', `<b>${strings.arrivalStillWanted}</b>`);
     parts.push(...wanted.map((key) => `• ${named(key)}`));
   }
-  for (const gone of result.failed ?? []) {
-    parts.push(`• ${escapeHtml(gone)}`);
-  }
   // A value the site marks in red under its field. The traveller is reading a
   // chat, not the page, so an unsaid refusal is one they meet at the very end
   // with no idea which field it is about.
-  if (result.refused?.length) {
-    parts.push('', `<b>${strings.arrivalRefused}</b>`);
-    for (const { key, why, days } of result.refused) {
-      const said = strings.arrivalRefusedWhy?.[why];
-      parts.push(
-        `• ${escapeHtml(typeof said === 'function' ? said(days) : (said ?? named(key)))}`
-      );
-    }
-  }
+  parts.push(...describedRefusals(result, strings, named));
   parts.push(...whereTheReadingsDiffer(result, strings, named));
-  parts.push('', strings.arrivalYours);
+  const needsWork = wanted.length || result.refused?.length;
+  parts.push('', needsWork ? strings.arrivalNeedsWork : strings.arrivalYours);
   return parts.join('\n').trim();
+}
+
+/** Missing and failed inputs, reduced to the field names a traveller can act on. */
+function stillWanted(onThePage, result) {
+  const failed = (result.failed ?? []).map((one) =>
+    String(one).split(':')[0].trim()
+  );
+  return [...new Set([...(result.missing ?? []), ...failed])].filter(
+    (key) => !onThePage[key]
+  );
+}
+
+/** Site validation refusals in the language of the chat. */
+function describedRefusals(result, strings, named) {
+  if (!result.refused?.length) {
+    return [];
+  }
+  const lines = result.refused.map(({ key, why, days }) => {
+    const said = strings.arrivalRefusedWhy?.[why];
+    const words =
+      typeof said === 'function' ? said(days) : (said ?? named(key));
+    return `• ${escapeHtml(words)}`;
+  });
+  return ['', `<b>${strings.arrivalRefused}</b>`, ...lines];
 }
 
 /**

@@ -714,7 +714,11 @@ export async function choosePhoneCountryCode(page, code, at = 0) {
     // this field holds, so the first is taken where they agree on the code.
     sameIf: (text) => codeIn(text) === digits,
   });
-  return `(+${digits})`;
+  const chosen = await input.inputValue().catch(() => '');
+  if (chosen.replace(/\D/g, '') !== digits) {
+    throw new Error(`phoneCountryCode shows "${chosen}", not "(+${digits})"`);
+  }
+  return chosen;
 }
 
 /**
@@ -885,8 +889,8 @@ export async function uploadPassport(page, passportImage, at = 0) {
 }
 
 /**
- * The controls that are not text: the date, the picture, the gender, the
- * dialling code and the box that unlocks the visa section.
+ * The controls that are not text: the date, the picture, the gender and the
+ * box that unlocks the visa section.
  *
  * Each is answered its own way — a button among three, a file, a radio, a
  * list, a tick — so they are done together, ahead of the typing.
@@ -920,11 +924,6 @@ async function fillTheRest(
       }
     })
     .catch((error) => failed.push(`readTheNotes: ${saidBriefly(error)}`));
-  if (applicant.phoneCountryCode) {
-    await choosePhoneCountryCode(page, applicant.phoneCountryCode, at)
-      .then(() => filled.push('phoneCountryCode'))
-      .catch((error) => failed.push(`phoneCountryCode: ${saidBriefly(error)}`));
-  }
   if (passportImage) {
     await uploadPassport(page, passportImage, at)
       .then(({ took, site }) => {
@@ -951,6 +950,32 @@ async function fillTheRest(
       .catch((error) => failed.push(`sex: ${saidBriefly(error)}`));
   }
   return null;
+}
+
+/**
+ * Makes the dialling code the last write on a passenger page.
+ *
+ * The passport reader redraws this control after the upload starts, so a
+ * selection made with the other special controls can disappear underneath
+ * the rest of the fill.
+ */
+async function finishPhoneCountryCode(page, applicant, { at, filled, failed }) {
+  if (!applicant.phoneCountryCode) {
+    return;
+  }
+  try {
+    const chosen = await choosePhoneCountryCode(
+      page,
+      applicant.phoneCountryCode,
+      at
+    );
+    if (!chosen) {
+      throw new Error('the control is not visible');
+    }
+    filled.push('phoneCountryCode');
+  } catch (error) {
+    failed.push(`phoneCountryCode: ${saidBriefly(error)}`);
+  }
 }
 
 /**
@@ -1055,6 +1080,13 @@ export async function fillDeclaration(
       drawn = false;
     }
   }
+
+  // The passport scan updates the page asynchronously and can redraw the
+  // Country Code control after a choice made near the start. The live form
+  // then looked filled but refused Next because the selection had vanished.
+  // Make this the final write on the passenger page and read it back before
+  // claiming it survived.
+  await finishPhoneCountryCode(page, applicant, { at, filled, failed });
 
   // An expiry caught mid-fill makes everything typed after it meaningless:
   // the page is still drawn, but the site has forgotten the declaration.
@@ -1185,6 +1217,14 @@ export async function readDeclaration(page, at = 0) {
     if (value) {
       values[field.key] = value;
     }
+  }
+  const phoneCountryCode = await page
+    .locator(`[name="${at}_phoneCountryCode"]`)
+    .first()
+    .inputValue()
+    .catch(() => null);
+  if (phoneCountryCode) {
+    values.phoneCountryCode = phoneCountryCode;
   }
   return values;
 }

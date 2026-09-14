@@ -8,6 +8,10 @@ import {
   STEPS,
 } from '../src/evisa-prearrival-pages.mjs';
 import {
+  fillTrip,
+  provinceAsNamedHere,
+  readTrip,
+  wardAsNamedHere,
   purposeAsNamedHere,
   stayAsNamedHere,
   TRIP_FIELDS,
@@ -109,6 +113,29 @@ describe('walking the declaration to its review', () => {
     ]);
     // The walk presses only the two buttons that turn a page.
     expect(site.pressed).toEqual(['Trip Information', 'Review & Submit']);
+  });
+
+  it('names the passport upload and every other field in the log', async () => {
+    // A count of eighteen cannot prove which eighteenth action happened.
+    // Naming the fields lets the retained trace distinguish an uploaded
+    // passport from any other successful input without logging its value.
+    const { page } = fakeSite();
+    const lines = [];
+    await walkTheDeclaration({
+      page,
+      fillPassenger: async () => ({
+        filled: ['passportNumber', 'passportImage', 'visaNumber'],
+        missing: [],
+        failed: ['passportNumber: SECRET_SENTINEL'],
+      }),
+      fillTrip: async () => done(['vehicleNumber', 'province', 'ward']),
+      log: (line) => lines.push(line),
+    });
+    expect(lines[0].includes('passportImage')).toBe(true);
+    expect(lines[0].includes('passportNumber')).toBe(true);
+    expect(lines[0].includes('failed [passportNumber]')).toBe(true);
+    expect(lines.some((line) => line.includes('SECRET_SENTINEL'))).toBe(false);
+    expect(lines.some((line) => line.includes('province, ward'))).toBe(true);
   });
 
   it('files nothing on its way through', async () => {
@@ -254,6 +281,19 @@ describe('what the trip page is told to say', () => {
     expect(stayAsNamedHere(null)).toBe(null);
   });
 
+  it('searches administrative dropdowns by the stable place name', () => {
+    // The two immigration sites wrap the same name differently. The e-visa
+    // says `HO CHI MINH City` and `PHUONG TAN BINH`; the declaration may say
+    // `Ho Chi Minh City` and `Tan Binh Ward`. The name in the middle is what
+    // remains stable and uniquely filters the live dropdown.
+    expect(provinceAsNamedHere('HO CHI MINH City')).toBe('HO CHI MINH');
+    expect(provinceAsNamedHere('Khanh Hoa Province')).toBe('Khanh Hoa');
+    expect(wardAsNamedHere('PHUONG TAN BINH')).toBe('TAN BINH');
+    expect(wardAsNamedHere('XA VINH HAI')).toBe('VINH HAI');
+    expect(wardAsNamedHere('Nha Trang Ward')).toBe('Nha Trang');
+    expect(wardAsNamedHere('Cam Hai Dong Commune')).toBe('Cam Hai Dong');
+  });
+
   it('has no field for the border gate, which the site fills itself', () => {
     // Read off the live site: the gate is disabled and takes its value from
     // the flight. A field for it here would be one nothing could ever fill.
@@ -265,6 +305,34 @@ describe('what the trip page is told to say', () => {
     // The list is fetched as the number is typed and answers the letters that
     // were in the box when the request went out, so it needs a real wait.
     expect(FLIGHT_LIST_MS >= 15000).toBe(true);
+  });
+
+  it('does not call the optional workplace a missing requirement', async () => {
+    const selected = {
+      waitFor: async () => {},
+      isChecked: async () => true,
+    };
+    const page = {
+      locator: () => ({ first: () => selected }),
+    };
+    const result = await fillTrip(page, {});
+    expect(result.missing.includes('workplace')).toBe(false);
+    expect(result.missing.includes('vehicleNumber')).toBe(true);
+    expect(result.missing.includes('departureDate')).toBe(true);
+  });
+
+  it('reads the selected radio labels without relying on their names', async () => {
+    const page = {
+      locator: (selector) => ({
+        first: () => ({
+          inputValue: async () => null,
+          isChecked: async () => /(?:Air|Hotel)/.test(selector),
+        }),
+      }),
+    };
+    const read = await readTrip(page);
+    expect(read.modeOfTravel).toBe('Air');
+    expect(read.accommodationType).toBe('Hotel');
   });
 });
 
@@ -285,6 +353,16 @@ describe('showing a page without stopping on it', () => {
     // Guarded by the page it is on, whichever way that is spelled.
     const guarded = /at === 0\s*\?\s*await readDeclaration/.test(showing);
     expect(guarded).toBe(true);
+    // The trip caption must likewise describe the values visibly standing on
+    // page two; passing an empty object produced a blank "current" section.
+    expect(showing.includes('readTrip')).toBe(true);
+    expect(/at === 1\s*\?\s*await readTrip/.test(showing)).toBe(true);
+  });
+
+  it('renders the rejected-page message with HTML parsing', () => {
+    const begins = run.indexOf('if (walk.reached < 2)');
+    const reporting = run.slice(begins, run.indexOf('} else {', begins));
+    expect(reporting.includes("parse_mode: 'HTML'")).toBe(true);
   });
 });
 

@@ -13,6 +13,7 @@ import {
 import {
   arrivalDateOverride,
   declarationFor,
+  tripFrom,
 } from '../src/evisa-arrival-run.mjs';
 
 const APPLICANT = {
@@ -89,6 +90,145 @@ describe('the pre-arrival declaration', () => {
     const field = { key: 'vehicleNumber', label: 'Vehicle' };
     expect(valueFor(field, {}, { vehicleNumber: '' })).toBe(null);
     expect(valueFor(field, {}, { vehicleNumber: 'XX1234' })).toBe('XX1234');
+  });
+});
+
+describe('the trip page from documents already sent', () => {
+  it('derives every required trip value in the real document shape', () => {
+    // The arrival flow receives a passport, a granted visa and an inbound
+    // ticket. Those documents name the origin airport and the visa window,
+    // but no hotel was sent and the ticket has no return leg. The same
+    // defaults used by the e-visa application complete those blanks.
+    const trip = tripFrom({
+      vehicleNumber: '[REDACTED]',
+      departedFrom: 'GOA MOPA AIRPORT',
+      purpose: 'Tourist',
+      visaExpiryDate: '[REDACTED]',
+    });
+    expect(trip).toEqual({
+      modeOfTravel: 'Air',
+      vehicleNumber: '[REDACTED]',
+      departedFrom: 'India',
+      purpose: 'Tourist',
+      accommodationType: 'Hotel',
+      province: 'HO CHI MINH',
+      ward: 'TAN BINH',
+      accommodationAddress: '[REDACTED]',
+      workplace: null,
+      departureDate: '[REDACTED]',
+    });
+  });
+
+  it('prefers trip details the traveller supplied over defaults', () => {
+    const applicant = {
+      modeOfTravel: 'Sea',
+      departedFrom: 'Thailand',
+      accommodationType: 'Residential',
+      province: 'Khanh Hoa Province',
+      ward: 'Nha Trang Ward',
+      accommodationAddress: '25/7 Tran Phu, Nha Trang',
+      addressInVietnam: '[REDACTED]',
+      departureDate: '[REDACTED]',
+      visaExpiryDate: '[REDACTED]',
+    };
+    // This is the production call shape: the generic declaration supplies
+    // defaults too, but the traveller's explicit trip details must win.
+    const trip = tripFrom(applicant, buildDeclaration(applicant).values);
+    expect(trip.modeOfTravel).toBe('Sea');
+    expect(trip.departedFrom).toBe('Thailand');
+    expect(trip.accommodationType).toBe('Residential');
+    expect(trip.province).toBe('Khanh Hoa');
+    expect(trip.ward).toBe('Nha Trang');
+    expect(trip.accommodationAddress).toBe('25/7 Tran Phu, Nha Trang');
+    expect(trip.departureDate).toBe('[REDACTED]');
+  });
+
+  it('takes the province and ward from a booking address', () => {
+    const trip = tripFrom({
+      accommodationAddress: '25/7 Tran Phu, Vinh Hai Ward, Нячанг, Вьетнам',
+    });
+    expect(trip.province).toBe('KHANH HOA');
+    expect(trip.ward).toBe('VINH HAI');
+    expect(trip.accommodationAddress).toBe(
+      '25/7 Tran Phu, Vinh Hai Ward, Nha Trang'
+    );
+  });
+
+  it('keeps a new booking address separate from the old e-visa stay', () => {
+    const applicant = {
+      accommodationAddress: '25/7 Tran Phu, Vinh Hai Ward, Нячанг, Вьетнам',
+      addressInVietnam: '[REDACTED]',
+      provinceInVietnam: 'HO CHI MINH City',
+      wardInVietnam: 'PHUONG TAN BINH',
+    };
+    const trip = tripFrom(applicant, buildDeclaration(applicant).values);
+    expect(trip.province).toBe('KHANH HOA');
+    expect(trip.ward).toBe('VINH HAI');
+    expect(trip.accommodationAddress).toBe(
+      '25/7 Tran Phu, Vinh Hai Ward, Nha Trang'
+    );
+  });
+
+  it('does not mix a partial supplied stay with an unrelated default', () => {
+    const trip = tripFrom({
+      provinceInVietnam: 'Khanh Hoa Province',
+      wardInVietnam: 'Nha Trang Ward',
+    });
+    expect(trip.province).toBe('Khanh Hoa');
+    expect(trip.ward).toBe('Nha Trang');
+    expect(trip.accommodationAddress).toBe(null);
+  });
+
+  it('treats blank document fields as missing and uses the defaults', () => {
+    const trip = tripFrom({
+      purpose: '',
+      accommodationType: '',
+      accommodationAddress: '',
+      departureDate: '',
+      visaExpiryDate: '[REDACTED]',
+    });
+    expect(trip.purpose).toBe('Tourist');
+    expect(trip.accommodationType).toBe('Hotel');
+    expect(trip.province).toBe('HO CHI MINH');
+    expect(trip.ward).toBe('TAN BINH');
+    expect(trip.accommodationAddress).toBe(
+      '[REDACTED]'
+    );
+    expect(trip.departureDate).toBe('[REDACTED]');
+  });
+});
+
+describe('describing a trip page in the chat', () => {
+  it('uses traveller-facing labels and hides browser implementation errors', async () => {
+    const { describeFilled } = await import('../src/evisa-bot.mjs');
+    const said = describeFilled(
+      { modeOfTravel: 'Air' },
+      {
+        missing: ['province', 'ward'],
+        failed: [
+          'departedFrom: locator.waitFor: Timeout 10000ms exceeded.',
+          'phoneCountryCode: selection was redrawn',
+        ],
+      },
+      'ru'
+    );
+    expect(said.includes('вид транспорта: Air')).toBe(true);
+    expect(said.includes('город или провинция проживания')).toBe(true);
+    expect(said.includes('район или коммуна проживания')).toBe(true);
+    expect(said.includes('откуда летите')).toBe(true);
+    expect(said.includes('телефонный код страны')).toBe(true);
+    for (const implementationDetail of [
+      'province',
+      'ward',
+      'departedFrom',
+      'phoneCountryCode',
+      'locator.waitFor',
+      'Timeout 10000ms',
+    ]) {
+      expect(said.includes(implementationDetail)).toBe(false);
+    }
+    expect(said.includes('Страница ещё не заполнена')).toBe(true);
+    expect(said.includes('Форма заполнена и ждёт')).toBe(false);
   });
 });
 

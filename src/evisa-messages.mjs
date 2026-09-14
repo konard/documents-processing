@@ -57,6 +57,8 @@ export const MESSAGES = {
       'Send me what you read.',
     arrivalCaptchaAgain:
       'That code was refused. Here is a fresh one — send me what you read.',
+    arrivalCaptchaGotIt:
+      'Never mind the code — I got through it myself. Filling the form now.',
     arrivalTooEarly: (wanted, offered) =>
       `The site will not take a declaration for ${wanted} yet: it offers ` +
       `only ${offered.join(', ')}. It opens 72 hours before you land, so ` +
@@ -343,6 +345,8 @@ export const MESSAGES = {
       'Сайт декларации просит этот код, прежде чем показать форму. ' +
       'Пришлите то, что видите.',
     arrivalCaptchaAgain: 'Код не подошёл. Вот новый — пришлите то, что видите.',
+    arrivalCaptchaGotIt:
+      'Код уже не нужен — я разобрал его сам. Заполняю форму.',
     arrivalTooEarly: (wanted, offered) =>
       `Сайт пока не принимает декларацию на ${wanted}: он предлагает только ` +
       `${offered.join(', ')}. Приём открывается за 72 часа до прилёта — ` +

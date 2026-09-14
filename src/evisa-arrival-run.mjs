@@ -124,6 +124,7 @@ export async function startDeclaration({
   // Reading it is free to get wrong: a refused code only draws another
   // picture. So the bot tries for itself first, and the traveller is asked
   // only for the pictures it cannot read.
+  let asked = false;
   if (ocr) {
     const solved = await solveCaptcha({
       page: opened.page,
@@ -131,9 +132,34 @@ export async function startDeclaration({
       log,
       ocr,
       tries,
+      // A few pictures in, the traveller is brought in alongside. The reading
+      // carries on, so this costs nothing when the next picture is the one
+      // that passes; what it buys is a chat that is never left watching a
+      // dialog in silence while the bot works through six of them.
+      onRound: async (round) => {
+        if (asked || round < ASK_AFTER_ROUNDS) {
+          return;
+        }
+        asked = await askCaptcha(
+          ctx,
+          chatId,
+          strings.arrivalCaptcha,
+          opened.page
+        );
+        log(
+          chatId,
+          `captcha ${round}: ${asked ? 'asked the chat as well' : 'no picture to send'}`
+        );
+      },
     });
     if (solved) {
       session.arrival.stage = 'form';
+      // The picture already sent is now a question with no answer wanted. Say
+      // so, or the traveller types a code into a chat that has moved on and
+      // gets nothing back for it.
+      if (asked) {
+        await ctx.reply(strings.arrivalCaptchaGotIt).catch(() => {});
+      }
       await fillAndShow({
         ctx,
         chatId,
@@ -142,16 +168,14 @@ export async function startDeclaration({
         MESSAGES,
         describeFilled,
       });
-      return { asked: false, solved: true, page: opened.page };
+      return { asked, solved: true, page: opened.page };
+    }
+    if (asked) {
+      return { asked, page: opened.page };
     }
   }
 
-  const asked = await askCaptcha(
-    ctx,
-    chatId,
-    strings.arrivalCaptcha,
-    opened.page
-  );
+  asked = await askCaptcha(ctx, chatId, strings.arrivalCaptcha, opened.page);
   log(
     chatId,
     `declaration captcha ${asked ? 'sent to the chat' : 'not found'}`
@@ -168,18 +192,39 @@ export async function startDeclaration({
 export const CONFIDENT_VOTES = 6;
 
 /**
+ * How many pictures the bot reads for itself before the chat is asked too.
+ *
+ * Asking is not giving up: the reading carries on behind the question, and
+ * whichever answer arrives first is the one that counts. What this bounds is
+ * how long a traveller watches an unsolved dialog with nothing said to them.
+ */
+export const ASK_AFTER_ROUNDS = 2;
+
+/**
  * Reads the captcha and tries it, for as many pictures as it takes.
  *
  * Each refusal draws a fresh picture, and the pictures differ in how legible
  * they are, so trying again is worth more than trying harder at one of them.
+ *
+ * `onRound` is told after every picture that did not pass, so the caller can
+ * bring the traveller in after the bot has had a fair go on its own.
  */
-export async function solveCaptcha({ page, chatId, log, ocr, tries = 6 }) {
+export async function solveCaptcha({
+  page,
+  chatId,
+  log,
+  ocr,
+  tries = 6,
+  onRound = null,
+}) {
   const { renderImage, withImageFile, ...rest } = ocr;
   for (let round = 1; round <= tries; round += 1) {
+    // A refused code is answered with a fresh picture in the same dialog, so
+    // after the first round the picture waiting to be read is already there.
+    // Asking for another would throw away a picture and wait for its
+    // replacement.
     const bytes =
-      round === 1
-        ? await readCaptchaImage(page)
-        : await refreshCaptchaImage(page);
+      round === 1 ? await readCaptchaImage(page) : await nextPicture(page);
     if (!bytes) {
       log(chatId, 'no captcha picture to read');
       return false;
@@ -188,6 +233,7 @@ export async function solveCaptcha({ page, chatId, log, ocr, tries = 6 }) {
     const { code, agreed } = readCaptchaText(img, { renderImage, ...rest });
     if (!code) {
       log(chatId, `captcha ${round}: nothing readable`);
+      await onRound?.(round);
       continue;
     }
     // How many readings agreed says how likely the code is right: every code
@@ -199,6 +245,8 @@ export async function solveCaptcha({ page, chatId, log, ocr, tries = 6 }) {
         chatId,
         `captcha ${round}: "${code}" only ${agreed} agreed; redrawing`
       );
+      await refreshCaptchaImage(page);
+      await onRound?.(round);
       continue;
     }
     if (await answerCaptcha(page, code)) {
@@ -206,9 +254,20 @@ export async function solveCaptcha({ page, chatId, log, ocr, tries = 6 }) {
       return true;
     }
     log(chatId, `captcha ${round}: "${code}" refused (${agreed} agreed)`);
+    await onRound?.(round);
   }
   log(chatId, `the captcha beat ${tries} readings; asking the chat`);
   return false;
+}
+
+/**
+ * The picture to read next, after a code the site would not take.
+ *
+ * A refusal is answered with a fresh picture in the dialog, so usually there
+ * is one already waiting; only an unreadable one needs asking for.
+ */
+async function nextPicture(page) {
+  return (await readCaptchaImage(page)) ?? (await refreshCaptchaImage(page));
 }
 
 /**

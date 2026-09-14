@@ -9,6 +9,17 @@
 // worth knowing about and are logged.
 
 /**
+ * How many renewal gaps may pass before the chat is showing nothing.
+ *
+ * Telegram clears a chat action about five seconds after the one it last
+ * took, and the status is renewed every three, so a gap of much under two
+ * renewals is covered and anything past that is the chat gone quiet. Held as
+ * a multiple of the gap so a test can run the cycle in milliseconds and mean
+ * the same thing by it.
+ */
+export const SILENT_AFTER = 5 / 3;
+
+/**
  * Shows a status in the chat until the returned function is called.
  *
  * Telegram clears a chat action after five seconds, and again whenever the
@@ -29,8 +40,13 @@ export function showStatus(
   let failed = false;
   let sent = 0;
   let slowest = 0;
+  // The longest the chat went with no renewal landing, and when the last one
+  // did. Telegram clears the status a few seconds after the last one it got,
+  // so this — not a count against a clock — is what the chat actually saw.
+  let widestGap = 0;
   const chatId = ctx.chat?.id;
   const startedAt = Date.now();
+  let landedAt = startedAt;
   const send = async () => {
     const at = Date.now();
     try {
@@ -38,15 +54,29 @@ export function showStatus(
       // and this loop awaits it. One slow send would stop the renewals for
       // that whole time, and Telegram clears the status after five seconds —
       // so the chat would go quiet with nothing failing and nothing logged.
-      await Promise.race([
-        ctx.replyWithChatAction(action),
+      // Which of the two finished first is the whole answer: a send that came
+      // back reached the chat, and one still running when the wait was up did
+      // not — yet. Racing them without asking who won counted every hung send
+      // as a renewal the chat had seen.
+      // The send is watched for failure whoever wins the race: one that fails
+      // after the wait is up would otherwise reject with nobody holding it.
+      const sending = ctx.replyWithChatAction(action);
+      sending.catch(() => {});
+      const landed = await Promise.race([
+        sending.then(() => true),
         new Promise((resolve) => {
-          const late = setTimeout(resolve, waitMs);
+          const late = setTimeout(() => resolve(false), waitMs);
           late.unref?.();
         }),
       ]);
+      const now = Date.now();
+      slowest = Math.max(slowest, now - at);
+      if (!landed) {
+        return;
+      }
       sent += 1;
-      slowest = Math.max(slowest, Date.now() - at);
+      widestGap = Math.max(widestGap, now - landedAt);
+      landedAt = now;
     } catch (error) {
       if (!failed) {
         failed = true;
@@ -55,10 +85,16 @@ export function showStatus(
     }
   };
   (async () => {
+    let due = Date.now();
     while (!stopped) {
       await send();
+      // Renewed on a fixed cadence, not every "gap plus however long the last
+      // send took". Sleeping the full gap after each send lets the send's own
+      // time accumulate, and a minute of work drifts far enough behind that
+      // the count comes up short of the clock.
+      due += everyMs;
       await new Promise((resolve) => {
-        const next = setTimeout(resolve, everyMs);
+        const next = setTimeout(resolve, Math.max(0, due - Date.now()));
         next.unref?.();
       });
     }
@@ -67,15 +103,19 @@ export function showStatus(
     stopped = true;
     // Said once at the end, so a status that stopped short of the work can be
     // seen in the log beside the work it was meant to cover.
-    const held = Math.round((Date.now() - startedAt) / 1000);
-    const expected = Math.floor((Date.now() - startedAt) / everyMs);
-    // One renewal behind is the ordinary rounding of a loop against a clock.
-    // Two or more means the chat was left showing nothing for a while.
-    if (expected >= 2 && sent < expected - 1) {
+    const now = Date.now();
+    const held = Math.round((now - startedAt) / 1000);
+    const gap = Math.max(widestGap, now - landedAt);
+    // Telegram clears the status a few seconds after the last renewal it
+    // took, so a gap wider than that is one the chat really saw as a bot gone
+    // quiet. Counting renewals against a clock instead called it a gap every
+    // time a send was slow, even though the next one landed well inside the
+    // window and the chat never stopped showing anything.
+    if (gap > everyMs * SILENT_AFTER) {
       log(
         chatId,
-        `status "${action}" held ${held}s but sent only ${sent} of about ` +
-          `${expected} renewals (slowest ${slowest}ms): the chat saw gaps`
+        `status "${action}" held ${held}s with a ${Math.round(gap / 1000)}s ` +
+          `gap in it (${sent} renewals, slowest ${slowest}ms): the chat saw gaps`
       );
     }
   };

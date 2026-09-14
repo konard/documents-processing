@@ -544,19 +544,48 @@ export function readCaptchaText(img, tools) {
 }
 
 /**
+ * How long to wait for the site's answer to a submitted captcha code.
+ *
+ * Both answers arrive well inside this: the dialog closes, or the picture is
+ * redrawn. It is the bound for a site that gives neither.
+ */
+export const CAPTCHA_ANSWER_MS = 15000;
+
+/**
  * Types a captcha code and verifies it.
  *
  * Returns whether the dialog went away, which is the site's only answer: a
  * wrong code leaves it up, with a fresh picture to read.
+ *
+ * The site says no by redrawing the picture inside the dialog it keeps up, so
+ * waiting for the dialog to detach waits the whole timeout on every wrong
+ * code. Watching for either answer — gone, or a different picture — costs a
+ * refusal the round trip and nothing more, which is what makes trying several
+ * pictures cheap enough to be worth doing.
  */
 export async function answerCaptcha(page, code) {
   const dialog = page.locator('[role=dialog]');
+  const before = await pictureNow(page);
   await dialog.locator('input').fill(String(code).trim());
   await dialog.getByRole('button', { name: 'Verify' }).click();
   await page
-    .waitForSelector('[role=dialog]', { state: 'detached', timeout: 15000 })
+    .waitForFunction(
+      (was) => {
+        const img = document.querySelector('[role=dialog] img');
+        return !img || (img.src ?? '') !== was;
+      },
+      before,
+      { timeout: CAPTCHA_ANSWER_MS }
+    )
     .catch(() => {});
   return !(await captchaIsUp(page));
+}
+
+/** The captcha picture's source as it stands, for telling a redraw from a pass. */
+function pictureNow(page) {
+  return page
+    .evaluate(() => document.querySelector('[role=dialog] img')?.src ?? '')
+    .catch(() => '');
 }
 
 /**

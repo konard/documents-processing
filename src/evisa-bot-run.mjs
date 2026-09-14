@@ -399,6 +399,26 @@ async function restartChat(chatId) {
   await endChat(chatId);
 }
 
+/**
+ * Drops everything a chat has collected, keeping the language it chose.
+ *
+ * Each declaration is built from the documents sent for it. What a previous
+ * one collected — here and in the file that outlives the process — would
+ * otherwise reach the form with nobody having sent it, and a traveller who
+ * sends a new passport and reads back an old number cannot tell which of
+ * their documents the bot is working from.
+ */
+async function forgetChatData(chatId) {
+  batch.stop(chatId);
+  batch.forget(chatId);
+  disarmIdleFill(chatId);
+  // The declaration holds a browser, and clearing the session drops the only
+  // reference to it. Closed first, or it outlives the chat with nothing left
+  // able to close it.
+  await closeDeclaration(sessions.get(chatId));
+  sessions.clear(chatId);
+}
+
 /** The language a chat is answered in, read back from the store when new. */
 const speakTheirLanguage = (chatId) =>
   rememberedLanguage(sessions.get(chatId), () =>
@@ -512,15 +532,15 @@ async function fillPage(ctx, chatId, page, dir) {
   }
 }
 
-/** Writes what a fill did to the log, one line per thing worth knowing. */
+/** How many times a fill takes in what arrived while it was running. */
+const FILL_ROUNDS = 2;
+
 /**
  * Fills the form with what the chat has provided and sends back the page.
  *
  * Whatever goes wrong, the browser stays open with the form as far as it
  * got: that is where an operator or the applicant carries on by hand.
  */
-/** How many times a fill takes in what arrived while it was running. */
-const FILL_ROUNDS = 2;
 async function fillAndShow(ctx, chatId, round = 1) {
   const session = sessions.get(chatId);
   // One status for the whole of it: opening the browser, filling, and sending
@@ -1133,6 +1153,7 @@ registerArrivalCommand(bot, {
   MESSAGES,
   fillArrival: beginArrival,
   rehearsing: () => Boolean(arrivalDateOverride()),
+  forget: forgetChatData,
 });
 
 bot.command('reset', async (ctx) => {

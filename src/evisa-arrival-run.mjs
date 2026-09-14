@@ -110,6 +110,7 @@ export async function startDeclaration({
   tries = 6,
   headless = true,
   debugPort = 0,
+  quiet = false,
 }) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
@@ -167,6 +168,7 @@ export async function startDeclaration({
         log,
         MESSAGES,
         describeFilled,
+        quiet,
       });
       return { asked, solved: true, page: opened.page };
     }
@@ -324,6 +326,12 @@ export async function fillAndShow({
   log,
   MESSAGES,
   describeFilled,
+  // Whether the filled page is worth a message of its own. On /arrival the
+  // chat has just been sent everything known and what is still wanted, and a
+  // second message saying the same values are now on a page it cannot see is
+  // the same information twice. What follows the traveller sending something
+  // is different: it is the answer to what they just sent.
+  quiet = false,
 }) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
@@ -345,7 +353,11 @@ export async function fillAndShow({
   // costs nothing but the typing.
   if (!applicant.nationality) {
     log(chatId, 'the form is open and waiting: the record has no nationality');
-    await ctx.reply(strings.arrivalNothingToFill).catch(() => {});
+    // What is still wanted has just been listed, nationality among it, so
+    // saying it again adds nothing.
+    if (!quiet) {
+      await ctx.reply(strings.arrivalNothingToFill).catch(() => {});
+    }
     return { filled: [], missing: [], failed: [], waiting: true };
   }
 
@@ -353,14 +365,20 @@ export async function fillAndShow({
     log(chatId, `the nationality did not take: ${error.message}`)
   );
 
+  const passportImage = passportToUpload(session, held);
+
   // The built declaration wins over the raw record. It holds the values that
   // are the same for every e-visa traveller — the visa type, the issuing
   // department — which the record has no field for at all, so a record laid
   // over the top puts those back to nothing.
-  const result = await fillDeclaration(held.page, {
-    ...applicant,
-    ...values,
-  });
+  const result = await fillDeclaration(
+    held.page,
+    {
+      ...applicant,
+      ...values,
+    },
+    { passportImage }
+  );
 
   if (result.arrival?.tooEarly) {
     const offered = await offeredArrivalDates(held.page);
@@ -384,10 +402,46 @@ export async function fillAndShow({
     chatId,
     `declaration filled ${result.filled.length}, missing ${result.missing.length}, failed ${result.failed.length}`
   );
-  await ctx.reply(describeFilled(onThePage, result, session.language), {
-    parse_mode: 'HTML',
-  });
+  if (worthAMessage(result, quiet)) {
+    await ctx.reply(describeFilled(onThePage, result, session.language), {
+      parse_mode: 'HTML',
+    });
+  }
   return result;
+}
+
+/**
+ * The passport picture to put on the page, or nothing.
+ *
+ * The site reads an uploaded passport on its own server and fills what it
+ * finds, which is a second opinion on the bot's reading and the only way to
+ * check it. Sent once per page: a form already carrying the picture is not
+ * improved by another copy, and the upload costs three seconds of waiting.
+ */
+function passportToUpload(session, held) {
+  if (held.uploaded?.passportPage) {
+    return null;
+  }
+  const image = session.uploads?.passportPage ?? null;
+  if (image) {
+    held.uploaded = { ...held.uploaded, passportPage: true };
+  }
+  return image;
+}
+
+/**
+ * Whether the filled page is worth a message of its own.
+ *
+ * A fill that answers something the traveller just sent always is. One that
+ * follows /arrival has already been described in the message that command
+ * sent, so it speaks only about what that message could not hold: two
+ * readings of a passport that differ, and fields the site would not take.
+ */
+function worthAMessage(result, quiet) {
+  if (!quiet) {
+    return true;
+  }
+  return Boolean(result.disagreed?.length || result.failed?.length);
 }
 
 /**
@@ -436,7 +490,9 @@ export function declarationOpener(deps) {
     await closeDeclaration(sessions.get(chatId));
     const busy = showStatus(ctx, 'typing');
     try {
-      await startDeclaration({ ...deps, ctx, chatId });
+      // The values and what is still wanted have just been sent, so the fill
+      // that follows says nothing more unless it found something new.
+      await startDeclaration({ ...deps, ctx, chatId, quiet: true });
     } catch (error) {
       log(chatId, `the declaration did not open: ${error.message}`);
       await ctx

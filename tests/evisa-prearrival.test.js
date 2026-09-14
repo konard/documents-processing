@@ -260,7 +260,10 @@ describe('asked for the arrival card, the bot goes and gets it', () => {
     });
     expect(filled).toEqual([7]);
     // And it said what it knew first, so the fill is not a silent surprise.
-    expect(replies.includes('the declaration')).toBe(true);
+    // The rule and the values go out together: one command, one notification.
+    expect(replies.length).toBe(1);
+    expect(replies[0].includes('the declaration')).toBe(true);
+    expect(replies[0].includes('the rule')).toBe(true);
   });
 
   it('opens nothing when the site will not take the declaration yet', async () => {
@@ -298,6 +301,82 @@ describe('asked for the arrival card, the bot goes and gets it', () => {
     });
     expect(typeof bot.handlers.get('fill_arrival')).toBe('function');
     expect(typeof bot.handlers.get('arrival')).toBe('function');
+  });
+
+  it('forgets the last declaration before it begins another', async () => {
+    // A declaration is about one arrival. Values carried over would go onto
+    // the form with nobody having sent them, and a traveller who sends a new
+    // passport and reads back an old number cannot tell which of their
+    // documents the bot is working from.
+    const forgotten = [];
+    const bot = fakeBot();
+    registerArrivalCommand(bot, {
+      sessions: { get: () => ({ language: 'en', data: {} }) },
+      log: () => {},
+      touch: () => {},
+      describeDeclaration: () => 'the declaration',
+      MESSAGES: { en: { arrivalIntro: 'the rule' } },
+      fillArrival: () => {},
+      forget: (chatId) => forgotten.push(chatId),
+    });
+    await bot.handlers.get('arrival')({
+      chat: { id: 7 },
+      reply: async () => {},
+    });
+    expect(forgotten).toEqual([7]);
+  });
+
+  it('forgets before it reads what is known, not after', async () => {
+    // Cleared after the values were gathered, the declaration would be built
+    // from the very data the command is meant to drop.
+    const order = [];
+    const bot = fakeBot();
+    registerArrivalCommand(bot, {
+      sessions: {
+        get: () => {
+          order.push('read');
+          return { language: 'en', data: {} };
+        },
+      },
+      log: () => {},
+      touch: () => {},
+      describeDeclaration: () => 'the declaration',
+      MESSAGES: { en: { arrivalIntro: 'the rule' } },
+      fillArrival: () => {},
+      forget: () => order.push('forget'),
+    });
+    await bot.handlers.get('arrival')({
+      chat: { id: 7 },
+      reply: async () => {},
+    });
+    expect(order[0]).toBe('forget');
+  });
+
+  it('says the rule, the values and the wait in one message', async () => {
+    // Three notifications in a row for one command is three interruptions
+    // for no more information than one carries.
+    const replies = [];
+    const bot = fakeBot();
+    registerArrivalCommand(bot, {
+      sessions: {
+        get: () => ({ language: 'en', data: { entryDate: '31/12/2030' } }),
+      },
+      log: () => {},
+      touch: () => {},
+      describeDeclaration: () => 'the declaration',
+      MESSAGES: {
+        en: { arrivalIntro: 'the rule', arrivalWindowShut: () => 'not yet' },
+      },
+      fillArrival: () => {},
+    });
+    await bot.handlers.get('arrival')({
+      chat: { id: 7 },
+      reply: async (text) => replies.push(text),
+    });
+    expect(replies.length).toBe(1);
+    for (const said of ['the rule', 'the declaration', 'not yet']) {
+      expect(replies[0].includes(said)).toBe(true);
+    }
   });
 });
 

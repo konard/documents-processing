@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'test-anywhere';
 import {
   solveCaptcha,
+  fillAndShow,
   ASK_AFTER_ROUNDS,
   CONFIDENT_VOTES,
 } from '../src/evisa-arrival-run.mjs';
@@ -194,5 +195,61 @@ describe('solving the declaration captcha', () => {
     // Measured on the live site: accepted codes carried most of the votes and
     // refused ones a handful, so the bar sits above a handful.
     expect(CONFIDENT_VOTES > 4).toBe(true);
+  });
+});
+
+describe('what the chat is told after a fill', () => {
+  /** A session holding an open form, and the replies it draws. */
+  function filling(data) {
+    const replies = [];
+    const session = {
+      language: 'en',
+      data,
+      arrival: { stage: 'form', page: {}, browser: {} },
+      uploads: {},
+    };
+    return {
+      replies,
+      sessions: { get: () => session },
+      ctx: { reply: async (text) => replies.push(text) },
+    };
+  }
+
+  const MESSAGES = {
+    en: {
+      arrivalNothingToFill: 'tell me your nationality',
+      arrivalFilled: 'on the form',
+    },
+  };
+
+  it('adds nothing to the message /arrival has already sent', async () => {
+    // The values and what is still wanted went out a moment ago. Saying the
+    // same values are now on a page the traveller cannot see is the same
+    // information a second time.
+    const { replies, sessions, ctx } = filling({});
+    const out = await fillAndShow({
+      ctx,
+      chatId: 1,
+      sessions,
+      log: () => {},
+      MESSAGES,
+      describeFilled: () => 'what went in',
+      quiet: true,
+    });
+    expect(out.waiting).toBe(true);
+    expect(replies).toEqual([]);
+  });
+
+  it('answers what the traveller just sent', async () => {
+    const { replies, sessions, ctx } = filling({});
+    await fillAndShow({
+      ctx,
+      chatId: 1,
+      sessions,
+      log: () => {},
+      MESSAGES,
+      describeFilled: () => 'what went in',
+    });
+    expect(replies).toEqual(['tell me your nationality']);
   });
 });

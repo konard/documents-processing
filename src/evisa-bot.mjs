@@ -481,8 +481,31 @@ export function describeFilled(onThePage, result, language) {
       );
     }
   }
+  parts.push(...whereTheReadingsDiffer(result, strings, named));
   parts.push('', strings.arrivalYours);
   return parts.join('\n').trim();
+}
+
+/**
+ * The lines about a passport two readings made different things of.
+ *
+ * The site read the uploaded picture on its own server and the bot read the
+ * same picture when it arrived, so a field where they differ is one of the
+ * two being wrong about the same ink. The traveller is holding the passport
+ * and is the only one who can settle it.
+ */
+function whereTheReadingsDiffer(result, strings, named) {
+  if (!result.disagreed?.length) {
+    return [];
+  }
+  return [
+    '',
+    `<b>${strings.arrivalDisagreed}</b>`,
+    ...result.disagreed.map(
+      ({ key, site, bot }) =>
+        `• ${escapeHtml(strings.arrivalDisagreedOne(named(key), site, bot))}`
+    ),
+  ];
 }
 
 /** Telegram's limit on the caption under a file. */

@@ -801,7 +801,7 @@ function labelOf(page, radio, wanted) {
 async function fillTheRest(
   page,
   applicant,
-  { passportImage, filled, failed, at = 0 }
+  { passportImage, filled, failed, read = {}, at = 0 }
 ) {
   if (applicant.arrivalDate) {
     const picked = await chooseArrivalDate(page, applicant.arrivalDate);
@@ -835,6 +835,13 @@ async function fillTheRest(
     await page
       .setInputFiles('input[name="passportImage"]', passportImage)
       .then(() => page.waitForTimeout(3000))
+      .then(async () => {
+        filled.push('passportImage');
+        // What the site made of the picture, taken before anything is typed
+        // over it. Two readings of one passport that disagree mean one of them
+        // is wrong, and the traveller is the only one who can say which.
+        read.site = await readDeclaration(page);
+      })
       .catch((error) => failed.push(`passportImage: ${saidBriefly(error)}`));
   }
   const sex = applicant.sex ?? applicant.gender;
@@ -911,10 +918,15 @@ export async function fillDeclaration(
     ...(split.phone ? split : {}),
   };
 
+  // What the site itself read off the uploaded passport, kept so the values
+  // typed after it can be held up against it.
+  const read = {};
+
   const tooEarly = await fillTheRest(page, applicant, {
     passportImage,
     filled,
     failed,
+    read,
     at,
   });
   if (tooEarly) {
@@ -955,8 +967,55 @@ export async function fillDeclaration(
     // Typed and on the page, but the site will not take it. Saying so is the
     // whole point: the traveller cannot see the red text under the field.
     refused: whatThisSiteWillRefuse(applicant),
+    // Where the site's own reading of the passport and the bot's disagree.
+    disagreed: read.site ? whatTheReadingsDisagreeOn(read.site, applicant) : [],
   };
 }
+
+/**
+ * The fields where the site read the passport differently from the bot.
+ *
+ * Both read the same picture: the site on upload, the bot when the traveller
+ * sent it. Agreement is a passport read twice and understood the same way,
+ * and a field where they differ is one of the two being wrong — which the
+ * traveller is the only one able to settle. The bot's value is what goes on
+ * the form either way, since it is the one checked against every other
+ * document; the disagreement is reported, not acted on.
+ */
+export function whatTheReadingsDisagreeOn(fromSite, applicant) {
+  const differs = [];
+  for (const field of PASSPORT_FIELDS) {
+    const theirs = String(fromSite[field] ?? '').trim();
+    const ours = String(
+      valueAsNamedHere({ key: field }, applicant) ?? ''
+    ).trim();
+    // Only a field both of them read says anything. One side blank is a
+    // reading that was not attempted, not a reading that disagrees.
+    if (!theirs || !ours) {
+      continue;
+    }
+    if (theirs.toUpperCase() !== ours.toUpperCase()) {
+      differs.push({ key: field, site: theirs, bot: ours });
+    }
+  }
+  return differs;
+}
+
+/**
+ * The fields the site fills in for itself from an uploaded passport.
+ *
+ * These are the ones worth comparing: anything else on the form comes from
+ * the visa or the ticket, which the picture of a passport says nothing about.
+ */
+export const PASSPORT_FIELDS = [
+  'passportNumber',
+  'passportType',
+  'passportExpiryDate',
+  'surname',
+  'givenName',
+  'dateOfBirth',
+  'sex',
+];
 
 /**
  * True when a failure says the element was never there.

@@ -21,6 +21,8 @@ import {
   chooseFrom,
   valueAsNamedHere,
   halfOfName,
+  whatTheReadingsDisagreeOn,
+  PASSPORT_FIELDS,
 } from '../src/evisa-prearrival-form.mjs';
 
 describe('the declaration form the site actually draws', () => {
@@ -126,6 +128,62 @@ describe('the three-day window the site allows', () => {
     expect(result.arrival.tooEarly).toBe(true);
     expect(touched).toEqual([]);
     expect(result.filled).toEqual([]);
+  });
+});
+
+describe('the passport read twice', () => {
+  const APPLICANT = {
+    passportNumber: '712345678',
+    surname: 'TRAVELLER',
+    givenName: 'JOHN',
+    dateOfBirth: '04/11/1988',
+  };
+
+  it('names the fields the two readings disagree on', () => {
+    // The site reads the uploaded picture on its own server; the bot read the
+    // same picture when it arrived. One of them has the birthday wrong — a
+    // 3 and an 8 are a common pair to confuse — and only the traveller
+    // holding the passport can say which.
+    const differs = whatTheReadingsDisagreeOn(
+      { ...APPLICANT, dateOfBirth: '04/11/1983' },
+      APPLICANT
+    );
+    expect(differs.length).toBe(1);
+    expect(differs[0].key).toBe('dateOfBirth');
+    expect(differs[0].site).toBe('04/11/1983');
+    expect(differs[0].bot).toBe('04/11/1988');
+  });
+
+  it('says nothing when both readings agree', () => {
+    expect(whatTheReadingsDisagreeOn({ ...APPLICANT }, APPLICANT)).toEqual([]);
+  });
+
+  it('passes over a field only one of them read', () => {
+    // A blank on either side is a reading not attempted. Called a
+    // disagreement, every field the site leaves empty becomes a question the
+    // traveller is asked for no reason.
+    expect(
+      whatTheReadingsDisagreeOn({ passportNumber: '' }, APPLICANT)
+    ).toEqual([]);
+    expect(
+      whatTheReadingsDisagreeOn({ passportNumber: '712345678' }, {})
+    ).toEqual([]);
+  });
+
+  it('reads the same letters in either case as agreement', () => {
+    // The site prints a surname back in capitals whatever was typed.
+    expect(
+      whatTheReadingsDisagreeOn({ surname: 'traveller' }, APPLICANT)
+    ).toEqual([]);
+  });
+
+  it('compares only what a passport picture can say', () => {
+    // The visa number and the flight come from other documents entirely, so
+    // the site reading nothing for them is not a disagreement.
+    expect(PASSPORT_FIELDS.includes('visaNumber')).toBe(false);
+    expect(PASSPORT_FIELDS.includes('arrivalDate')).toBe(false);
+    expect(PASSPORT_FIELDS.includes('passportNumber')).toBe(true);
+    expect(PASSPORT_FIELDS.includes('dateOfBirth')).toBe(true);
   });
 });
 

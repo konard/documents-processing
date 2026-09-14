@@ -298,22 +298,24 @@ export async function showDeclaration({
   };
   const { values, missing } = buildDeclaration(applicant);
   const strings = MESSAGES[session.language];
-  if (intro) {
-    await ctx.reply(strings.arrivalIntro);
-  }
-  await ctx.reply(describeDeclaration(values, missing, session.language), {
-    parse_mode: 'HTML',
-  });
   // With the flight known, the rule becomes a date. A traveller who sends
   // every document they own deserves to hear why the form cannot be filled
   // yet. Given only a list of what is wanted, they are left to guess that
   // one of their documents failed to arrive.
   const shut = windowOpensOn(values.arrivalDate);
-  if (shut) {
-    await ctx.reply(
-      strings.arrivalWindowShut(values.arrivalDate, shut.opens, shut.days)
-    );
-  }
+  // One message, not three. The rule, the values and the date the window
+  // opens are all about the same thing, and three notifications in a row for
+  // one command is three times the interruption for no more information.
+  // The bot's own words and a date it formatted, so there is nothing here to
+  // escape: every value a traveller sent goes through describeDeclaration.
+  const said = [
+    intro ? strings.arrivalIntro : null,
+    describeDeclaration(values, missing, session.language),
+    shut
+      ? strings.arrivalWindowShut(values.arrivalDate, shut.opens, shut.days)
+      : null,
+  ].filter(Boolean);
+  await ctx.reply(said.join('\n\n'), { parse_mode: 'HTML' });
   return { values, missing, shut };
 }
 
@@ -360,6 +362,9 @@ export function registerArrivalCommand(bot, deps) {
     // does offer. Passed in because the module that decides it drives the
     // form, and that one already imports this.
     rehearsing = () => false,
+    // Drops everything held for a chat but the language it chose, so each
+    // declaration is built from the documents sent for it and no others.
+    forget = () => {},
   } = deps;
 
   /**
@@ -373,6 +378,14 @@ export function registerArrivalCommand(bot, deps) {
   async function doTheArrivalCard(ctx, said) {
     const chatId = ctx.chat.id;
     log(chatId, said);
+    // A declaration is about one arrival, and the documents behind it belong
+    // to that arrival alone. Values carried over from a previous /arrival
+    // would go onto the form without anybody sending them, and a traveller
+    // who sends a new passport and sees an old number has no way to tell
+    // which of their documents the bot is actually reading. The language is
+    // the one thing kept: it was chosen at /start and is not part of any
+    // declaration.
+    await forget(chatId);
     touch(chatId);
     const session = enterMode(sessions.get(chatId), MODES.arriving);
     session.language = speakTheirLanguage(chatId);

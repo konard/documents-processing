@@ -759,9 +759,24 @@ export function pressNext(page) {
 const CAPTCHA_ID = 'basic_captcha';
 
 /**
- * The captcha the review page shows, as PNG bytes, or null when the page
- * shows none. The image is embedded in the page as data, so it is read
- * from there without another request.
+ * Where a captcha picture sits, on each of the two sites the bot drives.
+ *
+ * The visa form marks its image `alt="captcha img"`; the declaration site
+ * marks its own `alt="captcha"` and draws it inside the dialog that gates the
+ * page. One reader that knows both is what lets everything above it — asking
+ * the chat to read a picture, above all — work whichever site is open, and
+ * a selector belonging to the other site silently finds nothing at all.
+ */
+const CAPTCHA_IMAGES = [
+  'img[alt="captcha img"]',
+  '[role=dialog] img[alt="captcha"]',
+  '[role=dialog] img',
+];
+
+/**
+ * The captcha the page shows, as PNG bytes, or null when it shows none. The
+ * image is embedded in the page as data, so it is read from there without
+ * another request.
  */
 export async function readCaptcha(page) {
   // The image element is on the page before its picture is: the site draws
@@ -770,17 +785,23 @@ export async function readCaptcha(page) {
   // captcha, so the wait is for the picture itself.
   await page
     .waitForFunction(
-      () =>
-        /^data:image\//.test(
-          document.querySelector('img[alt="captcha img"]')?.src ?? ''
+      (where) =>
+        where.some((one) =>
+          /^data:image\//.test(document.querySelector(one)?.src ?? '')
         ),
-      undefined,
+      CAPTCHA_IMAGES,
       { timeout: 15000 }
     )
     .catch(() => {});
-  const src = await page.evaluate(
-    () => document.querySelector('img[alt="captcha img"]')?.src ?? null
-  );
+  const src = await page.evaluate((where) => {
+    for (const one of where) {
+      const found = document.querySelector(one)?.src ?? '';
+      if (/^data:image\//.test(found)) {
+        return found;
+      }
+    }
+    return null;
+  }, CAPTCHA_IMAGES);
   const match = src && /^data:image\/\w+;base64,\s*(.+)$/s.exec(src);
   return match ? Buffer.from(match[1], 'base64') : null;
 }

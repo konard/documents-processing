@@ -45,11 +45,14 @@ function fakeSite({ passOn = 'GOOD1' } = {}) {
     evaluate: async (fn) => fn(),
     waitForTimeout: async () => {},
     locator: (what) => ({
-      locator: () => ({ fill: async () => {} }),
+      // What the driver types into the box. Verify judges that, which is how
+      // the real site decides, so a test arranges nothing beforehand.
+      locator: () => ({
+        fill: async (code) => site.tried.push(code),
+      }),
       getByRole: () => ({
         click: async () => {
-          const code = site.tried.at(-1);
-          if (code === passOn) {
+          if (site.tried.at(-1) === passOn) {
             site.up = false;
           } else {
             redraw();
@@ -88,7 +91,6 @@ describe('answering the declaration captcha', () => {
     // Six rounds of that is two minutes of a traveller watching nothing.
     const { site, page } = fakeSite({ passOn: 'RIGHT' });
     const before = site.picture;
-    site.tried.push('WRONG');
     const passed = await answerCaptcha(page, 'WRONG');
     expect(passed).toBe(false);
     // The wait was told the old picture, and the new one differs from it, so
@@ -99,7 +101,6 @@ describe('answering the declaration captcha', () => {
 
   it('says the code passed when the dialog goes', async () => {
     const { site, page } = fakeSite({ passOn: 'RIGHT' });
-    site.tried.push('RIGHT');
     expect(await answerCaptcha(page, 'RIGHT')).toBe(true);
     expect(site.up).toBe(false);
   });
@@ -120,53 +121,70 @@ describe('solving the declaration captcha', () => {
       log: quiet,
       ocr,
       tries: 5,
-      onRound: async (round) => asked.push(round),
+      onRound: async (round) => {
+        asked.push(round);
+        return false;
+      },
     });
     expect(asked[0]).toBe(1);
     expect(asked.includes(ASK_AFTER_ROUNDS)).toBe(true);
   });
 
-  it('stops as soon as a code is taken', async () => {
-    const { site, page } = fakeSite({ passOn: 'PASS1' });
-    // The site takes the code on the third picture it draws.
-    let seen = 0;
-    const ocr = readsAs(() => {
-      seen += 1;
-      return seen > 36 ? 'PASS1' : 'NOPE1';
-    });
-    const rounds = [];
-    const patched = {
-      ...page,
-      locator: (what) => {
-        const base = page.locator(what);
-        return {
-          ...base,
-          getByRole: () => ({
-            click: async () => {
-              const code = seen > 36 ? 'PASS1' : 'NOPE1';
-              site.tried.push(code);
-              if (code === 'PASS1') {
-                site.up = false;
-              } else {
-                site.drawn += 1;
-                site.picture = `data:image/png;base64,PIC${site.drawn}`;
-              }
-            },
-          }),
-        };
-      },
-    };
+  it('leaves the picture alone after the chat has been sent it', async () => {
+    // The whole point of handing it over. Reading on draws a new picture, and
+    // the code the traveller carefully read off the one they were sent is
+    // then answered against a picture that is no longer on the page — so
+    // every code they send is refused, however well they read it.
+    const { site, page } = fakeSite({ passOn: 'NEVER' });
+    const ocr = readsAs(() => 'ABCD');
+    // The picture as it stood at the moment the chat was sent it, which is
+    // the one the traveller is reading their code off.
+    let handedOver = null;
     const solved = await solveCaptcha({
-      page: patched,
+      page,
       chatId: 1,
       log: quiet,
       ocr,
       tries: 6,
-      onRound: async (round) => rounds.push(round),
+      onRound: async (round) => {
+        if (round < ASK_AFTER_ROUNDS) {
+          return false;
+        }
+        handedOver = site.picture;
+        // What askCaptcha reports when the picture reached the chat.
+        return true;
+      },
+    });
+    expect(solved).toBe(false);
+    expect(handedOver).not.toBe(null);
+    // Still on the page, untouched, waiting for the code that was read off it.
+    expect(site.picture).toBe(handedOver);
+    expect(site.up).toBe(true);
+    // And the code the traveller sends is answered against that same picture.
+    expect(await answerCaptcha(page, 'THEIR')).toBe(false);
+    expect(site.tried.at(-1)).toBe('THEIR');
+  });
+
+  it('stops as soon as a code is taken', async () => {
+    // A picture the bot reads confidently is submitted, and the one the site
+    // accepts ends the loop with the dialog gone.
+    const { site, page } = fakeSite({ passOn: 'GOODC' });
+    const rounds = [];
+    const solved = await solveCaptcha({
+      page,
+      chatId: 1,
+      log: quiet,
+      ocr: readsAs(() => 'GOODC'),
+      tries: 6,
+      onRound: async (round) => {
+        rounds.push(round);
+        return false;
+      },
     });
     expect(solved).toBe(true);
-    // Asked on the rounds that failed, and not once the code went through.
-    expect(rounds.length < 6).toBe(true);
+    expect(site.up).toBe(false);
+    // Taken on the first picture, so nobody was ever asked.
+    expect(rounds).toEqual([]);
   });
 
   it('replaces a picture too unclear to be worth submitting', async () => {

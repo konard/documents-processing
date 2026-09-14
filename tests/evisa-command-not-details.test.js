@@ -105,6 +105,38 @@ describe('reading the captcha off a page', () => {
     expect(read === null).toBe(false);
     expect(read.toString()).toBe('hello');
   });
+
+  it("finds the declaration site's picture too, not just the visa form's", async () => {
+    // The two sites mark the image differently: the visa form says
+    // alt="captcha img", the declaration says alt="captcha" inside the dialog
+    // that gates the page. A reader that knew only the visa form's spelling
+    // found nothing on a declaration, so the bot could never hand that
+    // picture to the chat — it waited fifteen seconds and reported no captcha
+    // however plainly one was on the screen.
+    const { chromium } = await import('playwright');
+    const { readCaptcha } = await import('../src/evisa-fill.mjs');
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.setContent(
+      '<div role="dialog"><h2>CAPTCHA Verification</h2>' +
+        '<img alt="captcha" src="data:image/png;base64,aGVsbG8="></div>'
+    );
+    const read = await readCaptcha(page);
+    await browser.close();
+    expect(read === null).toBe(false);
+    expect(read.toString()).toBe('hello');
+  });
+
+  it('reports nothing when the page really has no captcha', async () => {
+    const { chromium } = await import('playwright');
+    const { readCaptcha } = await import('../src/evisa-fill.mjs');
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.setContent('<p>a form with nothing to read</p>');
+    const read = await readCaptcha(page);
+    await browser.close();
+    expect(read).toBe(null);
+  });
 });
 
 describe('a lookup never fills in a form', () => {

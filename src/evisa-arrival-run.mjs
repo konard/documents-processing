@@ -133,13 +133,14 @@ export async function startDeclaration({
       log,
       ocr,
       tries,
-      // A few pictures in, the traveller is brought in alongside. The reading
-      // carries on, so this costs nothing when the next picture is the one
-      // that passes; what it buys is a chat that is never left watching a
-      // dialog in silence while the bot works through six of them.
+      // A few pictures in, the bot stops and hands the picture to the
+      // traveller. It has to stop: every further round draws a new picture,
+      // and a code read off the one already sent would be answered against a
+      // picture that no longer exists. So asking ends the reading, and the
+      // page is left holding exactly the picture the chat was shown.
       onRound: async (round) => {
         if (asked || round < ASK_AFTER_ROUNDS) {
-          return;
+          return false;
         }
         asked = await askCaptcha(
           ctx,
@@ -149,18 +150,13 @@ export async function startDeclaration({
         );
         log(
           chatId,
-          `captcha ${round}: ${asked ? 'asked the chat as well' : 'no picture to send'}`
+          `captcha ${round}: ${asked ? 'asked the chat; the page keeps this picture' : 'no picture to send'}`
         );
+        return asked;
       },
     });
     if (solved) {
       session.arrival.stage = 'form';
-      // The picture already sent is now a question with no answer wanted. Say
-      // so, or the traveller types a code into a chat that has moved on and
-      // gets nothing back for it.
-      if (asked) {
-        await ctx.reply(strings.arrivalCaptchaGotIt).catch(() => {});
-      }
       await fillAndShow({
         ctx,
         chatId,
@@ -170,8 +166,10 @@ export async function startDeclaration({
         describeFilled,
         quiet,
       });
-      return { asked, solved: true, page: opened.page };
+      return { asked: false, solved: true, page: opened.page };
     }
+    // The picture is already with the traveller, and the page is holding it
+    // for them. Sending another would replace the one they are reading.
     if (asked) {
       return { asked, page: opened.page };
     }
@@ -196,9 +194,13 @@ export const CONFIDENT_VOTES = 6;
 /**
  * How many pictures the bot reads for itself before the chat is asked too.
  *
- * Asking is not giving up: the reading carries on behind the question, and
- * whichever answer arrives first is the one that counts. What this bounds is
- * how long a traveller watches an unsolved dialog with nothing said to them.
+ * Asking hands the picture over: the bot stops there and the page keeps the
+ * picture the chat was shown, so the code that comes back is answered against
+ * the one the traveller actually read. A bot that kept reading would redraw
+ * it, and every code they sent would be refused for a picture since replaced.
+ *
+ * What this bounds is how long somebody watches an unsolved dialog before
+ * being given the chance to do it themselves.
  */
 export const ASK_AFTER_ROUNDS = 2;
 
@@ -221,55 +223,52 @@ export async function solveCaptcha({
 }) {
   const { renderImage, withImageFile, ...rest } = ocr;
   for (let round = 1; round <= tries; round += 1) {
-    // A refused code is answered with a fresh picture in the same dialog, so
-    // after the first round the picture waiting to be read is already there.
-    // Asking for another would throw away a picture and wait for its
-    // replacement.
-    const bytes =
-      round === 1 ? await readCaptchaImage(page) : await nextPicture(page);
+    const bytes = await readCaptchaImage(page);
     if (!bytes) {
       log(chatId, 'no captcha picture to read');
       return false;
     }
     const img = await withImageFile(bytes, (file) => renderImage(file));
     const { code, agreed } = readCaptchaText(img, { renderImage, ...rest });
-    if (!code) {
-      log(chatId, `captcha ${round}: nothing readable`);
-      await onRound?.(round);
-      continue;
-    }
     // How many readings agreed says how likely the code is right: every code
     // the site accepted had most of them behind it, and every one it refused
     // had a handful. A picture this hard to read is cheaper to replace than
     // to submit, since a refusal costs a round trip and a new picture is free.
-    if (agreed < CONFIDENT_VOTES && round < tries) {
-      log(
-        chatId,
-        `captcha ${round}: "${code}" only ${agreed} agreed; redrawing`
-      );
-      await refreshCaptchaImage(page);
-      await onRound?.(round);
-      continue;
-    }
-    if (await answerCaptcha(page, code)) {
+    const worthTrying = code && (agreed >= CONFIDENT_VOTES || round === tries);
+    if (worthTrying && (await answerCaptcha(page, code))) {
       log(chatId, `captcha ${round}: "${code}" accepted (${agreed} agreed)`);
       return true;
     }
-    log(chatId, `captcha ${round}: "${code}" refused (${agreed} agreed)`);
-    await onRound?.(round);
+    log(chatId, `captcha ${round}: ${whatHappened(code, agreed, worthTrying)}`);
+
+    // Asked before anything is redrawn, so the picture the chat is sent is
+    // the one still on the page. A handover that ends the loop here leaves it
+    // there: the code that comes back is answered against the very picture
+    // the traveller read it from.
+    if (await onRound?.(round)) {
+      return false;
+    }
+    // A code the site refused is answered with a fresh picture of its own, so
+    // only a picture nobody submitted has to be asked for.
+    if (!worthTrying && round < tries) {
+      log(chatId, `captcha ${round}: drawing another`);
+      await refreshCaptchaImage(page);
+    }
   }
   log(chatId, `the captcha beat ${tries} readings; asking the chat`);
   return false;
 }
 
-/**
- * The picture to read next, after a code the site would not take.
- *
- * A refusal is answered with a fresh picture in the dialog, so usually there
- * is one already waiting; only an unreadable one needs asking for.
- */
-async function nextPicture(page) {
-  return (await readCaptchaImage(page)) ?? (await refreshCaptchaImage(page));
+/** What to say in the log about a picture that did not get through. */
+function whatHappened(code, agreed, tried) {
+  if (!code) {
+    return 'nothing readable';
+  }
+  // What became of the picture is said by the line after this one — asked
+  // for, redrawn, or the last of them — so this says only what was read.
+  return tried
+    ? `"${code}" refused (${agreed} agreed)`
+    : `"${code}" carried only ${agreed} readings`;
 }
 
 /**

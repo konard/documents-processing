@@ -57,8 +57,6 @@ export const MESSAGES = {
       'Send me what you read.',
     arrivalCaptchaAgain:
       'That code was refused. Here is a fresh one — send me what you read.',
-    arrivalCaptchaGotIt:
-      'Never mind the code — I got through it myself. Filling the form now.',
     arrivalDisagreed:
       'The site read your passport photo differently from me. I kept my ' +
       'reading — check these and tell me if the site was right:',
@@ -350,8 +348,6 @@ export const MESSAGES = {
       'Сайт декларации просит этот код, прежде чем показать форму. ' +
       'Пришлите то, что видите.',
     arrivalCaptchaAgain: 'Код не подошёл. Вот новый — пришлите то, что видите.',
-    arrivalCaptchaGotIt:
-      'Код уже не нужен — я разобрал его сам. Заполняю форму.',
     arrivalDisagreed:
       'Сайт прочитал фото паспорта иначе, чем я. Я оставил своё — ' +
       'проверьте и скажите, если прав сайт:',

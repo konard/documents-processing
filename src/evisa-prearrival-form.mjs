@@ -463,12 +463,27 @@ export function captchaIsUp(page) {
  */
 /* global document */
 export async function readCaptchaImage(page) {
+  // The wait ends on either answer the site can give: a picture, or its own
+  // word that there will not be one. Waiting the full timeout for a page that
+  // has already given up spends fifteen seconds to learn what it printed in
+  // the first of them.
+  //
+  // "CAPTCHA is unavailable" alone is not that word: the site prints it as
+  // the placeholder in the empty box while the picture is still coming, so
+  // every ordinary load says it for about half a second. Only "Failed to get
+  // CAPTCHA" marks a request that actually failed.
   await page
     .waitForFunction(
-      () =>
-        /^data:image\//.test(
-          document.querySelector('[role=dialog] img')?.src ?? ''
-        ),
+      () => {
+        const dialog = document.querySelector('[role=dialog]');
+        if (!dialog) {
+          return false;
+        }
+        if (/Failed to get CAPTCHA/i.test(dialog.innerText ?? '')) {
+          return true;
+        }
+        return /^data:image\//.test(dialog.querySelector('img')?.src ?? '');
+      },
       undefined,
       { timeout: 15000 }
     )

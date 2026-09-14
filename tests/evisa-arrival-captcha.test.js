@@ -15,7 +15,7 @@ import { answerCaptcha } from '../src/evisa-prearrival-form.mjs';
  * difference is the whole point — the bot tells the two apart by the picture,
  * since the site says nothing else.
  */
-function fakeSite({ passOn = 'GOOD1' } = {}) {
+function fakeSite({ passOn = 'GOOD1', servesNothing = 0 } = {}) {
   const site = {
     up: true,
     picture: 'data:image/png;base64,AAAA',
@@ -23,9 +23,22 @@ function fakeSite({ passOn = 'GOOD1' } = {}) {
     tried: [],
     waited: [],
     redraws: 0,
+    // How many more times the captcha service answers with nothing, as it
+    // does when its own page reads "CAPTCHA is unavailable".
+    broken: servesNothing,
   };
+  if (site.broken) {
+    site.picture = '';
+  }
+  // A reload while the service is down answers with nothing; the one that
+  // finds it recovered answers with a picture, the way the real site does.
   const redraw = () => {
     site.drawn += 1;
+    if (site.broken > 0) {
+      site.broken -= 1;
+      site.picture = site.broken > 0 ? '' : `data:image/png;base64,BACK`;
+      return;
+    }
     site.picture = `data:image/png;base64,PIC${site.drawn}`;
   };
   const dialogImage = () => (site.up ? { src: site.picture } : null);
@@ -207,6 +220,54 @@ describe('solving the declaration captcha', () => {
       onRound: async () => {},
     });
     expect(site.redraws > 0).toBe(true);
+  });
+
+  it("waits out a brief outage of the site's own captcha service", async () => {
+    // Its page reads "CAPTCHA is unavailable" over an empty box and recovers
+    // within seconds. Giving up on the first empty answer would end a
+    // declaration over a hiccup nobody needs to hear about.
+    const { site, page } = fakeSite({ passOn: 'GOODC', servesNothing: 1 });
+    let stalled = false;
+    const solved = await solveCaptcha({
+      page,
+      chatId: 1,
+      log: quiet,
+      ocr: readsAs(() => 'GOODC'),
+      tries: 6,
+      onRound: async () => false,
+      onStalled: () => {
+        stalled = true;
+      },
+    });
+    expect(solved).toBe(true);
+    expect(stalled).toBe(false);
+    expect(site.up).toBe(false);
+  });
+
+  it('says so when the site keeps issuing no picture at all', async () => {
+    // Nothing to read and nothing to send. A page showing the site's own
+    // error with no word from the bot looks like the bot is what broke.
+    const { page } = fakeSite({ passOn: 'GOODC', servesNothing: 99 });
+    let stalled = false;
+    const asked = [];
+    const solved = await solveCaptcha({
+      page,
+      chatId: 1,
+      log: quiet,
+      ocr: readsAs(() => 'GOODC'),
+      tries: 4,
+      onRound: async (round) => {
+        asked.push(round);
+        return false;
+      },
+      onStalled: () => {
+        stalled = true;
+      },
+    });
+    expect(solved).toBe(false);
+    expect(stalled).toBe(true);
+    // Never asked to read a picture, because there was never one to send.
+    expect(asked).toEqual([]);
   });
 
   it('needs most of the readings behind a code before it sends it', () => {

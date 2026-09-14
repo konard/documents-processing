@@ -117,15 +117,31 @@ export async function startDeclaration({
   log(chatId, 'opening the pre-arrival declaration');
   const opened = await openDeclaration({ headless, debugPort });
   session.arrival = { ...opened, stage: 'captcha' };
+  // No dialog gating the page means the form itself is already in front of
+  // us, so it is filled. Left at the captcha stage the chat would hold a
+  // browser showing a ready form that nothing would ever type into.
   if (!(await captchaIsUp(opened.page))) {
     log(chatId, 'the declaration opened with no captcha on it');
-    return { asked: false, page: opened.page };
+    session.arrival.stage = 'form';
+    await fillAndShow({
+      ctx,
+      chatId,
+      sessions,
+      log,
+      MESSAGES,
+      describeFilled,
+      quiet,
+    });
+    return { asked: false, solved: true, page: opened.page };
   }
 
   // Reading it is free to get wrong: a refused code only draws another
   // picture. So the bot tries for itself first, and the traveller is asked
   // only for the pictures it cannot read.
   let asked = false;
+  // The site's own captcha service failing, which is neither a picture the
+  // bot misread nor anything the traveller can put right by trying harder.
+  let stalled = false;
   if (ocr) {
     const solved = await solveCaptcha({
       page: opened.page,
@@ -133,6 +149,9 @@ export async function startDeclaration({
       log,
       ocr,
       tries,
+      onStalled: () => {
+        stalled = true;
+      },
       // A few pictures in, the bot stops and hands the picture to the
       // traveller. It has to stop: every further round draws a new picture,
       // and a code read off the one already sent would be answered against a
@@ -173,6 +192,15 @@ export async function startDeclaration({
     if (asked) {
       return { asked, page: opened.page };
     }
+    // Nothing to send and nothing to read: the site is not issuing codes.
+    // Said plainly, because a page reading "CAPTCHA is unavailable" with no
+    // word from the bot looks like the bot is the thing that broke. The
+    // browser goes with it: it is holding a dialog nobody can get past.
+    if (stalled) {
+      await closeDeclaration(session);
+      await ctx.reply(strings.arrivalSiteStalled).catch(() => {});
+      return { asked: false, stalled: true };
+    }
   }
 
   asked = await askCaptcha(ctx, chatId, strings.arrivalCaptcha, opened.page);
@@ -180,6 +208,12 @@ export async function startDeclaration({
     chatId,
     `declaration captcha ${asked ? 'sent to the chat' : 'not found'}`
   );
+  // No picture on the page and none asked for: the site gave the bot nothing
+  // to work with, and the chat hears that in place of silence.
+  if (!asked) {
+    await closeDeclaration(session);
+    await ctx.reply(strings.arrivalSiteStalled).catch(() => {});
+  }
   return { asked, page: opened.page };
 }
 
@@ -220,12 +254,16 @@ export async function solveCaptcha({
   ocr,
   tries = 6,
   onRound = null,
+  // Told when the site itself draws no picture, which is not a captcha the
+  // bot failed to read but a declaration that cannot be started at all.
+  onStalled = null,
 }) {
   const { renderImage, withImageFile, ...rest } = ocr;
   for (let round = 1; round <= tries; round += 1) {
-    const bytes = await readCaptchaImage(page);
+    const bytes = await aPictureToRead(page, chatId, log, round < tries);
     if (!bytes) {
-      log(chatId, 'no captcha picture to read');
+      log(chatId, 'the site is drawing no captcha at all');
+      await onStalled?.();
       return false;
     }
     const img = await withImageFile(bytes, (file) => renderImage(file));
@@ -257,6 +295,23 @@ export async function solveCaptcha({
   }
   log(chatId, `the captcha beat ${tries} readings; asking the chat`);
   return false;
+}
+
+/**
+ * The captcha picture on the page, asking the site again if it served none.
+ *
+ * Its captcha service fails on its own sometimes — the dialog reads "CAPTCHA
+ * is unavailable" over an empty box, above "Failed to get CAPTCHA" — and
+ * recovers within seconds. Its own Reload is the only way to ask again, so an
+ * outage that passes costs a few seconds and nobody needs to hear about it.
+ */
+async function aPictureToRead(page, chatId, log, mayRetry) {
+  const bytes = await readCaptchaImage(page);
+  if (bytes || !mayRetry) {
+    return bytes;
+  }
+  log(chatId, 'the site served no picture; asking it again');
+  return refreshCaptchaImage(page).catch(() => null);
 }
 
 /** What to say in the log about a picture that did not get through. */

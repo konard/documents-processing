@@ -70,6 +70,11 @@ export const MESSAGES = {
       'The declaration site closed the session before the form was finished. ' +
       'Send /fill_arrival and I open a new one — everything you have told me ' +
       'is kept, so there is nothing to send again.',
+    arrivalSiteStalled:
+      'The declaration site is not issuing its security code right now — its ' +
+      'own page says "Failed to get CAPTCHA". That is on their side, not ' +
+      'yours, and it usually passes within a few minutes. Send /arrival ' +
+      'again shortly and I will open it afresh.',
     arrivalFilled: 'On the declaration now:',
     arrivalStillWanted: 'Still to fill in:',
     // What the site marks in red under a field, said in the chat instead. The
@@ -361,6 +366,11 @@ export const MESSAGES = {
       'Сайт декларации закрыл сессию, не дождавшись конца заполнения. ' +
       'Отправьте /fill_arrival — открою заново. Всё, что вы мне уже ' +
       'сказали, сохранено, присылать заново ничего не нужно.',
+    arrivalSiteStalled:
+      'Сайт декларации сейчас не выдаёт код проверки — на его же странице ' +
+      'написано «Failed to get CAPTCHA». Это на их стороне, не на вашей, и ' +
+      'обычно проходит за несколько минут. Отправьте /arrival чуть позже — ' +
+      'открою заново.',
     arrivalFilled: 'Сейчас в декларации:',
     arrivalStillWanted: 'Ещё нужно заполнить:',
     arrivalRefused: 'Вот это сайт в таком виде не примет:',

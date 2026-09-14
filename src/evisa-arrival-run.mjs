@@ -35,10 +35,17 @@ import {
 import {
   walkTheDeclaration,
   fileTheDeclaration,
+  returnToPassenger,
+  whichStep,
 } from './evisa-prearrival-pages.mjs';
 import { buildDeclaration, fullNameOf } from './evisa-prearrival.mjs';
 import { parseVietnamAddress } from './evisa-vietnam-address.mjs';
 import { FIELD_DEFAULTS } from './evisa-schema.mjs';
+import {
+  describeDocumentIssues,
+  restoreDocumentIssues,
+  takeDocumentIssues,
+} from './evisa-document-feedback.mjs';
 
 /**
  * The arrival gate the ticket lands at, as the declaration names it.
@@ -218,7 +225,7 @@ export async function startDeclaration({
     // browser goes with it: it is holding a dialog nobody can get past.
     if (stalled) {
       await closeDeclaration(session);
-      await ctx.reply(strings.arrivalSiteStalled).catch(() => {});
+      await sendSiteStalled({ ctx, chatId, session, strings, InputFile, log });
       return { asked: false, stalled: true };
     }
   }
@@ -232,9 +239,30 @@ export async function startDeclaration({
   // to work with, and the chat hears that in place of silence.
   if (!asked) {
     await closeDeclaration(session);
-    await ctx.reply(strings.arrivalSiteStalled).catch(() => {});
+    await sendSiteStalled({ ctx, chatId, session, strings, InputFile, log });
   }
   return { asked, page: opened.page };
+}
+
+/** One answer when the declaration site issued no CAPTCHA at all. */
+function sendSiteStalled({ ctx, chatId, session, strings, InputFile, log }) {
+  return sendArrivalAnswer({
+    ctx,
+    chatId,
+    answer: {
+      caption: [
+        strings.arrivalSiteStalled,
+        describeDocumentIssues(session, strings),
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      shot: null,
+    },
+    session,
+    strings,
+    InputFile,
+    log,
+  });
 }
 
 /**
@@ -424,11 +452,6 @@ export async function fillAndShow({
     log,
     chatId,
   });
-  if (rehearsal) {
-    await ctx.reply(
-      strings.arrivalRehearsal(rehearsal, session.data?.entryDate)
-    );
-  }
 
   // The nationality gates the whole form: the site draws no field until one
   // is chosen. Without it there is nothing to type into yet, so the prepared
@@ -437,23 +460,73 @@ export async function fillAndShow({
   // the traveller needs to know it is their turn.
   if (!applicant.nationality) {
     log(chatId, 'the form is open and waiting: the record has no nationality');
-    await ctx
-      .reply(whatIsStillWanted(strings, session, describeDeclaration), {
-        parse_mode: 'HTML',
-      })
-      .catch(() => {});
+    const caption = [
+      rehearsal
+        ? strings.arrivalRehearsal(rehearsal, session.data?.entryDate)
+        : '',
+      whatIsStillWanted(strings, session, describeDeclaration),
+      describeDocumentIssues(session, strings),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    await sendArrivalAnswer({
+      ctx,
+      chatId,
+      answer: { caption, shot: null },
+      session,
+      strings,
+      InputFile,
+      log,
+    });
     return { filled: [], missing: [], failed: [], waiting: true };
   }
 
-  await chooseNationality(held.page, applicant.nationality).catch((error) =>
-    log(chatId, `the nationality did not take: ${error.message}`)
-  );
+  const current = await whichStep(held.page);
+  let atPassenger = false;
+  if (current.at < 0) {
+    try {
+      await chooseNationality(held.page, applicant.nationality);
+      atPassenger = true;
+    } catch (error) {
+      log(chatId, `the nationality did not take: ${error.message}`);
+    }
+  } else {
+    atPassenger = await returnToPassenger(held.page, {
+      log: (said) => log(chatId, said),
+    });
+  }
+  if (!atPassenger) {
+    await sendArrivalAnswer({
+      ctx,
+      chatId,
+      answer: {
+        caption: [
+          strings.arrivalFormUnavailable,
+          describeDocumentIssues(session, strings),
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        shot: null,
+      },
+      session,
+      strings,
+      InputFile,
+      log,
+    });
+    return { filled: [], missing: [], failed: [], waiting: true };
+  }
+  // A correction has left the review already. Mark it immediately, before
+  // filling or awaiting the site, so a concurrent "submit" cannot be routed
+  // to a declaration that is no longer on its review page.
+  held.stage = 'form';
 
   const passportImage = passportToUpload(session, held);
 
-  // The declaration is three pages, and each is shown as it is done: the
-  // traveller watches it fill the way the visa form's applicant does, and a
-  // page that goes wrong is seen at the page it went wrong on.
+  // All pages are read and photographed as they are finished, but the chat
+  // gets one answer after the walk. A forwarded batch is one request, and
+  // three progress pictures plus a final notice made that request look like
+  // four unrelated outcomes.
+  const captured = [];
   const walk = await walkTheDeclaration({
     page: held.page,
     log: (said) => log(chatId, said),
@@ -471,58 +544,92 @@ export async function fillAndShow({
       fillTrip(held.page, tripFrom(applicant, values), {
         log: (said) => log(chatId, said),
       }),
-    onPage: ({ at, title, filled, missing, failed }) =>
-      showThePage({
-        ctx,
-        chatId,
-        page: held.page,
-        at,
-        title,
-        result: { filled, missing, failed },
-        session,
-        describeFilled,
-        log,
-        strings,
-        InputFile,
-      }),
+    onPage: async ({ at, title, filled, missing, failed, ...rest }) => {
+      captured.push(
+        await captureThePage({
+          chatId,
+          page: held.page,
+          at,
+          title,
+          result: { filled, missing, failed, ...rest },
+          log,
+          InputFile,
+        })
+      );
+    },
   });
 
   const first = walk.pages[0] ?? { filled: [], missing: [], failed: [] };
+  const { tooEarly, expired } = await settleArrivalWalk({
+    walk,
+    first,
+    page: held.page,
+    applicant,
+    held,
+    session,
+    chatId,
+    log,
+  });
+  const answer = arrivalAnswerFor({
+    walk,
+    captured,
+    applicant,
+    session,
+    strings,
+    describeFilled,
+    rehearsal: rehearsal
+      ? strings.arrivalRehearsal(rehearsal, session.data?.entryDate)
+      : '',
+    tooEarly,
+    expired,
+  });
+  await sendArrivalAnswer({
+    ctx,
+    chatId,
+    answer,
+    session,
+    strings,
+    InputFile,
+    log,
+  });
+  return { ...first, walk };
+}
+
+/** Records how the page walk ended and leaves the session at that stage. */
+export async function settleArrivalWalk({
+  walk,
+  first,
+  page,
+  applicant,
+  held,
+  session,
+  chatId,
+  log,
+}) {
+  let tooEarly = null;
   if (first.arrival?.tooEarly) {
-    const offered = await offeredArrivalDates(held.page);
+    const offered = await offeredArrivalDates(page);
     log(
       chatId,
       `too early to declare: wanted ${applicant.arrivalDate}, offered ${offered.join(', ')}`
     );
-    await ctx.reply(strings.arrivalTooEarly(applicant.arrivalDate, offered));
-    return first;
+    tooEarly = { wanted: applicant.arrivalDate, offered };
   }
-
-  if (first.expired) {
+  const expired = Boolean(first.expired);
+  if (expired) {
     log(chatId, `the declaration expired: ${first.expired}`);
     await closeDeclaration(session);
-    await ctx.reply(strings.arrivalExpired);
-    return first;
   }
-
-  // A page the site would not accept: it named the fields holding it up, so
-  // the traveller is told which, in the site's own words.
   if (walk.reached < 2) {
+    held.stage = 'form';
     log(
       chatId,
       `the declaration stopped on ${walk.stopped}: ${walk.refused?.join('; ') || 'no reason given'}`
     );
-    await ctx
-      .reply(strings.arrivalPageRefused(walk.stopped, walk.refused ?? []), {
-        parse_mode: 'HTML',
-      })
-      .catch(() => {});
-  } else {
-    // On the review, filled and waiting. The last press is the traveller's.
+  } else if (!tooEarly && !expired) {
     held.stage = 'review';
-    await ctx.reply(strings.arrivalAtTheReview).catch(() => {});
   }
-  return { ...first, walk };
+  return { tooEarly, expired };
 }
 
 /**
@@ -530,9 +637,9 @@ export async function fillAndShow({
  *
  * The record holds the journey under the names the rest of the bot uses, and
  * the trip page wants its own. The ticket gives the flight and where the
- * journey began, the visa gives its validity window, and a booking can give
- * the place to stay. Where no booking was sent, the same editable Ho Chi Minh
- * address used by the e-visa application completes the required cascade.
+ * journey began, and a booking can give the place to stay. Facts that no
+ * supplied document states remain empty: an address does not prove a hotel,
+ * and a visa's final valid day is not the traveller's planned departure day.
  */
 export function tripFrom(applicant = {}, values = {}) {
   // `values` contains generic declaration defaults as well as copied record
@@ -545,17 +652,12 @@ export function tripFrom(applicant = {}, values = {}) {
     vehicleNumber: firstFrom(sources, 'vehicleNumber', 'flightNumber'),
     departedFrom: countryFlownFrom(...sources),
     purpose: firstKnown(firstFrom(sources, 'purpose'), 'Tourist'),
-    accommodationType: firstKnown(
-      firstFrom(sources, 'accommodationType'),
-      'Hotel'
-    ),
+    accommodationType: firstFrom(sources, 'accommodationType'),
     province: staying.province,
     ward: staying.ward,
     accommodationAddress: staying.address,
     workplace: firstFrom(sources, 'workplace'),
-    // With no return ticket, the visa's final valid day is the last departure
-    // the available documents support. It stays editable on the review.
-    departureDate: firstFrom(sources, 'departureDate', 'visaExpiryDate'),
+    departureDate: firstFrom(sources, 'departureDate'),
   };
 }
 
@@ -658,24 +760,14 @@ function countryFlownFrom(...records) {
   return said;
 }
 
-/**
- * Sends one page of the declaration as it is finished.
- *
- * A picture of the page and, under it, only what a picture cannot say. The
- * review carries no list at all: it is the site's own summary of everything
- * above it, and a list beside it would say the same thing twice.
- */
-async function showThePage({
-  ctx,
+/** Reads and photographs one page for the consolidated answer. */
+async function captureThePage({
   chatId,
   page,
   at,
   title,
   result,
-  session,
-  describeFilled,
   log,
-  strings,
   InputFile,
 }) {
   const shot = InputFile
@@ -695,35 +787,196 @@ async function showThePage({
       : at === 1
         ? await readTrip(page).catch(() => ({}))
         : {};
-  const said =
-    at === 2
-      ? strings.arrivalReviewShot
-      : `${strings.arrivalPageOf(at + 1, 3, title)}\n\n${describeFilled(
-          onThePage,
-          result,
-          session.language
-        )}`;
-  if (!shot) {
-    await ctx.reply(said, { parse_mode: 'HTML' }).catch(() => {});
-    return;
-  }
-  const fits = said.length <= CAPTION_LIMIT;
-  await ctx
-    .replyWithPhoto(new InputFile(shot, strings.arrivalShotName), {
-      caption: fits ? said : undefined,
-      parse_mode: 'HTML',
-      show_caption_above_media: true,
-    })
-    .catch((error) =>
-      log(chatId, `the picture did not send: ${error.message}`)
-    );
-  if (!fits) {
-    await ctx.reply(said, { parse_mode: 'HTML' }).catch(() => {});
-  }
+  return { at, title, result, onThePage, shot };
 }
 
 /** Telegram's limit on the words under a picture. */
 const CAPTION_LIMIT = 1024;
+
+/**
+ * Chooses the one page and the one account that answer the entire batch.
+ *
+ * A successful walk returns the review. A blocked walk returns the page that
+ * needs work and only its actionable field names—the raw Playwright trace and
+ * the site's generic English validation sentence belong in the log.
+ */
+export function arrivalAnswerFor({
+  walk,
+  captured,
+  session,
+  strings,
+  describeFilled,
+  rehearsal = '',
+  tooEarly = null,
+  expired = false,
+}) {
+  const last = captured.at(-1) ?? {};
+  const passenger = captured.find(({ at }) => at === 0)?.onThePage ?? {};
+  const main = mainArrivalAnswer({
+    walk,
+    last,
+    passenger,
+    session,
+    strings,
+    describeFilled,
+    tooEarly,
+    expired,
+  });
+  const caption = [
+    rehearsal,
+    main,
+    describeArrivalWarnings(walk, strings),
+    describeDocumentIssues(session, strings),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  return { caption, shot: last.shot ?? null };
+}
+
+/** Non-blocking fill failures that still belong in the one final answer. */
+function describeArrivalWarnings(walk, strings) {
+  const failed = (walk.pages ?? []).flatMap((page) => page.failed ?? []);
+  return failed.some(
+    (failure) => String(failure).split(':')[0].trim() === 'passportImage'
+  )
+    ? strings.arrivalPassportUnread
+    : '';
+}
+
+/** The state-specific part of the consolidated answer. */
+function mainArrivalAnswer({
+  walk,
+  last,
+  passenger,
+  session,
+  strings,
+  describeFilled,
+  tooEarly,
+  expired,
+}) {
+  if (tooEarly) {
+    return strings.arrivalTooEarly(tooEarly.wanted, tooEarly.offered);
+  }
+  if (expired) {
+    return strings.arrivalExpired;
+  }
+  if (walk.reached < 2) {
+    return blockedArrivalAnswer({
+      walk,
+      last,
+      session,
+      strings,
+      describeFilled,
+    });
+  }
+  return [
+    strings.arrivalReviewShot,
+    strings.arrivalPassengerCheck?.(escapedPassenger(passenger)),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** A stopped page, reduced to the fields the traveller can act on. */
+function blockedArrivalAnswer({
+  walk,
+  last,
+  session,
+  strings,
+  describeFilled,
+}) {
+  const result = last.result ??
+    walk.pages.at(-1) ?? {
+      filled: [],
+      missing: [],
+      failed: [],
+    };
+  const pageTitle =
+    strings.arrivalPageName?.(last.title ?? walk.stopped) ??
+    last.title ??
+    walk.stopped;
+  const stopped = strings.arrivalPageName?.(walk.stopped) ?? walk.stopped;
+  return [
+    strings.arrivalPageOf((last.at ?? walk.reached) + 1, 3, pageTitle),
+    describeFilled({}, result, session.language, {
+      showValues: false,
+      forceNeedsWork: true,
+    }),
+    walk.refused?.length
+      ? strings.arrivalPageRefused(stopped, [])
+      : strings.arrivalPageIncomplete(stopped),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** Sends the chosen answer once and retires its accumulated warnings. */
+export async function sendArrivalAnswer({
+  ctx,
+  chatId,
+  answer,
+  session,
+  strings,
+  InputFile,
+  log,
+}) {
+  // `arrivalAnswerFor` has already described exactly this snapshot. Detach
+  // it synchronously, before Telegram is awaited; later document warnings
+  // then start a new collection and survive this send.
+  const issueSnapshot = takeDocumentIssues(session);
+  try {
+    if (answer.shot && InputFile) {
+      const fits = answer.caption.length <= CAPTION_LIMIT;
+      const caption = fits
+        ? answer.caption
+        : `${plainCaption(answer.caption).slice(0, CAPTION_LIMIT - 1)}…`;
+      if (!fits) {
+        log(
+          chatId,
+          `the consolidated arrival caption is ${answer.caption.length} characters; shortened under its screenshot`
+        );
+      }
+      await ctx.replyWithPhoto(
+        new InputFile(answer.shot, strings.arrivalShotName),
+        {
+          caption,
+          ...(fits ? { parse_mode: 'HTML' } : {}),
+          show_caption_above_media: true,
+        }
+      );
+    } else {
+      await ctx.reply(answer.caption, { parse_mode: 'HTML' });
+    }
+    return true;
+  } catch (error) {
+    restoreDocumentIssues(session, issueSnapshot);
+    log(chatId, `the declaration answer did not send: ${error.message}`);
+    return false;
+  }
+}
+
+/** Markup-free fallback for a pathological Telegram caption. */
+function plainCaption(caption) {
+  return String(caption)
+    .replace(/<[^>]*>/g, '')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>');
+}
+
+/** Values interpolated into Telegram HTML without becoming markup. */
+function escapedPassenger(values) {
+  const escaped = {};
+  for (const key of ['fullName', 'gender', 'arrivalDate', 'phone']) {
+    if (values[key]) {
+      escaped[key] = String(values[key])
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+  }
+  return escaped;
+}
 
 /**
  * One message saying the way is clear and what is still wanted.

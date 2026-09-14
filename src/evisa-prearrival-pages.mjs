@@ -8,12 +8,11 @@
 // declaration has been filed, and filing it is not the bot's to do.
 //
 // This is to the declaration what fillBySection is to the visa application,
-// and it keeps the same promise: each page is filled, settled and shown
-// before the next is begun, so the chat watches the declaration fill in the
-// order it is actually being filled. The difference is that the visa form is
-// one long page with headings and this is four pages with buttons between
-// them, so a page here has to be left as well as filled — and the site can
-// refuse to let it be left.
+// and it keeps the same order: each page is filled and settled before the
+// next begins. The caller captures those states and answers the batch once,
+// with the review page or the page the site refused. The visa form is one
+// long page with headings; this is four pages with buttons between them, so a
+// page here has to be left as well as filled — and the site can refuse that.
 //
 // It refuses by printing "Please fill in the field above" under each field
 // that is holding it up, and by leaving the step marker where it was. Both
@@ -144,14 +143,34 @@ export async function turnTo(page, name, { timeout = TURN_MS } = {}) {
   return { turned: true, at: now.at, refused: [] };
 }
 
+/** Returns an in-progress correction to the first page before refilling it. */
+export async function returnToPassenger(page, { log = () => {} } = {}) {
+  const current = await whichStep(page);
+  if (current.at === 0) {
+    return true;
+  }
+  if (current.at < 0) {
+    log('could not tell which declaration page is open');
+    return false;
+  }
+  const returned = await turnTo(page, STEPS[0]);
+  if (!returned.turned || returned.at !== 0) {
+    log(
+      `could not return from page ${current.at + 1} to passenger information`
+    );
+    return false;
+  }
+  log(`returned from page ${current.at + 1} to passenger information`);
+  return true;
+}
+
 /**
  * Walks the declaration from the passenger page to the review.
  *
- * Each page is filled, settled and handed to `onPage` before the next is
- * begun. A page the site will not accept ends the walk there, with its own
- * words about what is missing: going on would mean filling a page nobody can
- * reach, and the traveller has something to do before it is worth trying
- * again.
+ * Each page is filled, settled and handed to `onPage` for capture before the
+ * next begins. A page the site will not accept ends the walk there, with its
+ * own words kept for diagnosis; the chat answer names actionable fields in
+ * the traveller's language.
  *
  * Nothing is filed. The walk stops on Review & Submit with the confirmation
  * box untouched, because the last press on a declaration to an immigration
@@ -178,6 +197,10 @@ export async function walkTheDeclaration({
   if (passenger.arrival?.tooEarly || passenger.expired) {
     return { pages, reached: 0, stopped: 'the site will not take this date' };
   }
+  if (pageNeedsWork(passenger)) {
+    log('page 1/3 remains open: required passenger information is missing');
+    return { pages, reached: 0, refused: [], stopped: STEPS[0] };
+  }
 
   const toTrip = await turnTo(page, STEPS[1]);
   if (!toTrip.turned) {
@@ -191,6 +214,10 @@ export async function walkTheDeclaration({
   const trip = await fillTrip();
   log(`page 2/3 ${STEPS[1]}: ${pageResult(trip)}`);
   await took(1, STEPS[1], trip);
+  if (pageNeedsWork(trip)) {
+    log('page 2/3 remains open: required trip information is missing');
+    return { pages, reached: 1, refused: [], stopped: STEPS[1] };
+  }
 
   const toReview = await turnTo(page, STEPS[2]);
   if (!toReview.turned) {
@@ -205,6 +232,14 @@ export async function walkTheDeclaration({
   // it hold, for the traveller to check before they file it.
   await took(2, STEPS[2], { filled: [], missing: [], failed: [] });
   return { pages, reached: 2, stopped: null };
+}
+
+/** Required information the driver could not put on a page. */
+function pageNeedsWork(result = {}) {
+  const blockingFailures = (result.failed ?? []).filter(
+    (failure) => String(failure).split(':')[0].trim() !== 'passportImage'
+  );
+  return Boolean(result.missing?.length || blockingFailures.length);
 }
 
 /**

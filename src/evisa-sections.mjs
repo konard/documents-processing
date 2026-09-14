@@ -264,17 +264,21 @@ export async function sendOutcome({
   // second loop beside the fill's overwrites it every three seconds, and
   // when this one stops the chat is left blank until the other's next tick.
   // The fill's own status covers the upload, which is part of the fill.
-  await Promise.race([
+  const documentSent = await Promise.race([
     ctx
       .replyWithDocument(new InputFile(result.screenshot, fileName))
-      .catch((error) => log(chatId, `the page did not send: ${error.message}`)),
+      .then(() => true)
+      .catch((error) => {
+        log(chatId, `the page did not send: ${error.message}`);
+        return false;
+      }),
     new Promise((resolve) => {
-      const late = setTimeout(resolve, 120_000);
+      const late = setTimeout(() => resolve(false), 120_000);
       late.unref?.();
     }),
   ]);
   if (!said) {
-    return;
+    return documentSent;
   }
   // All of it in one message. A message holds four thousand characters where
   // a caption holds one thousand, so what took two now takes one — and a
@@ -288,13 +292,18 @@ export async function sendOutcome({
         `${MESSAGE_LIMIT} a message holds; sent in ${parts.length}`
     );
   }
+  let summarySent = true;
   for (const part of parts) {
-    await ctx
+    const delivered = await ctx
       .reply(part, { parse_mode: 'HTML' })
-      .catch((error) =>
-        log(chatId, `the summary did not send: ${error.message}`)
-      );
+      .then(() => true)
+      .catch((error) => {
+        log(chatId, `the summary did not send: ${error.message}`);
+        return false;
+      });
+    summarySent &&= delivered;
   }
+  return summarySent;
 }
 
 /**

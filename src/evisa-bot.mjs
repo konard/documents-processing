@@ -462,14 +462,23 @@ export function describeDeclaration(values, missing, language) {
  * fill ends with the page waiting, since sending a declaration is the
  * traveller's own act.
  */
-export function describeFilled(onThePage, result, language) {
+export function describeFilled(
+  onThePage,
+  result,
+  language,
+  { showValues = true, forceNeedsWork = false } = {}
+) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const labels = ARRIVAL_LABELS[language] ?? ARRIVAL_LABELS.en;
   const named = (key) => labels[key] ?? key;
-  const parts = [`<b>${strings.arrivalFilled}</b>`];
-  for (const field of PREARRIVAL_ORDER) {
-    if (onThePage[field.key]) {
-      parts.push(`• ${named(field.key)}: ${escapeHtml(onThePage[field.key])}`);
+  const parts = showValues ? [`<b>${strings.arrivalFilled}</b>`] : [];
+  if (showValues) {
+    for (const field of PREARRIVAL_ORDER) {
+      if (onThePage[field.key]) {
+        parts.push(
+          `• ${named(field.key)}: ${escapeHtml(onThePage[field.key])}`
+        );
+      }
     }
   }
   // A driver failure belongs in the same traveller-facing list as an absent
@@ -485,7 +494,7 @@ export function describeFilled(onThePage, result, language) {
   // with no idea which field it is about.
   parts.push(...describedRefusals(result, strings, named));
   parts.push(...whereTheReadingsDiffer(result, strings, named));
-  const needsWork = wanted.length || result.refused?.length;
+  const needsWork = forceNeedsWork || wanted.length || result.refused?.length;
   parts.push('', needsWork ? strings.arrivalNeedsWork : strings.arrivalYours);
   return parts.join('\n').trim();
 }

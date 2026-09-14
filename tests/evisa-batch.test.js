@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'test-anywhere';
 import { createBatcher, createFillBatcher } from '../src/evisa-batch.mjs';
+import { sendArrivalAnswer } from '../src/evisa-arrival-run.mjs';
+import { MESSAGES } from '../src/evisa-messages.mjs';
 
 /** A batcher that counts its fills and notices two running at once. */
 function counting({ quietMs = 40, fillMs = 60 } = {}) {
@@ -132,6 +134,50 @@ describe('one fill for everything an applicant sends', () => {
     batch.arrived('c', { at: 'last' });
     await after(200);
     expect(seen).toEqual(['last']);
+  });
+
+  it('answers one four-document arrival batch with one message', async () => {
+    const session = { language: 'en', data: {} };
+    const sent = [];
+    const ctx = {
+      reply: async (...args) => sent.push(['text', ...args]),
+      replyWithPhoto: async (...args) => sent.push(['photo', ...args]),
+    };
+    class InputFile {
+      constructor(bytes) {
+        this.bytes = bytes;
+      }
+    }
+    const { batch, armIdleFill } = createFillBatcher({
+      quietMs: 20,
+      log: () => {},
+      fill: async (latest) =>
+        sendArrivalAnswer({
+          ctx: latest,
+          chatId: 1,
+          answer: {
+            caption: MESSAGES.en.arrivalReviewShot,
+            shot: Buffer.from('review'),
+          },
+          session,
+          strings: MESSAGES.en,
+          InputFile,
+          log: () => {},
+        }),
+    });
+    const documents = ['passport', 'portrait', 'evisa', 'ticket'];
+    for (const [at, document] of documents.entries()) {
+      armIdleFill(ctx, 1);
+      batch.reading(1, async () => {
+        await after(10 + at * 5);
+        session.data[document] = true;
+      });
+    }
+
+    await after(200);
+    expect(Object.keys(session.data).sort()).toEqual(documents.sort());
+    expect(sent.length).toBe(1);
+    expect(sent[0][0]).toBe('photo');
   });
 });
 

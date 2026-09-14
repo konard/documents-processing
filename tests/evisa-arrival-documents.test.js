@@ -7,6 +7,7 @@ import {
   readLegs,
   readTicket,
   readArrivalDocument,
+  createArrivalDocuments,
 } from '../src/evisa-arrival-documents.mjs';
 
 /** An e-visa as the site prints one, with nobody's details on it. */
@@ -138,5 +139,47 @@ describe('reading whichever document arrived', () => {
     expect(values.visaNumber).toBeTruthy();
     expect(values.visaIssueDate).toBeTruthy();
     expect(values.visaExpiryDate).toBeTruthy();
+  });
+
+  it('keeps a recognised document silently for the one batch answer', async () => {
+    const session = { language: 'ru', data: {} };
+    const replies = [];
+    const tookArrivalDocument = createArrivalDocuments({
+      sessions: new Map([[1, session]]),
+      log: () => {},
+      describeFields: () => 'visa fields',
+      readPdf: () => EVISA,
+    });
+
+    expect(
+      await tookArrivalDocument(
+        { reply: async (said) => replies.push(said) },
+        1,
+        '/not/read/by/the/test.pdf'
+      )
+    ).toBe(true);
+    expect(session.data.visaNumber).toBe('10000000/EV');
+    expect(replies).toEqual([]);
+  });
+
+  it('puts recognised values through the document´s ordered commit', async () => {
+    const session = { language: 'en', data: {} };
+    const commits = [];
+    const tookArrivalDocument = createArrivalDocuments({
+      sessions: new Map([[1, session]]),
+      log: () => {},
+      describeFields: () => 'visa fields',
+      readPdf: () => EVISA,
+    });
+
+    expect(
+      await tookArrivalDocument({}, 1, '/not/read.pdf', async (work) => {
+        commits.push(work);
+      })
+    ).toBe(true);
+    expect(session.data.visaNumber).toBe(undefined);
+    expect(commits.length).toBe(1);
+    await commits[0]();
+    expect(session.data.visaNumber).toBe('10000000/EV');
   });
 });

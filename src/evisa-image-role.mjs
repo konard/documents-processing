@@ -50,9 +50,16 @@ function runEngine(script, imagePath, timeout = 30_000) {
 }
 
 /** The faces in an image, largest first, as fractions of the frame. */
-export async function findFaces(imagePath) {
-  const read = await runEngine('vision-faces.py', imagePath);
-  return read?.faces ?? [];
+export async function findFaces(imagePath, { run = runEngine } = {}) {
+  const vision = await run('vision-faces.py', imagePath);
+  if (Array.isArray(vision?.faces)) {
+    return vision.faces;
+  }
+  // macOS Vision occasionally cannot create its neural inference context in
+  // a background bot process. That is an engine outage, not evidence that a
+  // clear portrait has no face, so use the independent OpenCV detector.
+  const fallback = await run('opencv-faces.py', imagePath);
+  return fallback?.faces ?? [];
 }
 
 /** Every line of text an image holds. */
@@ -145,7 +152,6 @@ export async function classifyImage(imagePath, { hasZone = false } = {}) {
  * said out loud, so nothing is quietly used as a portrait it is not.
  */
 export async function sortUnreadableImage({
-  ctx,
   chatId,
   session,
   read,
@@ -155,11 +161,12 @@ export async function sortUnreadableImage({
   shown,
   keepPortrait,
   keepForUpload,
-  strings,
+  classify = classifyImage,
+  noteIssue = () => {},
 }) {
-  const seen = await classifyImage(local).catch((error) => {
+  const seen = await classify(local).catch((error) => {
     log(chatId, `could not tell what the picture is: ${error.message}`);
-    return { role: 'portrait', why: 'nothing could be read from it' };
+    return { role: 'unknown', why: 'the classifiers failed' };
   });
   log(chatId, `the picture looks like the ${seen.role}: ${seen.why}`);
 
@@ -174,7 +181,7 @@ export async function sortUnreadableImage({
       read?.prepared?.path ?? local,
       `passport${extension}`
     );
-    await ctx.reply(strings.readAsPassportPage);
+    noteIssue('passportPageUncertain');
     return;
   }
   if (seen.role === 'booking') {
@@ -183,7 +190,7 @@ export async function sortUnreadableImage({
     const line = findVietnamAddress(seen.lines);
     const parsed = line ? parseVietnamAddress(line) : null;
     if (!parsed?.addressInVietnam) {
-      await ctx.reply(strings.bookingWithoutAddress);
+      noteIssue('bookingWithoutAddress');
       return;
     }
     for (const [field, value] of Object.entries(parsed)) {
@@ -196,5 +203,5 @@ export async function sortUnreadableImage({
     log(chatId, `address in Viet Nam read from a booking: ${shown(line)}`);
     return;
   }
-  await ctx.reply(strings.unclearPicture);
+  noteIssue('unknownImage');
 }

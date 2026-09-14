@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'test-anywhere';
-import { decideRole } from '../src/evisa-image-role.mjs';
+import {
+  decideRole,
+  findFaces,
+  sortUnreadableImage,
+} from '../src/evisa-image-role.mjs';
 
 describe('deciding what a picture is', () => {
   it('calls a page with a readable zone the passport', () => {
@@ -39,5 +43,62 @@ describe('deciding what a picture is', () => {
     expect(decideRole({ faces: [{ area: 0.3 }], lines: [] }).why).toContain(
       '30%'
     );
+  });
+
+  it('never calls an image a portrait when classification itself failed', async () => {
+    const replies = [];
+    const issues = [];
+    let keptPortrait = false;
+    const session = { data: {}, uploads: {} };
+
+    await sortUnreadableImage({
+      ctx: { reply: async (said) => replies.push(said) },
+      chatId: 1,
+      session,
+      read: null,
+      local: '/not/read/by/the/test.jpg',
+      extension: '.jpg',
+      log: () => {},
+      shown: String,
+      keepPortrait: () => {
+        keptPortrait = true;
+      },
+      keepForUpload: () => '/tmp/passport.jpg',
+      strings: {},
+      classify: async () => {
+        throw new Error('classifier unavailable');
+      },
+      noteIssue: (issue) => issues.push(issue),
+    });
+
+    expect(keptPortrait).toBe(false);
+    expect(issues).toEqual(['unknownImage']);
+    expect(replies).toEqual([]);
+  });
+
+  it('falls back when macOS Vision cannot start its face model', async () => {
+    const called = [];
+    const faces = await findFaces('/portrait.jpg', {
+      run: async (engine) => {
+        called.push(engine);
+        return engine === 'vision-faces.py'
+          ? { error: 'could not create network' }
+          : { faces: [{ area: 0.2 }] };
+      },
+    });
+    expect(called).toEqual(['vision-faces.py', 'opencv-faces.py']);
+    expect(faces).toEqual([{ area: 0.2 }]);
+  });
+
+  it('trusts a successful no-face result without inventing one', async () => {
+    const called = [];
+    const faces = await findFaces('/not-a-portrait.jpg', {
+      run: async (engine) => {
+        called.push(engine);
+        return { faces: [] };
+      },
+    });
+    expect(called).toEqual(['vision-faces.py']);
+    expect(faces).toEqual([]);
   });
 });

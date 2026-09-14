@@ -271,6 +271,39 @@ describe('the one phone number the traveller gives', () => {
     };
     expect(await readDeclaration(page)).toEqual({ phoneCountryCode: '(+7)' });
   });
+
+  it('reads every passenger value the chat promises to show', async () => {
+    const fields = {
+      '[name="0_phone"]': '2025550123',
+      '[name="0_phoneCountryCode"]': '(+1)',
+    };
+    const input = (value = '') => ({
+      first: () => ({ inputValue: async () => value }),
+    });
+    const page = {
+      locator: (selector) =>
+        selector === 'button, label'
+          ? { allTextContents: async () => ['14/09/2026', '15/09/2026'] }
+          : input(fields[selector]),
+      getByLabel: (label) =>
+        input(String(label).includes('Given') ? 'JORDAN' : 'TRAVELLER'),
+      getByRole: (role, { name }) => ({
+        first: () => ({ isChecked: async () => name === 'Male' }),
+        getAttribute: async (attribute) =>
+          role === 'button' &&
+          name === '15/09/2026' &&
+          attribute === 'aria-pressed'
+            ? 'true'
+            : null,
+      }),
+    };
+
+    const read = await readDeclaration(page);
+    expect(read.fullName).toBe('TRAVELLER JORDAN');
+    expect(read.gender).toBe('Male');
+    expect(read.arrivalDate).toBe('15/09/2026');
+    expect(read.phone).toBe('+12025550123');
+  });
 });
 
 describe('what the site will refuse, said before it refuses it', () => {

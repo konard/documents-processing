@@ -209,6 +209,40 @@ describe('what the chat is sent', () => {
     );
     expect(body.includes('caption:')).toBe(false);
   });
+
+  it('reports whether the summary containing batch warnings was delivered', async () => {
+    class InputFile {
+      constructor(bytes) {
+        this.bytes = bytes;
+      }
+    }
+    const common = {
+      chatId: 1,
+      result: { screenshot: Buffer.from('form') },
+      summary: 'the warnings',
+      caption: 'the form',
+      log: () => {},
+      InputFile,
+    };
+    expect(
+      await sectionsModule.sendOutcome({
+        ...common,
+        ctx: {
+          replyWithDocument: async () => {},
+          reply: async () => {},
+        },
+      })
+    ).toBe(true);
+    expect(
+      await sectionsModule.sendOutcome({
+        ...common,
+        ctx: {
+          replyWithDocument: async () => {},
+          reply: async () => Promise.reject(new Error('offline')),
+        },
+      })
+    ).toBe(false);
+  });
 });
 
 describe('a page with a dialog over it', () => {

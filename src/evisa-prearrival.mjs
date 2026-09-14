@@ -19,6 +19,11 @@
 
 import { MODES, enterMode } from './evisa-mode.mjs';
 import { ARRIVAL_WINDOW_DAYS } from './evisa-prearrival-form.mjs';
+import {
+  describeDocumentIssues,
+  restoreDocumentIssues,
+  takeDocumentIssues,
+} from './evisa-document-feedback.mjs';
 
 /** The site, and the three things it offers. */
 export const PREARRIVAL_URL = 'https://prearrival.immigration.gov.vn';
@@ -314,8 +319,18 @@ export async function showDeclaration({
     shut
       ? strings.arrivalWindowShut(values.arrivalDate, shut.opens, shut.days)
       : null,
+    describeDocumentIssues(session, strings),
   ].filter(Boolean);
-  await ctx.reply(said.join('\n\n'), { parse_mode: 'HTML' });
+  // Detach only the warnings described above. A document finishing while
+  // Telegram accepts this answer starts the warning collection for the next
+  // batch.
+  const issueSnapshot = takeDocumentIssues(session);
+  try {
+    await ctx.reply(said.join('\n\n'), { parse_mode: 'HTML' });
+  } catch (error) {
+    restoreDocumentIssues(session, issueSnapshot);
+    throw error;
+  }
   return { values, missing, shut };
 }
 

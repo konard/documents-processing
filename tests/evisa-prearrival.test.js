@@ -9,12 +9,15 @@ import {
   windowOpensOn,
   nowInVietnam,
   registerArrivalCommand,
+  showDeclaration,
 } from '../src/evisa-prearrival.mjs';
 import {
   arrivalDateOverride,
   declarationFor,
   tripFrom,
 } from '../src/evisa-arrival-run.mjs';
+import { MESSAGES } from '../src/evisa-messages.mjs';
+import { noteDocumentIssue } from '../src/evisa-document-feedback.mjs';
 
 const APPLICANT = {
   surname: 'TRAVELLER',
@@ -94,11 +97,12 @@ describe('the pre-arrival declaration', () => {
 });
 
 describe('the trip page from documents already sent', () => {
-  it('derives every required trip value in the real document shape', () => {
+  it('does not invent trip facts the documents do not state', () => {
     // The arrival flow receives a passport, a granted visa and an inbound
     // ticket. Those documents name the origin airport and the visa window,
-    // but no hotel was sent and the ticket has no return leg. The same
-    // defaults used by the e-visa application complete those blanks.
+    // but no hotel was sent and the ticket has no return leg. A visa expiry
+    // is not a planned departure and an address does not prove
+    // whether the traveller is in a hotel, a home or another kind of stay.
     const trip = tripFrom({
       vehicleNumber: '[REDACTED]',
       departedFrom: 'GOA MOPA AIRPORT',
@@ -110,12 +114,12 @@ describe('the trip page from documents already sent', () => {
       vehicleNumber: '[REDACTED]',
       departedFrom: 'India',
       purpose: 'Tourist',
-      accommodationType: 'Hotel',
+      accommodationType: null,
       province: 'HO CHI MINH',
       ward: 'TAN BINH',
       accommodationAddress: '[REDACTED]',
       workplace: null,
-      departureDate: '[REDACTED]',
+      departureDate: null,
     });
   });
 
@@ -179,7 +183,7 @@ describe('the trip page from documents already sent', () => {
     expect(trip.accommodationAddress).toBe(null);
   });
 
-  it('treats blank document fields as missing and uses the defaults', () => {
+  it('treats blank document fields as missing without guessing', () => {
     const trip = tripFrom({
       purpose: '',
       accommodationType: '',
@@ -188,13 +192,13 @@ describe('the trip page from documents already sent', () => {
       visaExpiryDate: '[REDACTED]',
     });
     expect(trip.purpose).toBe('Tourist');
-    expect(trip.accommodationType).toBe('Hotel');
+    expect(trip.accommodationType).toBe(null);
     expect(trip.province).toBe('HO CHI MINH');
     expect(trip.ward).toBe('TAN BINH');
     expect(trip.accommodationAddress).toBe(
       '[REDACTED]'
     );
-    expect(trip.departureDate).toBe('[REDACTED]');
+    expect(trip.departureDate).toBe(null);
   });
 });
 
@@ -517,6 +521,55 @@ describe('asked for the arrival card, the bot goes and gets it', () => {
     for (const said of ['the rule', 'the declaration', 'not yet']) {
       expect(replies[0].includes(said)).toBe(true);
     }
+  });
+});
+
+describe('the one answer while the declaration window is closed', () => {
+  it('includes the batch document warnings and retires only those sent', async () => {
+    const session = {
+      language: 'en',
+      data: { entryDate: '31/12/2030' },
+    };
+    noteDocumentIssue(session, 'downloadFailed');
+    const replies = [];
+
+    await showDeclaration({
+      ctx: {
+        reply: async (text) => {
+          replies.push(text);
+          noteDocumentIssue(session, 'unknownImage');
+        },
+      },
+      session,
+      MESSAGES,
+      describeDeclaration: () => 'the declaration',
+      intro: true,
+    });
+
+    expect(replies.length).toBe(1);
+    expect(replies[0]).toContain('transfer failure');
+    expect(replies[0]).not.toContain('could not identify');
+    expect(session.documentIssues).toEqual({ unknownImage: 1 });
+  });
+
+  it('restores document warnings when the one answer cannot be delivered', async () => {
+    const session = { language: 'en', data: {} };
+    noteDocumentIssue(session, 'downloadFailed');
+
+    let failure = null;
+    try {
+      await showDeclaration({
+        ctx: { reply: async () => Promise.reject(new Error('offline')) },
+        session,
+        MESSAGES,
+        describeDeclaration: () => 'the declaration',
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure?.message).toBe('offline');
+    expect(session.documentIssues).toEqual({ downloadFailed: 1 });
   });
 });
 

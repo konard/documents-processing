@@ -36,14 +36,26 @@ export const MESSAGES = {
     // their turn.
     arrivalNothingToFill: 'The form is open. Send me these and I fill it:',
     arrivalShotName: 'declaration.png',
+    arrivalPageName: (name) => name,
     arrivalPageOf: (at, of, title) => `<b>Page ${at} of ${of}: ${title}</b>`,
     arrivalReviewShot:
       '<b>Page 3 of 3: Review &amp; Submit</b>\n\n' +
-      'This is the whole declaration as the department will read it. ' +
-      'Check it over. Nothing has been sent — the confirmation box is ' +
-      'untouched and Submit is unpressed.\n\n' +
-      'Send <b>submit</b> when you want me to file it, or tell me what to ' +
-      'change and I will fill it again.',
+      'Check the declaration. Nothing was sent: confirmation is unticked ' +
+      'and Submit unpressed.\n\n' +
+      'Send <b>submit</b> to file it, or send corrections.',
+    arrivalPassengerCheck: ({ fullName, gender, arrivalDate, phone }) =>
+      [
+        '<b>Passenger check:</b>',
+        fullName ? `• full name: ${fullName}` : '',
+        gender ? `• sex: ${gender}` : '',
+        arrivalDate ? `• arriving on: ${arrivalDate}` : '',
+        phone ? `• phone: ${phone}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    arrivalPassportUnread:
+      'The site could not use the passport image as a second reading. Check ' +
+      'the passport values I filled.',
     arrivalPageRefused: (page, why) =>
       [
         `The site would not accept <b>${page}</b>.`,
@@ -54,9 +66,9 @@ export const MESSAGES = {
       ]
         .filter(Boolean)
         .join('\n\n'),
-    arrivalAtTheReview:
-      'All three pages are filled and the declaration is waiting on its ' +
-      'review page. Nothing has been sent.',
+    arrivalPageIncomplete: (page) =>
+      `The <b>${page}</b> page still needs the fields above. Send them and ` +
+      'I will fill it again.',
     arrivalFiling: 'Filing the declaration now.',
     arrivalFiled:
       'The declaration is filed. The site is showing its result — check it ' +
@@ -107,6 +119,9 @@ export const MESSAGES = {
       'own page says "Failed to get CAPTCHA". That is on their side, not ' +
       'yours, and it usually passes within a few minutes. Send /arrival ' +
       'again shortly and I will open it afresh.',
+    arrivalFormUnavailable:
+      'The declaration site did not open the passenger page. Nothing was ' +
+      'submitted. Send /arrival again and I will reopen it.',
     arrivalFilled: 'On the declaration now:',
     arrivalStillWanted: 'Still to fill in:',
     // What the site marks in red under a field, said in the chat instead. The
@@ -126,6 +141,24 @@ export const MESSAGES = {
       'it yourself — I do not file it for you.',
     arrivalNeedsWork:
       'This page is not complete yet. The browser stays open for corrections.',
+    documentIssuesHeading: 'Documents to check:',
+    documentIssues: {
+      downloadFailed: (count) =>
+        `• ${count} ${count === 1 ? 'file' : 'files'} failed to download from Telegram: ` +
+        `a transfer failure, not a photo-quality problem. Resend ${count === 1 ? 'it' : 'them'}.`,
+      compressedPhoto: (count) =>
+        `• Telegram compressed ${count} ${count === 1 ? 'photo' : 'photos'}. ` +
+        'If rejected, resend the original as a File.',
+      passportPageUncertain: (count) =>
+        `• ${count} passport-page ${count === 1 ? 'image has' : 'images have'} unreadable machine lines. ` +
+        'Check the passport values.',
+      bookingWithoutAddress: (count) =>
+        `• ${count} booking ${count === 1 ? 'image has' : 'images have'} no readable Viet Nam address; ` +
+        'send it as text.',
+      unknownImage: (count) =>
+        `• I could not identify ${count} ${count === 1 ? 'image' : 'images'}; ` +
+        `${count === 1 ? 'it was' : 'they were'} not used.`,
+    },
     checklistDocuments: 'Send these',
     checklistDetails: 'Tell me these',
     checklistFooter:
@@ -193,10 +226,6 @@ export const MESSAGES = {
     browserClosed:
       'The browser window has closed, and everything in it is gone. Send the ' +
       'documents and details again and I open a new window.',
-    sentAsPhoto: (kb) =>
-      `This came as a Telegram photo, shrunk to ${kb} KB with the camera's ` +
-      'data stripped; the site may doubt a portrait like that. I use it, ' +
-      'but a copy sent as a file (attach, then File) arrives as it is.',
     stopped:
       'Stopped. Nothing more is filled or sent, and the browser is closed. ' +
       '/start lists what the bot can do, and any of it can be begun again.',
@@ -252,40 +281,6 @@ export const MESSAGES = {
     lookupCaptchaAsk:
       'Looking the application up. Send the code from this picture and I ' +
       'fetch whatever the site has ready: the form, the receipt, the visa.',
-    readAsPassportPage:
-      'This looks like a passport data page, so I used it as one. I could ' +
-      'not read the machine line at the bottom of it, so send the details ' +
-      'that are wrong and I will correct them.',
-    unclearPicture:
-      'I could not tell what this picture is, so I have not put it on the ' +
-      'form. A portrait goes in as a photo of a face on a plain background; ' +
-      'a passport goes in as the data page.',
-    readEvisa: (values) =>
-      ['Read the e-visa:']
-        .concat(values.visaNumber ? [`• number: ${values.visaNumber}`] : [])
-        .concat(
-          values.visaIssueDate && values.visaExpiryDate
-            ? [`• valid ${values.visaIssueDate} — ${values.visaExpiryDate}`]
-            : []
-        )
-        .concat(values.fullName ? [`• name: ${values.fullName}`] : [])
-        .join('\n'),
-    readTicket: (values) =>
-      ['Read the ticket:']
-        .concat(values.flightNumber ? [`• flight: ${values.flightNumber}`] : [])
-        .concat(values.arrivalDate ? [`• arriving: ${values.arrivalDate}`] : [])
-        .concat(
-          values.departedFrom ? [`• flying from: ${values.departedFrom}`] : []
-        )
-        .join('\n'),
-    bookingWithoutAddress:
-      'This looks like a booking, but I could not find the address on it. ' +
-      'Send the address in Viet Nam as text and I will use that.',
-    bookingAddress: (address, province, ward) =>
-      ['Read the address in Viet Nam off this booking:', `• ${address}`]
-        .concat(province ? [`• province: ${province}`] : [])
-        .concat(ward ? [`• ward: ${ward}`] : [])
-        .join('\n'),
     applicationKept: (number) =>
       `I have noted the application number ${number}. Once the payment goes ` +
       'through in the browser, I fetch the form and the receipt on my own; ' +
@@ -348,8 +343,6 @@ export const MESSAGES = {
     pastForm:
       'The application has gone past the form, and I cannot change it from ' +
       'the chat. Correct it in the browser, or start over with /start.',
-    unreadable:
-      'I could not read that. Please send a sharper photo of the whole page.',
     languageSet: 'Now speaking English.',
   },
   ru: {
@@ -370,15 +363,32 @@ export const MESSAGES = {
     // пока не выбрано гражданство.
     arrivalNothingToFill: 'Форма открыта. Пришлите это, и я её заполню:',
     arrivalShotName: 'declaration.png',
+    arrivalPageName: (name) =>
+      ({
+        'Passenger Information': 'Данные пассажира',
+        'Trip Information': 'Информация о поездке',
+        'Review & Submit': 'Проверка и отправка',
+      })[name] ?? name,
     arrivalPageOf: (at, of, title) =>
       `<b>Страница ${at} из ${of}: ${title}</b>`,
     arrivalReviewShot:
-      '<b>Страница 3 из 3: Review &amp; Submit</b>\n\n' +
-      'Это вся декларация в том виде, в каком её прочитает департамент. ' +
-      'Проверьте её. Ничего не отправлено — галочка подтверждения не ' +
-      'поставлена, кнопка Submit не нажата.\n\n' +
-      'Напишите <b>submit</b>, когда захотите, чтобы я её подал, или ' +
-      'скажите, что исправить, и я заполню заново.',
+      '<b>Страница 3 из 3: Проверка и отправка</b>\n\n' +
+      'Проверьте декларацию. Ничего не отправлено: галочка не поставлена, ' +
+      'Submit не нажат.\n\n' +
+      'Напишите <b>submit</b> для подачи или пришлите исправления.',
+    arrivalPassengerCheck: ({ fullName, gender, arrivalDate, phone }) =>
+      [
+        '<b>Проверка пассажира:</b>',
+        fullName ? `• имя и фамилия: ${fullName}` : '',
+        gender ? `• пол: ${genderInRussian(gender)}` : '',
+        arrivalDate ? `• дата прилёта: ${arrivalDate}` : '',
+        phone ? `• телефон: ${phone}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    arrivalPassportUnread:
+      'Сайт не смог повторно прочитать изображение паспорта. Проверьте ' +
+      'заполненные паспортные данные.',
     arrivalPageRefused: (page, why) =>
       [
         `Сайт не принял страницу <b>${page}</b>.`,
@@ -389,9 +399,9 @@ export const MESSAGES = {
       ]
         .filter(Boolean)
         .join('\n\n'),
-    arrivalAtTheReview:
-      'Все три страницы заполнены, декларация ждёт на странице проверки. ' +
-      'Ничего не отправлено.',
+    arrivalPageIncomplete: (page) =>
+      `На странице <b>${page}</b> ещё не хватает перечисленного. ` +
+      'Пришлите нужное, и я заполню заново.',
     arrivalFiling: 'Подаю декларацию.',
     arrivalFiled:
       'Декларация подана. Сайт показывает результат — проверьте его и ' +
@@ -434,6 +444,9 @@ export const MESSAGES = {
       'написано «Failed to get CAPTCHA». Это на их стороне, не на вашей, и ' +
       'обычно проходит за несколько минут. Отправьте /arrival чуть позже — ' +
       'открою заново.',
+    arrivalFormUnavailable:
+      'Сайт декларации не открыл страницу данных пассажира. Ничего не ' +
+      'отправлено. Пришлите /arrival ещё раз — я открою форму заново.',
     arrivalFilled: 'Сейчас в декларации:',
     arrivalStillWanted: 'Ещё нужно заполнить:',
     arrivalRefused: 'Вот это сайт в таком виде не примет:',
@@ -450,6 +463,25 @@ export const MESSAGES = {
       'я её за вас не подаю.',
     arrivalNeedsWork:
       'Страница ещё не заполнена. Браузер остаётся открытым для исправлений.',
+    documentIssuesHeading: 'Что проверить в документах:',
+    documentIssues: {
+      downloadFailed: (count) =>
+        `• ${count} ${count === 1 ? 'файл не удалось' : count < 5 ? 'файла не удалось' : 'файлов не удалось'} ` +
+        'скачать из Telegram: это сбой передачи, а не качества фото. ' +
+        `Пришлите ${count === 1 ? 'его' : 'их'} ещё раз.`,
+      compressedPhoto: (count) =>
+        `• Telegram сжал ${count} ${count === 1 ? 'фото' : 'фото'}. ` +
+        'Если сайт не примет его, пришлите оригинал как файл.',
+      passportPageUncertain: (count) =>
+        `• На ${count} ${count === 1 ? 'странице паспорта' : 'страницах паспорта'} не прочитались машинные строки. ` +
+        'Проверьте паспортные данные.',
+      bookingWithoutAddress: (count) =>
+        `• На ${count} ${count === 1 ? 'брони' : 'бронях'} не прочитан адрес во Вьетнаме; ` +
+        'пришлите его текстом.',
+      unknownImage: (count) =>
+        `• Не удалось определить ${count} ${count === 1 ? 'изображение' : 'изображения'}; ` +
+        `${count === 1 ? 'оно не использовано' : 'они не использованы'}.`,
+    },
     checklistDocuments: 'Пришлите',
     checklistDetails: 'Напишите',
     checklistFooter:
@@ -518,10 +550,6 @@ export const MESSAGES = {
     browserClosed:
       'Окно браузера закрылось, и всё, что в нём было, пропало. Документы и ' +
       'данные пришлите заново, и я открою новое окно.',
-    sentAsPhoto: (kb) =>
-      `Это пришло как фото: Telegram сжал его до ${kb} КБ и убрал данные ` +
-      'камеры, и сайт может усомниться в таком портрете. Я его использую, ' +
-      'но лучше прислать ещё раз как файл (скрепка, затем «Файл»).',
     stopped:
       'Остановил. Больше ничего не заполняю и не отправляю, браузер закрыт. ' +
       '/start покажет, что бот умеет, — любое из этого можно начать заново.',
@@ -572,40 +600,6 @@ export const MESSAGES = {
     lookupCaptchaAsk:
       'Ищу заявление. Пришлите код с этой картинки, и я скачаю всё, что у ' +
       'сайта готово: анкету, квитанцию, визу.',
-    readAsPassportPage:
-      'Похоже на страницу паспорта с данными — так её и использую. Машинную ' +
-      'строку внизу прочитать не удалось, поэтому пришлите то, что неверно, ' +
-      'и я поправлю.',
-    unclearPicture:
-      'Не понял, что на этой картинке, и в анкету её не поставил. ' +
-      'Портретное фото — лицо на однотонном фоне; паспорт — страница с ' +
-      'данными.',
-    readEvisa: (values) =>
-      ['Прочитал визу:']
-        .concat(values.visaNumber ? [`• номер: ${values.visaNumber}`] : [])
-        .concat(
-          values.visaIssueDate && values.visaExpiryDate
-            ? [`• действует ${values.visaIssueDate} — ${values.visaExpiryDate}`]
-            : []
-        )
-        .concat(values.fullName ? [`• имя: ${values.fullName}`] : [])
-        .join('\n'),
-    readTicket: (values) =>
-      ['Прочитал билет:']
-        .concat(values.flightNumber ? [`• рейс: ${values.flightNumber}`] : [])
-        .concat(values.arrivalDate ? [`• прилёт: ${values.arrivalDate}`] : [])
-        .concat(
-          values.departedFrom ? [`• вылет из: ${values.departedFrom}`] : []
-        )
-        .join('\n'),
-    bookingWithoutAddress:
-      'Похоже на бронирование, но адреса на нём я не нашёл. Пришлите адрес ' +
-      'во Вьетнаме текстом, и я впишу его.',
-    bookingAddress: (address, province, ward) =>
-      ['Взял адрес во Вьетнаме из бронирования:', `• ${address}`]
-        .concat(province ? [`• провинция: ${province}`] : [])
-        .concat(ward ? [`• район: ${ward}`] : [])
-        .join('\n'),
     applicationKept: (number) =>
       `Запомнил номер заявления ${number}. Как только в браузере пройдёт ` +
       'оплата, сам скачаю анкету и квитанцию; можно и в любой момент ' +
@@ -665,11 +659,16 @@ export const MESSAGES = {
     pastForm:
       'Анкета уже ушла дальше, и из чата я её не изменю. Исправьте в ' +
       'браузере или начните заново: /start.',
-    unreadable:
-      'Не удалось прочитать. Пришлите более чёткое фото всей страницы.',
     languageSet: 'Говорю по-русски.',
   },
 };
+
+/** The three radio values in words natural to a Russian conversation. */
+function genderInRussian(gender) {
+  return (
+    { Male: 'мужской', Female: 'женский', Other: 'другой' }[gender] ?? gender
+  );
+}
 
 /** Field prompts, so a request names the document in plain language. */
 export const FIELD_PROMPTS = {

@@ -218,16 +218,25 @@ export function readArrivalDocument(text) {
  */
 export function createArrivalDocuments({
   sessions,
-  MESSAGES,
   log,
   describeFields,
+  readPdf = null,
 }) {
-  return async function tookArrivalDocument(ctx, chatId, local) {
+  return async function tookArrivalDocument(
+    _ctx,
+    chatId,
+    local,
+    commit = (work) => Promise.resolve().then(work)
+  ) {
     const session = sessions.get(chatId);
-    const { pdfText } = await import('./pdf-to-lino.mjs');
     let text;
     try {
-      text = pdfText(local);
+      if (readPdf) {
+        text = await readPdf(local);
+      } else {
+        const { pdfText } = await import('./pdf-to-lino.mjs');
+        text = pdfText(local);
+      }
     } catch (error) {
       log(chatId, `could not read the PDF as text: ${error.message}`);
       return false;
@@ -240,12 +249,10 @@ export function createArrivalDocuments({
       log(chatId, `read a ${kind} but nothing on it could be made out`);
       return false;
     }
-    Object.assign(session.data, values);
-    log(chatId, `read the ${kind}: ${describeFields(values)}`);
-    const strings = MESSAGES[session.language];
-    await ctx.reply(
-      kind === 'evisa' ? strings.readEvisa(values) : strings.readTicket(values)
-    );
+    await commit(() => {
+      Object.assign(session.data, values);
+      log(chatId, `read the ${kind}: ${describeFields(values)}`);
+    });
     return true;
   };
 }

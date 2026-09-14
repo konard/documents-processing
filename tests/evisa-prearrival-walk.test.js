@@ -5,6 +5,7 @@ import {
   fileTheDeclaration,
   whichStep,
   turnTo,
+  returnToPassenger,
   STEPS,
 } from '../src/evisa-prearrival-pages.mjs';
 import {
@@ -126,14 +127,20 @@ describe('walking the declaration to its review', () => {
       fillPassenger: async () => ({
         filled: ['passportNumber', 'passportImage', 'visaNumber'],
         missing: [],
-        failed: ['passportNumber: SECRET_SENTINEL'],
+        failed: [],
       }),
-      fillTrip: async () => done(['vehicleNumber', 'province', 'ward']),
+      fillTrip: async () => ({
+        filled: ['province', 'ward'],
+        missing: [],
+        failed: ['vehicleNumber: SECRET_SENTINEL'],
+      }),
       log: (line) => lines.push(line),
     });
     expect(lines[0].includes('passportImage')).toBe(true);
     expect(lines[0].includes('passportNumber')).toBe(true);
-    expect(lines[0].includes('failed [passportNumber]')).toBe(true);
+    expect(lines.some((line) => line.includes('failed [vehicleNumber]'))).toBe(
+      true
+    );
     expect(lines.some((line) => line.includes('SECRET_SENTINEL'))).toBe(false);
     expect(lines.some((line) => line.includes('province, ward'))).toBe(true);
   });
@@ -188,6 +195,48 @@ describe('walking the declaration to its review', () => {
     });
     expect(out.reached).toBe(0);
     expect(out.stopped).toBe('Passenger Information');
+  });
+
+  it('does not let a permissive Next button hide missing trip facts', async () => {
+    // The live site currently advances with these two mandatory facts blank.
+    // Reaching Review therefore cannot be used as evidence that the record is
+    // complete: the bot has to keep the traveller on the page that needs them.
+    const { site, page } = fakeSite();
+    const out = await walkTheDeclaration({
+      page,
+      fillPassenger: async () => done(),
+      fillTrip: async () => ({
+        filled: ['vehicleNumber'],
+        missing: ['accommodationType', 'departureDate'],
+        failed: [],
+      }),
+    });
+    expect(out.reached).toBe(1);
+    expect(out.stopped).toBe('Trip Information');
+    expect(site.pressed).toEqual(['Trip Information']);
+  });
+
+  it('does not block on the optional passport-image second opinion', async () => {
+    const { site, page } = fakeSite();
+    const out = await walkTheDeclaration({
+      page,
+      fillPassenger: async () => ({
+        filled: ['passportNumber'],
+        missing: [],
+        failed: ['passportImage: the site read nothing from it'],
+      }),
+      fillTrip: async () => done(),
+    });
+    expect(out.reached).toBe(2);
+    expect(site.pressed).toEqual(['Trip Information', 'Review & Submit']);
+  });
+
+  it('returns a corrected declaration to the passenger page before refilling', async () => {
+    const { site, page } = fakeSite({ at: 1 });
+    const returned = await returnToPassenger(page);
+    expect(returned).toBe(true);
+    expect(site.at).toBe(0);
+    expect(site.pressed).toEqual(['Passenger Information']);
   });
 
   it('stops on a date the site will not take, without turning a page', async () => {
@@ -336,7 +385,7 @@ describe('what the trip page is told to say', () => {
   });
 });
 
-describe('showing a page without stopping on it', () => {
+describe('capturing pages without interrupting the batch', () => {
   const run = readFileSync('src/evisa-arrival-run.mjs', 'utf8');
 
   it('reads the form back only on the page those fields are on', () => {
@@ -346,7 +395,7 @@ describe('showing a page without stopping on it', () => {
     // half minutes of a traveller watching a bot that looks dead. Measured:
     // the walk hung there until it was killed.
     const showing = run.slice(
-      run.indexOf('async function showThePage'),
+      run.indexOf('async function captureThePage'),
       run.indexOf('/** Telegram')
     );
     expect(showing.includes('readDeclaration')).toBe(true);
@@ -359,10 +408,13 @@ describe('showing a page without stopping on it', () => {
     expect(/at === 1\s*\?\s*await readTrip/.test(showing)).toBe(true);
   });
 
-  it('renders the rejected-page message with HTML parsing', () => {
-    const begins = run.indexOf('if (walk.reached < 2)');
-    const reporting = run.slice(begins, run.indexOf('} else {', begins));
-    expect(reporting.includes("parse_mode: 'HTML'")).toBe(true);
+  it('sends no progress reply while a page is being captured', () => {
+    const showing = run.slice(
+      run.indexOf('async function captureThePage'),
+      run.indexOf('/** Telegram')
+    );
+    expect(showing.includes('ctx.reply')).toBe(false);
+    expect(showing.includes('replyWithPhoto')).toBe(false);
   });
 });
 

@@ -1226,5 +1226,65 @@ export async function readDeclaration(page, at = 0) {
   if (phoneCountryCode) {
     values.phoneCountryCode = phoneCountryCode;
   }
+  const fullName = [values.surname, values.givenName].filter(Boolean).join(' ');
+  if (fullName) {
+    values.fullName = fullName;
+  }
+  for (const gender of ['Male', 'Female', 'Other']) {
+    const checked = await choiceIsChecked(page, gender);
+    if (checked) {
+      values.gender = gender;
+      break;
+    }
+  }
+  const arrivalDate = await selectedArrivalDate(page);
+  if (arrivalDate) {
+    values.arrivalDate = arrivalDate;
+  }
+  if (values.phone && phoneCountryCode) {
+    const code = phoneCountryCode.replace(/\D/g, '');
+    const local = values.phone.replace(/\D/g, '');
+    if (code && local) {
+      values.phone = `+${code}${local}`;
+    }
+  }
   return values;
+}
+
+/** The date button visibly selected on the passenger page. */
+async function selectedArrivalDate(page) {
+  try {
+    for (const date of await offeredArrivalDates(page)) {
+      const button = page.getByRole('button', { name: date, exact: true });
+      const attributes = await Promise.all(
+        ['aria-pressed', 'aria-selected', 'data-selected', 'class'].map(
+          (name) => button.getAttribute(name).catch(() => null)
+        )
+      );
+      if (
+        attributes
+          .slice(0, 3)
+          .some((value) => /^(?:true|selected)$/i.test(value)) ||
+        /Mui-selected|MuiButton-contained/.test(attributes[3] ?? '')
+      ) {
+        return date;
+      }
+    }
+  } catch {
+    // A partial page double, or a page being redrawn, can have no date
+    // buttons. That means no date was read, not that the whole read failed.
+  }
+  return null;
+}
+
+/** Whether one of the passenger's radios is selected, tolerating no radio. */
+async function choiceIsChecked(page, name) {
+  try {
+    return await page
+      .getByRole('radio', { name, exact: true })
+      .first()
+      .isChecked();
+  } catch {
+    return false;
+  }
 }

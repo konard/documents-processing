@@ -23,19 +23,56 @@ import path from 'node:path';
  * The download URL carries the bot's token, so a failure is reported by its
  * own words: the URL in a stack trace would put the token in the log.
  */
-export async function downloadFile(ctx, token) {
+export async function downloadFile(
+  ctx,
+  token,
+  {
+    fetchFile = fetch,
+    wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    backoff = [250, 750],
+  } = {}
+) {
+  let lastError;
+  for (let attempt = 0; attempt <= backoff.length; attempt += 1) {
+    try {
+      return await downloadOnce(ctx, token, fetchFile);
+    } catch (error) {
+      lastError = downloadError(error);
+      if (error?.retryable === false || attempt === backoff.length) {
+        throw lastError;
+      }
+      await wait(backoff[attempt]);
+    }
+  }
+  throw lastError;
+}
+
+/** One request for a Telegram-held file. */
+async function downloadOnce(ctx, token, fetchFile) {
   const file = await ctx.getFile();
   const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-  const response = await fetch(url).catch((error) => {
-    throw new Error(`could not download the file: ${error.message}`);
-  });
+  const response = await fetchFile(url);
   if (!response.ok) {
-    throw new Error(`could not download the file: HTTP ${response.status}`);
+    const error = new Error(
+      `could not download the file: HTTP ${response.status}`
+    );
+    // Client errors remain client errors. Server and network failures often
+    // pass on the next request, so a batch tolerates a momentary outage.
+    error.retryable = response.status >= 500 || response.status === 429;
+    throw error;
   }
   return {
     buffer: Buffer.from(await response.arrayBuffer()),
     extension: path.extname(file.file_path || '.jpg') || '.jpg',
   };
+}
+
+/** A token-free error safe to keep in the diagnostic log. */
+function downloadError(error) {
+  const described = String(error?.message ?? error);
+  return described.startsWith('could not download the file:')
+    ? error
+    : new Error(`could not download the file: ${described}`);
 }
 
 /** The fields worth checking against a map before they go on a form. */

@@ -139,6 +139,13 @@ import {
   keepForUpload,
   takeTypedDetails,
 } from './evisa-details.mjs';
+import {
+  describeDocumentIssues,
+  noteDocumentIssue,
+  restoreDocumentIssues,
+  takeDocumentIssues,
+} from './evisa-document-feedback.mjs';
+import { reserveDocumentCommit } from './evisa-document-order.mjs';
 import { keepCollectedValues } from './evisa-keep.mjs';
 
 loadEnv();
@@ -615,16 +622,24 @@ async function fillAndShow(ctx, chatId, round = 1) {
       session.disputed ?? {},
       { asked: tail, fill: result }
     );
-    await sendOutcome({
+    const documentIssues = describeDocumentIssues(
+      session,
+      MESSAGES[session.language]
+    );
+    const issueSnapshot = takeDocumentIssues(session);
+    const delivered = await sendOutcome({
       ctx,
       chatId,
       result,
-      summary,
+      summary: [summary, documentIssues].filter(Boolean).join('\n\n'),
       caption: describeOutcome(result, outstanding, session.language),
       fileName: (MESSAGES[session.language] ?? MESSAGES.en).formFile,
       log,
       InputFile,
     });
+    if (!delivered) {
+      restoreDocumentIssues(session, issueSnapshot);
+    }
   } finally {
     busy();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1205,6 +1220,10 @@ bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
 
 bot.on(['message:photo', 'message:document'], (ctx) => {
   const session = sessions.get(ctx.chat.id);
+  // Reserved at arrival, before any OCR begins. The slow first document and
+  // the quick second one may be read together, but their facts are committed
+  // in this message order so the newer document remains authoritative.
+  const commit = reserveDocumentCommit(session);
   // Sending a document begins an application, but only for a chat that has
   // not been told to do something else. The declaration asks for a passport
   // too, and taking that as a reason to fill a form put somebody's passport
@@ -1221,7 +1240,9 @@ bot.on(['message:photo', 'message:document'], (ctx) => {
   }
   // Documents are read at the same time, each on its own worker, and what
   // each reading writes into the session is put there in turn.
-  return batch.reading(ctx.chat.id, () => andKeep(ctx, receiveDocument));
+  return batch.reading(ctx.chat.id, () =>
+    andKeep(ctx, () => receiveDocument(ctx, commit))
+  );
 });
 
 /**
@@ -1242,7 +1263,17 @@ async function andKeep(ctx, handle) {
   }
 }
 
-async function receiveDocument(ctx) {
+async function receiveDocument(ctx, commit) {
+  try {
+    return await readDocument(ctx, commit);
+  } finally {
+    // Unknown files and early failures still release the next message.
+    await commit();
+  }
+}
+
+/** Reads concurrently, then uses the message's reserved ordered commit. */
+async function readDocument(ctx, commit) {
   const chatId = ctx.chat.id;
   const session = sessions.get(chatId);
   touch(chatId);
@@ -1258,7 +1289,11 @@ async function receiveDocument(ctx) {
   } catch (error) {
     busy();
     log(chatId, error.message);
-    await ctx.reply(MESSAGES[session.language].unreadable);
+    await commit(() => {
+      noteDocumentIssue(session, 'downloadFailed');
+      markReceived(session);
+    });
+    holdIdleFill(ctx, chatId);
     return;
   }
   const kb = Math.round(buffer.length / 1024);
@@ -1275,14 +1310,13 @@ async function receiveDocument(ctx) {
   if (kept) {
     log(chatId, `document kept for the transcript at ${kept}`);
   }
-  if (ctx.message.photo && !session.warnedAboutPhotos) {
+  const compressedPhoto = Boolean(ctx.message.photo);
+  if (compressedPhoto) {
     // Telegram shrinks a photo and strips what the camera wrote; the site
     // then doubts the portrait. Worth saying, and worth saying once: the
     // advice is the same for every photo that follows, and every file sent
     // is used whether or not it was compressed.
-    session.warnedAboutPhotos = true;
-    log(chatId, 'sent as a photo, not a file; the chat is told once');
-    await ctx.reply(MESSAGES[session.language].sentAsPhoto(kb)).catch(() => {});
+    log(chatId, 'sent as a photo, not a file; noted for the batch answer');
   }
 
   // A granted e-visa and an airline's e-ticket are PDFs whose values are
@@ -1290,10 +1324,19 @@ async function receiveDocument(ctx) {
   // banner, and the applicant was told their visa was unrecognisable.
   if (extension === '.pdf') {
     const took = await withTempFile(buffer, extension, (local) =>
-      tookArrivalDocument(ctx, chatId, local)
+      tookArrivalDocument(ctx, chatId, local, (work) =>
+        commit(async () => {
+          if (compressedPhoto) {
+            noteDocumentIssue(session, 'compressedPhoto');
+          }
+          await work();
+          markReceived(session);
+        })
+      )
     );
     if (took) {
       busy();
+      holdIdleFill(ctx, chatId);
       return;
     }
   }
@@ -1319,7 +1362,10 @@ async function receiveDocument(ctx) {
 
       // Two readings finishing together must not write over each other, so
       // what each puts into the session goes in in turn.
-      await inTurn(chatId, async () => {
+      await commit(async () => {
+        if (compressedPhoto) {
+          noteDocumentIssue(session, 'compressedPhoto');
+        }
         if (read && Object.keys(read.data).length) {
           keepPassport(session, read, extension, {
             PRINTED_SIDE,
@@ -1330,7 +1376,6 @@ async function receiveDocument(ctx) {
           // something matters: a booking screenshot in the portrait upload is
           // what made the site answer "no face detected".
           await sortUnreadableImage({
-            ctx,
             chatId,
             session,
             read,
@@ -1341,12 +1386,10 @@ async function receiveDocument(ctx) {
             keepPortrait: (...args) =>
               keepPortrait(...args, { log, keepForUpload }),
             keepForUpload,
-            strings: MESSAGES[session.language],
+            noteIssue: (issue) => noteDocumentIssue(session, issue),
           });
         }
-        session.received = (session.received ?? 0) + 1;
-        session.toldWhatIsStuck = false;
-        session.lastFill = null;
+        markReceived(session);
       });
     },
     // Kept while debugging, under the system temp directory. What eventually
@@ -1359,6 +1402,13 @@ async function receiveDocument(ctx) {
   // quiet window, so the window is held open for the fill that follows; the
   // reading does not ask for a fill of its own.
   holdIdleFill(ctx, chatId);
+}
+
+/** Makes the next form fill reflect the attachment that just landed. */
+function markReceived(session) {
+  session.received = (session.received ?? 0) + 1;
+  session.toldWhatIsStuck = false;
+  session.lastFill = null;
 }
 
 bot.on('message:text', (ctx) => {

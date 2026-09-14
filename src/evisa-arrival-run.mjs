@@ -811,7 +811,7 @@ export function arrivalAnswerFor({
   expired = false,
 }) {
   const last = captured.at(-1) ?? {};
-  const passenger = captured.find(({ at }) => at === 0)?.onThePage ?? {};
+  const passenger = reportableValues(captured.find(({ at }) => at === 0) ?? {});
   const main = mainArrivalAnswer({
     walk,
     last,
@@ -864,6 +864,7 @@ function mainArrivalAnswer({
     return blockedArrivalAnswer({
       walk,
       last,
+      passenger,
       session,
       strings,
       describeFilled,
@@ -871,7 +872,7 @@ function mainArrivalAnswer({
   }
   return [
     strings.arrivalReviewShot,
-    strings.arrivalPassengerCheck?.(escapedPassenger(passenger)),
+    strings.arrivalPassengerCheck?.(escapedValues(passenger)),
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -881,6 +882,7 @@ function mainArrivalAnswer({
 function blockedArrivalAnswer({
   walk,
   last,
+  passenger,
   session,
   strings,
   describeFilled,
@@ -898,9 +900,14 @@ function blockedArrivalAnswer({
   const stopped = strings.arrivalPageName?.(walk.stopped) ?? walk.stopped;
   return [
     strings.arrivalPageOf((last.at ?? walk.reached) + 1, 3, pageTitle),
+    strings.arrivalPassengerCheck?.(escapedValues(passenger)),
+    last.at === 1
+      ? strings.arrivalTripCheck?.(escapedValues(reportableValues(last)))
+      : '',
     describeFilled({}, result, session.language, {
       showValues: false,
       forceNeedsWork: true,
+      showStatus: false,
     }),
     walk.refused?.length
       ? strings.arrivalPageRefused(stopped, [])
@@ -965,17 +972,34 @@ function plainCaption(caption) {
 }
 
 /** Values interpolated into Telegram HTML without becoming markup. */
-function escapedPassenger(values) {
+function escapedValues(values) {
   const escaped = {};
-  for (const key of ['fullName', 'gender', 'arrivalDate', 'phone']) {
-    if (values[key]) {
-      escaped[key] = String(values[key])
+  for (const [key, value] of Object.entries(values ?? {})) {
+    if (value) {
+      escaped[key] = String(value)
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;');
     }
   }
   return escaped;
+}
+
+/** Page values except defaults standing in fields the record still lacks. */
+function reportableValues(capture = {}) {
+  const missing = new Set(capture.result?.missing ?? []);
+  for (const failure of capture.result?.failed ?? []) {
+    missing.add(String(failure).split(':')[0].trim());
+  }
+  const values = Object.fromEntries(
+    Object.entries(capture.onThePage ?? {}).filter(([key]) => !missing.has(key))
+  );
+  for (const key of ['passportImage', 'readTheNotes']) {
+    if (capture.result?.filled?.includes(key)) {
+      values[key] = true;
+    }
+  }
+  return values;
 }
 
 /**

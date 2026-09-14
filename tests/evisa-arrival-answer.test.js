@@ -66,8 +66,8 @@ describe('the one answer for a forwarded arrival batch', () => {
       'Male',
       '15/09/2026',
       '+12025550123',
-      'could not use the passport image as a second reading',
-      'transfer failure, not a photo-quality problem',
+      'could not reread the passport image',
+      'not a photo-quality error',
     ]) {
       expect(answer.caption.includes(wanted)).toBe(true);
     }
@@ -95,10 +95,39 @@ describe('the one answer for a forwarded arrival batch', () => {
     expect(sent[0][1].bytes.toString()).toBe('review');
     expect(session.documentIssues).toBe(undefined);
   });
+});
 
+describe('a blocked forwarded arrival batch', () => {
   it('shows one blocked-page screenshot with localised actionable fields', async () => {
     const session = { language: 'ru' };
     const failed = 'departedFrom: locator.waitFor: Timeout 10000ms exceeded.';
+    const passenger = {
+      at: 0,
+      title: 'Passenger Information',
+      result: {
+        filled: ['passportImage', 'readTheNotes'],
+        missing: [],
+        failed: [],
+      },
+      onThePage: {
+        fullName: 'TRAVELLER JORDAN',
+        gender: 'Male',
+        dateOfBirth: '04/11/1988',
+        nationality: 'Wonderland',
+        passportType: 'P - Popular Passport',
+        passportNumber: '712345678',
+        passportExpiryDate: '09/09/2030',
+        visaType: 'Electronic Visa (E-Visa)',
+        visaNumber: '712345678',
+        visaIssueDate: '01/09/2026',
+        visaExpiryDate: '30/11/2026',
+        visaIssuedPlace: 'Example Immigration Department',
+        arrivalDate: '15/09/2026',
+        email: 'traveller@example.com',
+        phone: '+12025550123',
+      },
+      shot: Buffer.from('passenger'),
+    };
     const page = {
       at: 1,
       title: 'Trip Information',
@@ -107,7 +136,19 @@ describe('the one answer for a forwarded arrival batch', () => {
         missing: ['accommodationType', 'departureDate'],
         failed: [failed],
       },
-      onThePage: { modeOfTravel: 'Air' },
+      onThePage: {
+        modeOfTravel: 'Air',
+        vehicleNumber: 'XX1234',
+        borderGate: 'XYZ - Example International Airport',
+        purpose: 'Travel',
+        // The live site selects Hotel by default. It remains a missing fact
+        // until the traveller says where they are staying, so it must not be
+        // reported as one of the values the bot filled.
+        accommodationType: 'Hotel',
+        province: 'Example City',
+        ward: 'Central Ward',
+        accommodationAddress: '100 Example Street',
+      },
       shot: Buffer.from('blocked'),
     };
     const answer = arrivalAnswerFor({
@@ -117,7 +158,7 @@ describe('the one answer for a forwarded arrival batch', () => {
         refused: [],
         pages: [page.result],
       },
-      captured: [page],
+      captured: [passenger, page],
       applicant: {},
       session,
       strings: MESSAGES.ru,
@@ -129,10 +170,28 @@ describe('the one answer for a forwarded arrival batch', () => {
     expect(answer.caption.includes('Информация о поездке')).toBe(true);
     expect(answer.caption.includes('Trip Information')).toBe(false);
     expect(answer.caption.includes('Сайт не принял')).toBe(false);
-    expect(answer.caption.includes('ещё не хватает')).toBe(true);
+    expect(answer.caption.includes('Ещё нужно заполнить')).toBe(true);
+    expect(answer.caption.includes('Браузер остаётся открытым')).toBe(true);
     expect(answer.caption.includes('откуда летите')).toBe(true);
     expect(answer.caption.includes('locator.waitFor')).toBe(false);
     expect(answer.caption.includes('Please fill')).toBe(false);
+    for (const filledValue of [
+      'TRAVELLER JORDAN',
+      '712345678',
+      'Electronic Visa (E-Visa) · 712345678',
+      'Example Immigration Department',
+      'traveller@example.com',
+      'XX1234',
+      'Example International Airport',
+      '100 Example Street',
+    ]) {
+      expect(answer.caption.includes(filledValue)).toBe(true);
+    }
+    expect(answer.caption.includes('Страница 1 заполнена')).toBe(true);
+    expect(answer.caption.includes('На странице 2 заполнено')).toBe(true);
+    expect(answer.caption.includes('паспорт загружен')).toBe(true);
+    expect(answer.caption.includes('проживание: Hotel')).toBe(false);
+    expect(answer.caption.length <= 1024).toBe(true);
 
     const sent = [];
     await sendArrivalAnswer({
@@ -175,7 +234,7 @@ describe('safe consolidated arrival replies', () => {
       describeFilled,
     });
 
-    expect(answer.caption.includes(MESSAGES.en.arrivalNeedsWork)).toBe(true);
+    expect(answer.caption).toContain('The site would not accept');
     expect(answer.caption.includes(MESSAGES.en.arrivalYours)).toBe(false);
   });
 
@@ -202,8 +261,8 @@ describe('safe consolidated arrival replies', () => {
     deliver();
 
     expect(await sending).toBe(true);
-    expect(describeIssues(session)).toContain('could not identify 1 image');
-    expect(describeIssues(session).includes('transfer failure')).toBe(false);
+    expect(describeIssues(session)).toContain('not identified or used');
+    expect(describeIssues(session).includes('did not download')).toBe(false);
   });
 
   it('restores warnings when the consolidated answer does not send', async () => {
@@ -220,7 +279,7 @@ describe('safe consolidated arrival replies', () => {
     });
 
     expect(sent).toBe(false);
-    expect(describeIssues(session)).toContain('transfer failure');
+    expect(describeIssues(session)).toContain('did not download');
   });
 
   it('keeps the screenshot even when an unexpected caption is too long', async () => {
@@ -278,11 +337,27 @@ describe('Telegram caption limits', () => {
     }
     const passenger = {
       at: 0,
-      result: { filled: [], missing: [], failed: ['passportImage: failed'] },
+      result: {
+        filled: ['passportImage', 'readTheNotes'],
+        missing: [],
+        failed: ['passportImage: failed'],
+      },
       onThePage: {
         fullName: 'TRAVELLER ALEXANDER MAXIMILIAN CONSTANTIN',
         gender: 'Male',
+        dateOfBirth: '16/09/1979',
+        nationality: 'Example Federation',
+        passportType: 'P - Popular Passport',
+        passportNumber: '712345678',
+        passportExpiryDate: '[REDACTED]',
+        visaType: 'Electronic Visa (E-Visa)',
+        visaNumber: '712345678',
+        visaIssueDate: '[REDACTED]',
+        visaExpiryDate: '[REDACTED]',
+        visaIssuedPlace:
+          'Example Immigration Department - Ministry of Public Security',
         arrivalDate: '[REDACTED]',
+        email: 'traveller@example.com',
         phone: '+79999999999',
       },
       shot: Buffer.from('passenger'),

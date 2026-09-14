@@ -40,22 +40,60 @@ export const MESSAGES = {
     arrivalPageOf: (at, of, title) => `<b>Page ${at} of ${of}: ${title}</b>`,
     arrivalReviewShot:
       '<b>Page 3 of 3: Review &amp; Submit</b>\n\n' +
-      'Check the declaration. Nothing was sent: confirmation is unticked ' +
-      'and Submit unpressed.\n\n' +
+      'Check it. Not sent: confirmation is unticked and Submit unpressed. ' +
       'Send <b>submit</b> to file it, or send corrections.',
-    arrivalPassengerCheck: ({ fullName, gender, arrivalDate, phone }) =>
-      [
-        '<b>Passenger check:</b>',
-        fullName ? `• full name: ${fullName}` : '',
-        gender ? `• sex: ${gender}` : '',
-        arrivalDate ? `• arriving on: ${arrivalDate}` : '',
-        phone ? `• phone: ${phone}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
+    arrivalPassengerCheck: (values) =>
+      compactSummary('<b>Page 1 filled:</b>', [
+        compactLine(
+          'passenger',
+          values.fullName,
+          values.gender,
+          values.dateOfBirth
+        ),
+        compactLine(
+          'passport',
+          values.passportType,
+          values.nationality,
+          values.passportNumber,
+          values.passportExpiryDate
+            ? `expires ${values.passportExpiryDate}`
+            : ''
+        ),
+        compactLine(
+          'e-visa',
+          values.visaType,
+          values.visaNumber,
+          dateWindow(values.visaIssueDate, values.visaExpiryDate)
+        ),
+        compactLine('issued by', values.visaIssuedPlace),
+        compactLine('arrival', values.arrivalDate),
+        compactLine('contacts', values.email, values.phone),
+        values.passportImage || values.readTheNotes
+          ? '• passport uploaded; required notice ticked'
+          : '',
+      ]),
+    arrivalTripCheck: (values) =>
+      compactSummary('<b>Page 2 filled so far:</b>', [
+        compactLine(
+          'journey',
+          values.departedFrom,
+          values.modeOfTravel,
+          values.vehicleNumber
+        ),
+        compactLine('arrival point', values.borderGate),
+        compactLine('purpose', values.purpose),
+        compactLine(
+          'stay',
+          values.accommodationType,
+          values.province,
+          values.ward
+        ),
+        compactLine('address', values.accommodationAddress),
+        compactLine('workplace', values.workplace),
+        compactLine('leaving Viet Nam', values.departureDate),
+      ]),
     arrivalPassportUnread:
-      'The site could not use the passport image as a second reading. Check ' +
-      'the passport values I filled.',
+      'The site could not reread the passport image; check the passport values.',
     arrivalPageRefused: (page, why) =>
       [
         `The site would not accept <b>${page}</b>.`,
@@ -66,9 +104,8 @@ export const MESSAGES = {
       ]
         .filter(Boolean)
         .join('\n\n'),
-    arrivalPageIncomplete: (page) =>
-      `The <b>${page}</b> page still needs the fields above. Send them and ` +
-      'I will fill it again.',
+    arrivalPageIncomplete: () =>
+      'Send the missing details and I will refill it. The browser stays open.',
     arrivalFiling: 'Filing the declaration now.',
     arrivalFiled:
       'The declaration is filed. The site is showing its result — check it ' +
@@ -144,20 +181,19 @@ export const MESSAGES = {
     documentIssuesHeading: 'Documents to check:',
     documentIssues: {
       downloadFailed: (count) =>
-        `• ${count} ${count === 1 ? 'file' : 'files'} failed to download from Telegram: ` +
-        `a transfer failure, not a photo-quality problem. Resend ${count === 1 ? 'it' : 'them'}.`,
+        `• ${count} Telegram ${count === 1 ? 'file' : 'files'} did not download; ` +
+        `resend ${count === 1 ? 'it' : 'them'} (not a photo-quality error).`,
       compressedPhoto: (count) =>
-        `• Telegram compressed ${count} ${count === 1 ? 'photo' : 'photos'}. ` +
-        'If rejected, resend the original as a File.',
+        `• Telegram compressed ${count} ${count === 1 ? 'photo' : 'photos'}; ` +
+        'if rejected, resend the original as a file.',
       passportPageUncertain: (count) =>
-        `• ${count} passport-page ${count === 1 ? 'image has' : 'images have'} unreadable machine lines. ` +
-        'Check the passport values.',
+        `• Machine lines were unreadable on ${count} passport-page ` +
+        `${count === 1 ? 'image' : 'images'}; check the passport values.`,
       bookingWithoutAddress: (count) =>
-        `• ${count} booking ${count === 1 ? 'image has' : 'images have'} no readable Viet Nam address; ` +
-        'send it as text.',
+        `• No Viet Nam address was read from ${count} booking ` +
+        `${count === 1 ? 'image' : 'images'}; send it as text.`,
       unknownImage: (count) =>
-        `• I could not identify ${count} ${count === 1 ? 'image' : 'images'}; ` +
-        `${count === 1 ? 'it was' : 'they were'} not used.`,
+        `• ${count} ${count === 1 ? 'image was' : 'images were'} not identified or used.`,
     },
     checklistDocuments: 'Send these',
     checklistDetails: 'Tell me these',
@@ -373,22 +409,57 @@ export const MESSAGES = {
       `<b>Страница ${at} из ${of}: ${title}</b>`,
     arrivalReviewShot:
       '<b>Страница 3 из 3: Проверка и отправка</b>\n\n' +
-      'Проверьте декларацию. Ничего не отправлено: галочка не поставлена, ' +
-      'Submit не нажат.\n\n' +
-      'Напишите <b>submit</b> для подачи или пришлите исправления.',
-    arrivalPassengerCheck: ({ fullName, gender, arrivalDate, phone }) =>
-      [
-        '<b>Проверка пассажира:</b>',
-        fullName ? `• имя и фамилия: ${fullName}` : '',
-        gender ? `• пол: ${genderInRussian(gender)}` : '',
-        arrivalDate ? `• дата прилёта: ${arrivalDate}` : '',
-        phone ? `• телефон: ${phone}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    arrivalPassportUnread:
-      'Сайт не смог повторно прочитать изображение паспорта. Проверьте ' +
-      'заполненные паспортные данные.',
+      'Проверьте форму. Не отправлено: галочка не поставлена, Submit не нажат. ' +
+      'Для подачи напишите <b>submit</b>; для исправления — данные.',
+    arrivalPassengerCheck: (values) =>
+      compactSummary('<b>Страница 1 заполнена:</b>', [
+        compactLine(
+          'пассажир',
+          values.fullName,
+          genderInRussian(values.gender),
+          values.dateOfBirth
+        ),
+        compactLine(
+          'паспорт',
+          values.passportType,
+          values.nationality,
+          values.passportNumber,
+          values.passportExpiryDate ? `до ${values.passportExpiryDate}` : ''
+        ),
+        compactLine(
+          'e-visa',
+          values.visaType,
+          values.visaNumber,
+          dateWindow(values.visaIssueDate, values.visaExpiryDate)
+        ),
+        compactLine('виза выдана', values.visaIssuedPlace),
+        compactLine('прилёт', values.arrivalDate),
+        compactLine('контакты', values.email, values.phone),
+        values.passportImage || values.readTheNotes
+          ? '• паспорт загружен; обязательная отметка поставлена'
+          : '',
+      ]),
+    arrivalTripCheck: (values) =>
+      compactSummary('<b>На странице 2 заполнено:</b>', [
+        compactLine(
+          'перелёт',
+          values.departedFrom,
+          values.modeOfTravel,
+          values.vehicleNumber
+        ),
+        compactLine('пункт прибытия', values.borderGate),
+        compactLine('цель', values.purpose),
+        compactLine(
+          'проживание',
+          values.accommodationType,
+          values.province,
+          values.ward
+        ),
+        compactLine('адрес', values.accommodationAddress),
+        compactLine('место работы', values.workplace),
+        compactLine('вылет из Вьетнама', values.departureDate),
+      ]),
+    arrivalPassportUnread: 'Сайт не перечитал паспорт; проверьте данные.',
     arrivalPageRefused: (page, why) =>
       [
         `Сайт не принял страницу <b>${page}</b>.`,
@@ -399,9 +470,8 @@ export const MESSAGES = {
       ]
         .filter(Boolean)
         .join('\n\n'),
-    arrivalPageIncomplete: (page) =>
-      `На странице <b>${page}</b> ещё не хватает перечисленного. ` +
-      'Пришлите нужное, и я заполню заново.',
+    arrivalPageIncomplete: () =>
+      'Пришлите недостающее — заполню снова. Браузер остаётся открытым.',
     arrivalFiling: 'Подаю декларацию.',
     arrivalFiled:
       'Декларация подана. Сайт показывает результат — проверьте его и ' +
@@ -466,21 +536,19 @@ export const MESSAGES = {
     documentIssuesHeading: 'Что проверить в документах:',
     documentIssues: {
       downloadFailed: (count) =>
-        `• ${count} ${count === 1 ? 'файл не удалось' : count < 5 ? 'файла не удалось' : 'файлов не удалось'} ` +
-        'скачать из Telegram: это сбой передачи, а не качества фото. ' +
-        `Пришлите ${count === 1 ? 'его' : 'их'} ещё раз.`,
+        `• ${count} ${count === 1 ? 'файл' : count < 5 ? 'файла' : 'файлов'} Telegram ` +
+        `${count === 1 ? 'не скачан' : 'не скачаны'}; пришлите снова ` +
+        '(дело не в качестве фото).',
       compressedPhoto: (count) =>
-        `• Telegram сжал ${count} ${count === 1 ? 'фото' : 'фото'}. ` +
-        'Если сайт не примет его, пришлите оригинал как файл.',
+        `• Telegram сжал ${count} фото; при отказе пришлите оригинал файлом.`,
       passportPageUncertain: (count) =>
-        `• На ${count} ${count === 1 ? 'странице паспорта' : 'страницах паспорта'} не прочитались машинные строки. ` +
-        'Проверьте паспортные данные.',
+        `• На ${count} ${count === 1 ? 'странице' : 'страницах'} паспорта не прочитаны ` +
+        'машинные строки; проверьте данные.',
       bookingWithoutAddress: (count) =>
-        `• На ${count} ${count === 1 ? 'брони' : 'бронях'} не прочитан адрес во Вьетнаме; ` +
-        'пришлите его текстом.',
+        `• В ${count} ${count === 1 ? 'брони' : 'бронях'} не прочитан адрес; ` +
+        'пришлите текстом.',
       unknownImage: (count) =>
-        `• Не удалось определить ${count} ${count === 1 ? 'изображение' : 'изображения'}; ` +
-        `${count === 1 ? 'оно не использовано' : 'они не использованы'}.`,
+        `• ${count} ${count === 1 ? 'изображение не распознано и не использовано' : 'изображений не распознано и не использовано'}.`,
     },
     checklistDocuments: 'Пришлите',
     checklistDetails: 'Напишите',
@@ -662,6 +730,23 @@ export const MESSAGES = {
     languageSet: 'Говорю по-русски.',
   },
 };
+
+/** One compact line of related values, or nothing when that group is empty. */
+function compactLine(label, ...values) {
+  const present = values.filter(Boolean);
+  return present.length ? `• ${label}: ${present.join(' · ')}` : '';
+}
+
+/** A page summary that does not print an empty heading. */
+function compactSummary(heading, lines) {
+  const present = lines.filter(Boolean);
+  return present.length ? [heading, ...present].join('\n') : '';
+}
+
+/** The two ends of a visa validity window, where either end may be absent. */
+function dateWindow(from, until) {
+  return [from, until].filter(Boolean).join(' — ');
+}
 
 /** The three radio values in words natural to a Russian conversation. */
 function genderInRussian(gender) {

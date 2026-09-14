@@ -17,8 +17,8 @@ describe('one account of every document problem in a batch', () => {
 
     const said = describeDocumentIssues(session, MESSAGES.ru);
     expect(said.includes('2 файла')).toBe(true);
-    expect(said.includes('скачать из Telegram')).toBe(true);
-    expect(said.includes('качества фото')).toBe(true);
+    expect(said.includes('Telegram не скачаны')).toBe(true);
+    expect(said.includes('качестве фото')).toBe(true);
     expect(said.includes('Telegram сжал 1 фото')).toBe(true);
   });
 
@@ -26,7 +26,7 @@ describe('one account of every document problem in a batch', () => {
     const session = {};
     noteDocumentIssue(session, 'unknownImage');
     expect(describeDocumentIssues(session, MESSAGES.en)).toContain(
-      'could not identify 1 image'
+      'not identified or used'
     );
     clearDocumentIssues(session);
     expect(describeDocumentIssues(session, MESSAGES.en)).toBe('');
@@ -39,10 +39,10 @@ describe('one account of every document problem in a batch', () => {
     noteDocumentIssue(session, 'unknownImage');
 
     expect(describeDocumentIssues(sent, MESSAGES.en)).toContain(
-      'transfer failure'
+      'did not download'
     );
     expect(describeDocumentIssues(session, MESSAGES.en)).toContain(
-      'could not identify 1 image'
+      'not identified or used'
     );
   });
 

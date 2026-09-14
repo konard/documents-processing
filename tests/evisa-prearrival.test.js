@@ -547,8 +547,8 @@ describe('the one answer while the declaration window is closed', () => {
     });
 
     expect(replies.length).toBe(1);
-    expect(replies[0]).toContain('transfer failure');
-    expect(replies[0]).not.toContain('could not identify');
+    expect(replies[0]).toContain('did not download');
+    expect(replies[0]).not.toContain('not identified or used');
     expect(session.documentIssues).toEqual({ unknownImage: 1 });
   });
 

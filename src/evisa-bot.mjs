@@ -466,7 +466,7 @@ export function describeFilled(
   onThePage,
   result,
   language,
-  { showValues = true, forceNeedsWork = false } = {}
+  { showValues = true, forceNeedsWork = false, showStatus = true } = {}
 ) {
   const strings = MESSAGES[language] ?? MESSAGES.en;
   const labels = ARRIVAL_LABELS[language] ?? ARRIVAL_LABELS.en;
@@ -495,8 +495,15 @@ export function describeFilled(
   parts.push(...describedRefusals(result, strings, named));
   parts.push(...whereTheReadingsDiffer(result, strings, named));
   const needsWork = forceNeedsWork || wanted.length || result.refused?.length;
-  parts.push('', needsWork ? strings.arrivalNeedsWork : strings.arrivalYours);
+  parts.push(...describedArrivalStatus(showStatus, needsWork, strings));
   return parts.join('\n').trim();
+}
+
+/** The page status when its caller has not supplied a more specific one. */
+function describedArrivalStatus(show, needsWork, strings) {
+  return show
+    ? ['', needsWork ? strings.arrivalNeedsWork : strings.arrivalYours]
+    : [];
 }
 
 /** Missing and failed inputs, reduced to the field names a traveller can act on. */

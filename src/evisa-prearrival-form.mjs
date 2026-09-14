@@ -264,7 +264,38 @@ export function valueAsNamedHere(field, applicant = {}) {
   if (field.key === 'visaNumber') {
     return visaNumberAsNamedHere(applicant.visaNumber);
   }
+  // The declaration is described to the traveller in its own words — one Full
+  // Name, a Gender — because that is how the filed copy prints. This form
+  // asks for the two halves of the name separately and calls the gender
+  // "sex", so a record holding only the described shape left the name and the
+  // one required radio blank on a page that reported itself full.
+  if (field.key === 'surname' || field.key === 'givenName') {
+    return applicant[field.key] ?? halfOfName(applicant.fullName, field.key);
+  }
+  if (field.key === 'sex') {
+    return applicant.sex ?? applicant.gender;
+  }
   return applicant[field.key];
+}
+
+/**
+ * One half of a name written surname first, as the declaration writes it.
+ *
+ * The surname is the first word and the given name is the rest: "TRAVELLER
+ * JOHN ALEX" is TRAVELLER and JOHN ALEX. A name of one word gives a surname
+ * and no given name, and the form is left to object to that: a guess here
+ * would put an invented name on a government declaration.
+ */
+export function halfOfName(fullName, half) {
+  const words = String(fullName ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) {
+    return null;
+  }
+  const [first, ...rest] = words;
+  return half === 'surname' ? first : rest.join(' ') || null;
 }
 
 /** The selector for a field, for the passenger at `at`. */
@@ -777,8 +808,9 @@ async function fillTheRest(
       .then(() => page.waitForTimeout(3000))
       .catch((error) => failed.push(`passportImage: ${saidBriefly(error)}`));
   }
-  if (applicant.sex) {
-    await chooseGender(page, applicant.sex)
+  const sex = applicant.sex ?? applicant.gender;
+  if (sex) {
+    await chooseGender(page, sex)
       .then(() => filled.push('sex'))
       .catch((error) => failed.push(`sex: ${saidBriefly(error)}`));
   }

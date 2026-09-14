@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync } from 'node:fs';
+import { buildDeclaration } from '../src/evisa-prearrival.mjs';
 import {
   FORM_FIELDS,
   selectorFor,
@@ -18,6 +19,8 @@ import {
   GONE_TIMEOUT_MS,
   choosePhoneCountryCode,
   chooseFrom,
+  valueAsNamedHere,
+  halfOfName,
 } from '../src/evisa-prearrival-form.mjs';
 
 describe('the declaration form the site actually draws', () => {
@@ -570,5 +573,52 @@ describe('a dialling code several countries share', () => {
       },
       (error) => expect(error.message.includes('matches 2 of 2')).toBe(true)
     );
+  });
+});
+
+describe('the name and gender the two sides spell differently', () => {
+  it('fills Surname and Given Name from the one Full Name', async () => {
+    // The declaration is described to the traveller as the filed copy prints
+    // it: one Full Name, a Gender. This form asks for the two halves of the
+    // name separately, so a record holding only the described shape left the
+    // name blank on a page that reported itself full.
+    const { values } = buildDeclaration({
+      surname: 'TRAVELLER',
+      givenName: 'JOHN ALEX',
+      sex: 'Male',
+      fullName: 'TRAVELLER JOHN ALEX',
+    });
+    expect(valueAsNamedHere({ key: 'surname' }, values)).toBe('TRAVELLER');
+    expect(valueAsNamedHere({ key: 'givenName' }, values)).toBe('JOHN ALEX');
+  });
+
+  it('takes the gender whichever of the two names it arrives under', () => {
+    // The declaration calls it Gender and this form calls it sex. Read under
+    // one name only, the one required radio on the form went unticked.
+    expect(valueAsNamedHere({ key: 'sex' }, { gender: 'Female' })).toBe(
+      'Female'
+    );
+    expect(valueAsNamedHere({ key: 'sex' }, { sex: 'Male' })).toBe('Male');
+  });
+
+  it('prefers the halves the record already holds', () => {
+    // A passport read straight into the record has both, and they are better
+    // than anything split back out of a joined name.
+    const said = { surname: 'DOE', givenName: 'JANE', fullName: 'WRONG NAME' };
+    expect(valueAsNamedHere({ key: 'surname' }, said)).toBe('DOE');
+    expect(valueAsNamedHere({ key: 'givenName' }, said)).toBe('JANE');
+  });
+
+  it('splits a name on the surname coming first', () => {
+    expect(halfOfName('TRAVELLER JOHN ALEX', 'surname')).toBe('TRAVELLER');
+    expect(halfOfName('TRAVELLER JOHN ALEX', 'givenName')).toBe('JOHN ALEX');
+  });
+
+  it('invents no given name for a name of one word', () => {
+    // Guessing here would put a name nobody gave on a government form.
+    expect(halfOfName('TRAVELLER', 'surname')).toBe('TRAVELLER');
+    expect(halfOfName('TRAVELLER', 'givenName')).toBe(null);
+    expect(halfOfName('', 'surname')).toBe(null);
+    expect(halfOfName(null, 'givenName')).toBe(null);
   });
 });

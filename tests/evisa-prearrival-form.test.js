@@ -24,6 +24,8 @@ import {
   whatTheReadingsDisagreeOn,
   PASSPORT_FIELDS,
   photographDeclaration,
+  uploadPassport,
+  PASSPORT_READ_MS,
 } from '../src/evisa-prearrival-form.mjs';
 
 describe('the declaration form the site actually draws', () => {
@@ -185,6 +187,29 @@ describe('the passport read twice', () => {
     expect(PASSPORT_FIELDS.includes('arrivalDate')).toBe(false);
     expect(PASSPORT_FIELDS.includes('passportNumber')).toBe(true);
     expect(PASSPORT_FIELDS.includes('dateOfBirth')).toBe(true);
+  });
+
+  it("takes an empty date field's format hint for the blank it is", () => {
+    // Read off the live site: a date the site filled nothing into gives back
+    // "DD/MM/YYYY", which is what it wants typed, not what it read. Reported
+    // as a disagreement it is pure noise, and a traveller who learns the
+    // disagreements are noise stops reading the one that is real.
+    expect(
+      whatTheReadingsDisagreeOn(
+        { dateOfBirth: 'DD/MM/YYYY', passportExpiryDate: 'DD/MM/YYYY' },
+        { ...APPLICANT, passportExpiryDate: '01/01/2030' }
+      )
+    ).toEqual([]);
+  });
+
+  it('still reports a real date the two readings differ on', () => {
+    // The hint is passed over; an actual date is not.
+    const differs = whatTheReadingsDisagreeOn(
+      { dateOfBirth: '04/11/1983' },
+      APPLICANT
+    );
+    expect(differs.length).toBe(1);
+    expect(differs[0].site).toBe('04/11/1983');
   });
 });
 
@@ -429,6 +454,134 @@ describe('the declaration is never sent on the traveller´s behalf', () => {
     expect(
       PREARRIVAL_FORM_URL.startsWith('https://prearrival.immigration.gov.vn')
     ).toBe(true);
+  });
+});
+
+describe('putting the passport on the page', () => {
+  /**
+   * A form that fills itself in from an uploaded passport, after a delay.
+   *
+   * This is what the live site does: the picture goes to its server, and the
+   * fields it reads off the zone appear a second or three later. `after` says
+   * how many polls it takes, so a test can make the site slower than any
+   * fixed sleep would allow for.
+   */
+  function siteThatReads(values, { after = 2 } = {}) {
+    const page = { uploaded: null, polls: 0, waited: null };
+    let polls = 0;
+    const onThePage = () => (polls >= after ? values : {});
+    globalThis.document = {
+      querySelector: (one) => {
+        const match = /\[name="(?:\d+_)?([^"]+)"\]/.exec(one);
+        const key = match?.[1];
+        const found = Object.entries(onThePage()).find(
+          ([, v]) => v.name === key
+        );
+        return found ? { value: found[1].value } : null;
+      },
+    };
+    page.setInputFiles = async (where, file) => {
+      page.uploaded = { where, file };
+    };
+    page.waitForFunction = async (fn, arg, opts) => {
+      page.waited = opts;
+      for (let i = 0; i < 20; i += 1) {
+        polls += 1;
+        if (fn(arg)) {
+          return true;
+        }
+      }
+      throw new Error('Timeout exceeded');
+    };
+    const fieldNamed = (one) => {
+      const match = /\[name="(?:\d+_)?([^"]+)"\]/.exec(one);
+      const key = match?.[1];
+      const found = Object.entries(onThePage()).find(([, v]) => v.name === key);
+      const value = found?.[1].value;
+      return {
+        first: () => ({
+          inputValue: async () => {
+            if (value === undefined) {
+              throw new Error('no such field');
+            }
+            return value;
+          },
+        }),
+      };
+    };
+    page.locator = fieldNamed;
+    page.getByLabel = () => ({
+      first: () => ({
+        inputValue: async () => {
+          throw new Error('no such field');
+        },
+      }),
+    });
+    return page;
+  }
+
+  /** The site's reading, keyed the way the page names each field. */
+  const READ_BACK = {
+    passportNumber: { name: 'passportNumber', value: '712345678' },
+    dateOfBirth: { name: 'dob', value: '04/11/1983' },
+  };
+
+  it('waits for the site to read the picture, not for a fixed sleep', async () => {
+    // Measured on the live site: the values land anywhere between half a
+    // second and three. A fixed sleep is a coin toss, and losing it means
+    // reading an empty page and calling that the site's opinion.
+    const page = siteThatReads(READ_BACK, { after: 6 });
+    const { took, site } = await uploadPassport(page, '/tmp/passport.png');
+    expect(took).toBe(true);
+    expect(site.passportNumber).toBe('712345678');
+  });
+
+  it('puts the file on the input the site actually has', async () => {
+    const page = siteThatReads(READ_BACK);
+    await uploadPassport(page, '/tmp/passport.png');
+    expect(page.uploaded.where).toBe('input[name="passportImage"]');
+    expect(page.uploaded.file).toBe('/tmp/passport.png');
+  });
+
+  it('says the site read nothing when it reads nothing', async () => {
+    // A file that went up and taught the site nothing leaves no second
+    // opinion to check the bot's reading against. Silence here would let an
+    // empty page pass for agreement with whatever the bot typed.
+    const page = siteThatReads({});
+    const { took, site } = await uploadPassport(page, '/tmp/passport.png');
+    expect(took).toBe(false);
+    expect(site).toEqual({});
+  });
+
+  it("does not take a date field's format hint for a reading", async () => {
+    // An empty date on this form reads back as "DD/MM/YYYY". Counted as a
+    // value, it ends the wait early and then claims the site read something.
+    const page = siteThatReads({
+      dateOfBirth: { name: 'dob', value: 'DD/MM/YYYY' },
+    });
+    const { took } = await uploadPassport(page, '/tmp/passport.png');
+    expect(took).toBe(false);
+  });
+
+  it('gives the site longer than it has ever taken', async () => {
+    // Three seconds was the old sleep and the live site has come close to it.
+    expect(PASSPORT_READ_MS >= 30000).toBe(true);
+  });
+
+  it('holds the two placeholder tests to the same answer', () => {
+    // The wait runs inside the browser, so it cannot call the helper and
+    // spells the test out again. Two copies drift apart unless something
+    // holds them together.
+    const inTheWait = /^[DMY]{1,4}([/-][DMY]{1,4})+$/i;
+    const source = readFileSync('src/evisa-prearrival-form.mjs', 'utf8');
+    const copies = source.match(/\[DMY\]\{1,4\}\(\[\/-\]\[DMY\]\{1,4\}\)\+/g);
+    expect(copies.length).toBe(2);
+    for (const hint of ['DD/MM/YYYY', 'dd/mm/yyyy', 'YYYY-MM-DD', 'MM/YYYY']) {
+      expect(inTheWait.test(hint)).toBe(true);
+    }
+    for (const real of ['04/11/1983', '01/01/2030', 'TRAVELLER']) {
+      expect(inTheWait.test(real)).toBe(false);
+    }
   });
 });
 

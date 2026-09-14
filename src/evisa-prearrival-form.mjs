@@ -802,6 +802,89 @@ function labelOf(page, radio, wanted) {
 }
 
 /**
+ * The fields the site fills by itself from an uploaded passport.
+ *
+ * Measured against the live site: a data page with a machine-readable zone
+ * comes back as these five. The passport type and nationality are not among
+ * them — those are already set before the upload, so seeing them says nothing
+ * about whether the picture was read.
+ */
+const READ_FROM_PASSPORT = [
+  'passportNumber',
+  'passportExpiryDate',
+  'surname',
+  'givenName',
+  'dateOfBirth',
+];
+
+/** How long to give the site's own reading of an uploaded passport. */
+export const PASSPORT_READ_MS = 30000;
+
+/**
+ * True when a value read off the page is the site's hint, not a reading.
+ *
+ * An empty date input on this form gives back "DD/MM/YYYY": the format it
+ * wants typed, not a value it holds. Taken for a value it ends the wait for
+ * the site's reading early, and then stands in the disagreement report as a
+ * difference of opinion about a date.
+ */
+function isAPlaceholder(value) {
+  return /^[DMY]{1,4}([/-][DMY]{1,4})+$/i.test(value);
+}
+
+/**
+ * Puts the passport on the page and waits for the site to read it.
+ *
+ * The site uploads the picture, reads it on its own server and fills what it
+ * finds. Measured on the live site, the fields land between half a second and
+ * three seconds after the file goes up — so a fixed sleep is a coin toss. Too
+ * short and the reading is taken from a page the site has not filled yet,
+ * which is worse than not taking it: the comparison that is supposed to catch
+ * a misread passport instead finds an empty page and agrees with everything.
+ *
+ * So this waits for the values themselves, and returns as soon as any of them
+ * appears. `took` says whether the site read anything at all, which is the
+ * only honest evidence that the upload did more than attach a file.
+ */
+export async function uploadPassport(page, passportImage, at = 0) {
+  await page.setInputFiles('input[name="passportImage"]', passportImage);
+  // Only the fields the site addresses by name can be watched this way. The
+  // surname and given name are found by their label instead, and the five
+  // below are enough to tell a reading from an empty page.
+  const watched = FORM_FIELDS.filter(
+    (field) => field.name && READ_FROM_PASSPORT.includes(field.key)
+  ).map((field) => selectorFor(field, at));
+  await page
+    .waitForFunction(
+      (where) =>
+        where.some((one) => {
+          const value = document.querySelector(one)?.value?.trim();
+          // An empty date field holds its own format hint, so waking on it
+          // would end the wait before the site has read anything. The test is
+          // written out again because this function is serialized into the
+          // browser, where isAPlaceholder does not exist; the two are kept
+          // together by the test that holds them to the same answer.
+          return (
+            Boolean(value) && !/^[DMY]{1,4}([/-][DMY]{1,4})+$/i.test(value)
+          );
+        }),
+      watched,
+      { timeout: PASSPORT_READ_MS }
+    )
+    // A site that reads nothing is an answer too, and the one the caller is
+    // told about. It is not a reason to abandon the declaration.
+    .catch(() => {});
+  const site = await readDeclaration(page, at);
+  // An empty date field reads back as its own format hint, so a page where
+  // only those came back is a page the site read nothing from.
+  const took = READ_FROM_PASSPORT.some((key) => {
+    const value = String(site[key] ?? '').trim();
+    return value && !isAPlaceholder(value);
+  });
+  return { took, site };
+}
+
+/**
  * The controls that are not text: the date, the picture, the gender, the
  * dialling code and the box that unlocks the visa section.
  *
@@ -843,18 +926,21 @@ async function fillTheRest(
       .catch((error) => failed.push(`phoneCountryCode: ${saidBriefly(error)}`));
   }
   if (passportImage) {
-    // The site reads the picture on its own server and fills what it finds
-    // from it. The typing that follows therefore waits for that, and corrects
-    // whatever it read.
-    await page
-      .setInputFiles('input[name="passportImage"]', passportImage)
-      .then(() => page.waitForTimeout(3000))
-      .then(async () => {
+    await uploadPassport(page, passportImage, at)
+      .then(({ took, site }) => {
         filled.push('passportImage');
         // What the site made of the picture, taken before anything is typed
         // over it. Two readings of one passport that disagree mean one of them
         // is wrong, and the traveller is the only one who can say which.
-        read.site = await readDeclaration(page);
+        read.site = site;
+        if (!took) {
+          // The file went up and the site filled nothing from it. The
+          // declaration is still worth filling — the bot's own reading of the
+          // passport is what goes in — but there is no second opinion to check
+          // it against, and saying so beats a silent comparison against an
+          // empty page that agrees with everything.
+          failed.push('passportImage: the site read nothing from it');
+        }
       })
       .catch((error) => failed.push(`passportImage: ${saidBriefly(error)}`));
   }
@@ -1004,8 +1090,11 @@ export function whatTheReadingsDisagreeOn(fromSite, applicant) {
       valueAsNamedHere({ key: field }, applicant) ?? ''
     ).trim();
     // Only a field both of them read says anything. One side blank is a
-    // reading that was not attempted, not a reading that disagrees.
-    if (!theirs || !ours) {
+    // reading that was not attempted, not a reading that disagrees. An empty
+    // date field reads back as its own format hint, and reporting "the site
+    // says DD/MM/YYYY and I say 01/01/2030" as a disagreement is noise that
+    // teaches the traveller to skip the part of the message that matters.
+    if (!theirs || !ours || isAPlaceholder(theirs)) {
       continue;
     }
     if (theirs.toUpperCase() !== ours.toUpperCase()) {

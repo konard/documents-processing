@@ -325,15 +325,15 @@ describe('what the chat is told after a fill', () => {
 
   const MESSAGES = {
     en: {
-      arrivalNothingToFill: 'tell me your nationality',
+      arrivalNothingToFill: 'the form is open. Send me these and I fill it:',
       arrivalFilled: 'on the form',
     },
   };
 
-  it('adds nothing to the message /arrival has already sent', async () => {
-    // The values and what is still wanted went out a moment ago. Saying the
-    // same values are now on a page the traveller cannot see is the same
-    // information a second time.
+  it('says the way is clear and what is wanted, in one message', async () => {
+    // The captcha is behind us and the page is waiting, so this is the moment
+    // the traveller can act — and everything they must do belongs in the
+    // message that tells them so, not in a second one after it.
     const { replies, sessions, ctx } = filling({});
     const out = await fillAndShow({
       ctx,
@@ -342,13 +342,17 @@ describe('what the chat is told after a fill', () => {
       log: () => {},
       MESSAGES,
       describeFilled: () => 'what went in',
-      quiet: true,
+      describeDeclaration: () => 'and these are still wanted',
     });
     expect(out.waiting).toBe(true);
-    expect(replies).toEqual([]);
+    expect(replies.length).toBe(1);
+    expect(replies[0].includes('the form is open')).toBe(true);
+    expect(replies[0].includes('and these are still wanted')).toBe(true);
   });
 
-  it('answers what the traveller just sent', async () => {
+  it('says nothing about why the site wants a nationality first', async () => {
+    // That is the site's business. The traveller needs to know it is their
+    // turn, which is what the message says.
     const { replies, sessions, ctx } = filling({});
     await fillAndShow({
       ctx,
@@ -358,6 +362,7 @@ describe('what the chat is told after a fill', () => {
       MESSAGES,
       describeFilled: () => 'what went in',
     });
-    expect(replies).toEqual(['tell me your nationality']);
+    expect(replies.length).toBe(1);
+    expect(/nationalit/i.test(replies[0])).toBe(false);
   });
 });

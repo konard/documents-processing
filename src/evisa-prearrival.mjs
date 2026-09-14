@@ -389,16 +389,6 @@ export function registerArrivalCommand(bot, deps) {
     touch(chatId);
     const session = enterMode(sessions.get(chatId), MODES.arriving);
     session.language = speakTheirLanguage(chatId);
-    await showDeclaration({
-      ctx,
-      session,
-      MESSAGES,
-      describeDeclaration,
-      intro: true,
-    });
-    if (!fillArrival) {
-      return;
-    }
     // Answered from memory before any browser opens. The site would draw a
     // captcha, take the reading, and then offer three days that do not
     // include the flight — a minute of the traveller's attention spent to
@@ -410,6 +400,22 @@ export function registerArrivalCommand(bot, deps) {
     // A rehearsal fills the form for a day the site does offer, so the window
     // it is waiting on is not the one the ticket names.
     const shut = rehearsing() ? null : windowOpensOn(values.arrivalDate);
+    // Nothing is going to open, so this is the whole answer to the command
+    // and it is said now. When a browser does open, the same words wait and
+    // go out with the news that the captcha is behind us — one message where
+    // there were two, and it arrives when there is something to act on.
+    if (shut || !fillArrival) {
+      await showDeclaration({
+        ctx,
+        session,
+        MESSAGES,
+        describeDeclaration,
+        intro: true,
+      });
+    }
+    if (!fillArrival) {
+      return;
+    }
     if (shut) {
       log(chatId, `too early to file: the window opens on ${shut.opens}`);
       return;

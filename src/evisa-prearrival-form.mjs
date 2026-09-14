@@ -461,7 +461,6 @@ export function captchaIsUp(page) {
  * and the visa form marks it `alt="captcha img"`, so each site needs its own
  * reader.
  */
-/* global document */
 export async function readCaptchaImage(page) {
   // The wait ends on either answer the site can give: a picture, or its own
   // word that there will not be one. Waiting the full timeout for a page that
@@ -1042,6 +1041,49 @@ export const PASSPORT_FIELDS = [
  */
 export function isMissingFromPage(error) {
   return /Timeout .* exceeded/i.test(String(error?.message ?? error));
+}
+
+/**
+ * Photographs the whole declaration, with the site's floating bar out of it.
+ *
+ * The page carries a sticky header that follows the viewport down. A full-page
+ * picture draws it where the viewport stands, so it lands across the middle of
+ * the form and covers a row of it — on a real fill, the passport type and
+ * number. Pinning it to the top for the length of the exposure puts it back
+ * where a traveller scrolling the page sees it, above everything, hiding
+ * nothing. The page is left as it was found, since it is still the form the
+ * traveller is about to send.
+ */
+export async function photographDeclaration(page) {
+  const pinned = await page
+    .evaluate(() => {
+      const bar = document.querySelector('header');
+      if (!bar || getComputedStyle(bar).position !== 'sticky') {
+        return false;
+      }
+      bar.dataset.wasPositioned = bar.style.position;
+      bar.style.position = 'absolute';
+      bar.style.top = '0';
+      return true;
+    })
+    .catch(() => false);
+  try {
+    return await page.screenshot({ fullPage: true });
+  } finally {
+    if (pinned) {
+      await page
+        .evaluate(() => {
+          const bar = document.querySelector('header');
+          if (!bar) {
+            return;
+          }
+          bar.style.position = bar.dataset.wasPositioned ?? '';
+          bar.style.top = '';
+          delete bar.dataset.wasPositioned;
+        })
+        .catch(() => {});
+    }
+  }
 }
 
 /** What the page holds now, read back so a fill can be checked. */

@@ -20,6 +20,7 @@ import {
   chooseNationality,
   fillDeclaration,
   readDeclaration,
+  photographDeclaration,
   offeredArrivalDates,
   readCaptchaImage,
   refreshCaptchaImage,
@@ -106,11 +107,15 @@ export async function startDeclaration({
   askCaptcha,
   MESSAGES,
   describeFilled,
+  describeDeclaration = null,
+  // grammY's file wrapper, passed in so this module needs no bot library of
+  // its own. Without it the declaration goes as words, which is what the
+  // tests take.
+  InputFile = null,
   ocr = null,
   tries = CAPTCHA_TRIES,
   headless = true,
   debugPort = 0,
-  quiet = false,
 }) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
@@ -130,7 +135,8 @@ export async function startDeclaration({
       log,
       MESSAGES,
       describeFilled,
-      quiet,
+      describeDeclaration,
+      InputFile,
     });
     return { asked: false, solved: true, page: opened.page };
   }
@@ -184,7 +190,8 @@ export async function startDeclaration({
         log,
         MESSAGES,
         describeFilled,
-        quiet,
+        describeDeclaration,
+        InputFile,
       });
       return { asked: false, solved: true, page: opened.page };
     }
@@ -349,6 +356,8 @@ export async function tookDeclarationCaptcha({
   askCaptcha,
   MESSAGES,
   describeFilled,
+  describeDeclaration = null,
+  InputFile = null,
 }) {
   const session = sessions.get(chatId);
   const held = session.arrival;
@@ -371,6 +380,8 @@ export async function tookDeclarationCaptcha({
     log,
     MESSAGES,
     describeFilled,
+    describeDeclaration,
+    InputFile,
   });
   return true;
 }
@@ -388,12 +399,11 @@ export async function fillAndShow({
   log,
   MESSAGES,
   describeFilled,
-  // Whether the filled page is worth a message of its own. On /arrival the
-  // chat has just been sent everything known and what is still wanted, and a
-  // second message saying the same values are now on a page it cannot see is
-  // the same information twice. What follows the traveller sending something
-  // is different: it is the answer to what they just sent.
-  quiet = false,
+  // What is known and what is still wanted, laid out for the chat. Used when
+  // the form is open but the record is empty, so the one message that says
+  // the way is clear also says what would clear it.
+  describeDeclaration = null,
+  InputFile = null,
 }) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
@@ -410,16 +420,16 @@ export async function fillAndShow({
 
   // The nationality gates the whole form: the site draws no field until one
   // is chosen. Without it there is nothing to type into yet, so the prepared
-  // page is left waiting and the chat is told what it is waiting for. The
-  // captcha is already behind us, so the fill that follows the missing value
-  // costs nothing but the typing.
+  // page waits and a single message tells the chat the way is clear and what
+  // to send. Why the site wants a nationality first is the site's business;
+  // the traveller needs to know it is their turn.
   if (!applicant.nationality) {
     log(chatId, 'the form is open and waiting: the record has no nationality');
-    // What is still wanted has just been listed, nationality among it, so
-    // saying it again adds nothing.
-    if (!quiet) {
-      await ctx.reply(strings.arrivalNothingToFill).catch(() => {});
-    }
+    await ctx
+      .reply(whatIsStillWanted(strings, session, describeDeclaration), {
+        parse_mode: 'HTML',
+      })
+      .catch(() => {});
     return { filled: [], missing: [], failed: [], waiting: true };
   }
 
@@ -464,12 +474,99 @@ export async function fillAndShow({
     chatId,
     `declaration filled ${result.filled.length}, missing ${result.missing.length}, failed ${result.failed.length}`
   );
-  if (worthAMessage(result, quiet)) {
-    await ctx.reply(describeFilled(onThePage, result, session.language), {
-      parse_mode: 'HTML',
-    });
-  }
+  await showTheDeclaration({
+    ctx,
+    chatId,
+    page: held.page,
+    onThePage,
+    result,
+    language: session.language,
+    describeFilled,
+    log,
+    strings,
+    InputFile,
+  });
   return result;
+}
+
+/**
+ * Shows the filled declaration the way the visa form shows its own: a picture
+ * of the page, with the words kept to what a picture cannot say.
+ *
+ * The traveller is about to sign this, and what they need to check is the
+ * page itself — the same page an officer will read. A list of values typed
+ * out again is the bot's account of the page, which is exactly the thing in
+ * doubt when something has gone in wrong. The caption carries what the
+ * picture leaves out: fields still wanted, values the site will refuse, and
+ * a passport its own reading and the bot's disagree about.
+ */
+async function showTheDeclaration({
+  ctx,
+  chatId,
+  page,
+  onThePage,
+  result,
+  language,
+  describeFilled,
+  log,
+  strings,
+  InputFile,
+}) {
+  const said = describeFilled(onThePage, result, language);
+  const shot = InputFile
+    ? await photographDeclaration(page).catch((error) => {
+        log(chatId, `could not photograph the declaration: ${error.message}`);
+        return null;
+      })
+    : null;
+  if (!shot) {
+    // Nothing to show, so the words stand in for the picture.
+    await ctx.reply(said, { parse_mode: 'HTML' }).catch(() => {});
+    return;
+  }
+  // Telegram cuts a caption off at about a thousand characters, and what
+  // would be cut is the part worth reading: the refusals and the two
+  // readings of a passport that disagree both sit at the end. Too long for a
+  // caption, the words follow the picture as their own message so none of
+  // them is lost.
+  const fits = said.length <= CAPTION_LIMIT;
+  await ctx
+    .replyWithPhoto(new InputFile(shot, strings.arrivalShotName), {
+      caption: fits ? said : undefined,
+      parse_mode: 'HTML',
+      show_caption_above_media: true,
+    })
+    .catch((error) =>
+      log(chatId, `the picture did not send: ${error.message}`)
+    );
+  if (!fits) {
+    await ctx.reply(said, { parse_mode: 'HTML' }).catch(() => {});
+  }
+}
+
+/** Telegram's limit on the words under a picture. */
+const CAPTION_LIMIT = 1024;
+
+/**
+ * One message saying the way is clear and what is still wanted.
+ *
+ * The captcha is behind us and the page is waiting, so this is the moment the
+ * traveller can act — and everything they have to do fits in the message that
+ * tells them so. Sent separately, the same words cost a second notification
+ * that carries nothing the first could not.
+ */
+function whatIsStillWanted(strings, session, describeDeclaration) {
+  const applicant = {
+    ...(session.data ?? {}),
+    fullName: fullNameOf(session.data ?? {}),
+  };
+  const { values, missing } = buildDeclaration(applicant);
+  return [
+    strings.arrivalNothingToFill,
+    describeDeclaration?.(values, missing, session.language),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**
@@ -489,21 +586,6 @@ function passportToUpload(session, held) {
     held.uploaded = { ...held.uploaded, passportPage: true };
   }
   return image;
-}
-
-/**
- * Whether the filled page is worth a message of its own.
- *
- * A fill that answers something the traveller just sent always is. One that
- * follows /arrival has already been described in the message that command
- * sent, so it speaks only about what that message could not hold: two
- * readings of a passport that differ, and fields the site would not take.
- */
-function worthAMessage(result, quiet) {
-  if (!quiet) {
-    return true;
-  }
-  return Boolean(result.disagreed?.length || result.failed?.length);
 }
 
 /**
@@ -552,9 +634,7 @@ export function declarationOpener(deps) {
     await closeDeclaration(sessions.get(chatId));
     const busy = showStatus(ctx, 'typing');
     try {
-      // The values and what is still wanted have just been sent, so the fill
-      // that follows says nothing more unless it found something new.
-      await startDeclaration({ ...deps, ctx, chatId, quiet: true });
+      await startDeclaration({ ...deps, ctx, chatId });
     } catch (error) {
       log(chatId, `the declaration did not open: ${error.message}`);
       await ctx

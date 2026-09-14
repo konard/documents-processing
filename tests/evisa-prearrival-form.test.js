@@ -23,6 +23,7 @@ import {
   halfOfName,
   whatTheReadingsDisagreeOn,
   PASSPORT_FIELDS,
+  photographDeclaration,
 } from '../src/evisa-prearrival-form.mjs';
 
 describe('the declaration form the site actually draws', () => {
@@ -428,6 +429,70 @@ describe('the declaration is never sent on the traveller´s behalf', () => {
     expect(
       PREARRIVAL_FORM_URL.startsWith('https://prearrival.immigration.gov.vn')
     ).toBe(true);
+  });
+});
+
+describe('photographing the filled declaration', () => {
+  /**
+   * A page with the site's sticky header on it.
+   *
+   * The real one is a Material UI AppBar that follows the viewport down. In a
+   * full-page picture it is drawn wherever the viewport happens to stand, so
+   * it lands across the middle of the form. The stub records the header's
+   * position at the moment the exposure is taken, which is the only thing
+   * that decides where it appears.
+   */
+  function pageWithStickyHeader() {
+    const bar = { style: { position: '', top: '' }, dataset: {} };
+    const seen = [];
+    globalThis.document = {
+      querySelector: (what) => (what === 'header' ? bar : null),
+    };
+    globalThis.getComputedStyle = (el) => ({
+      position: el.style.position || 'sticky',
+    });
+    return {
+      bar,
+      seen,
+      page: {
+        evaluate: async (fn) => fn(),
+        screenshot: async () => {
+          seen.push(bar.style.position);
+          return Buffer.from('picture');
+        },
+      },
+    };
+  }
+
+  it('pins the floating bar to the top before the exposure', async () => {
+    // Left sticky, the bar is drawn at the viewport's offset and covers a row
+    // of the form — on a real fill, the passport type and number. The picture
+    // is the whole point of the message, so a row missing from it is the row
+    // the traveller cannot check.
+    const { page, seen } = pageWithStickyHeader();
+    const shot = await photographDeclaration(page);
+    expect(shot.toString()).toBe('picture');
+    expect(seen).toEqual(['absolute']);
+  });
+
+  it('gives the page back the way it was found', async () => {
+    // This is still the declaration the traveller is about to send. A style
+    // the bot left behind is a change to the page nobody asked for.
+    const { page, bar } = pageWithStickyHeader();
+    await photographDeclaration(page);
+    expect(bar.style.position).toBe('');
+    expect(bar.style.top).toBe('');
+    expect('wasPositioned' in bar.dataset).toBe(false);
+  });
+
+  it('photographs a page that has no such bar', async () => {
+    // Nothing to pin, and the picture is taken all the same.
+    globalThis.document = { querySelector: () => null };
+    const page = {
+      evaluate: async (fn) => fn(),
+      screenshot: async () => Buffer.from('plain'),
+    };
+    expect((await photographDeclaration(page)).toString()).toBe('plain');
   });
 });
 

@@ -31,9 +31,11 @@ export const MESSAGES = {
     // nationality is chosen, so that is the one thing holding the fill up.
     // Said plainly, because a window standing open with nothing happening in
     // it looks like a bot that has stopped.
-    arrivalNothingToFill:
-      'The form is open and ready — the site shows no fields until it knows ' +
-      'the nationality. Tell me that and I fill everything in one go.',
+    // What the site does with a nationality is the site's business, not the
+    // traveller's. All they need to know is that the way is clear and it is
+    // their turn.
+    arrivalNothingToFill: 'The form is open. Send me these and I fill it:',
+    arrivalShotName: 'declaration.png',
     // Said as soon as the landing date is known, and again with the values
     // read off each document. Nothing is wrong when the window is shut: it is
     // simply not open yet, and the traveller should not be left wondering
@@ -334,9 +336,8 @@ export const MESSAGES = {
       'Пришлите всё одним сообщением, своими словами — я разберу.',
     // Форма уже открыта и капча пройдена: сайт не показывает ни одного поля,
     // пока не выбрано гражданство.
-    arrivalNothingToFill:
-      'Форма открыта и готова — сайт не показывает поля, пока не знает ' +
-      'гражданство. Напишите его, и я заполню всё разом.',
+    arrivalNothingToFill: 'Форма открыта. Пришлите это, и я её заполню:',
+    arrivalShotName: 'declaration.png',
     arrivalWindowShut: (arrival, opens, days) =>
       `Вы прилетаете ${arrival}, поэтому сайт начнёт принимать эту ` +
       `декларацию ${opens} — ${days === 1 ? 'завтра' : `через ${days} ${days < 5 ? 'дня' : 'дней'}`}. ` +

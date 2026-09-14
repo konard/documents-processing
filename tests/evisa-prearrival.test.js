@@ -259,11 +259,11 @@ describe('asked for the arrival card, the bot goes and gets it', () => {
       reply: async (text) => replies.push(text),
     });
     expect(filled).toEqual([7]);
-    // And it said what it knew first, so the fill is not a silent surprise.
-    // The rule and the values go out together: one command, one notification.
-    expect(replies.length).toBe(1);
-    expect(replies[0].includes('the declaration')).toBe(true);
-    expect(replies[0].includes('the rule')).toBe(true);
+    // Nothing said yet. The browser is opening and a captcha is coming, and
+    // what is still wanted goes out with the news that the captcha is behind
+    // us — at the moment the traveller can act on it, in one message rather
+    // than one now and another a minute later saying the same thing.
+    expect(replies).toEqual([]);
   });
 
   it('opens nothing when the site will not take the declaration yet', async () => {

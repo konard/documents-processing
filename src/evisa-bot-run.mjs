@@ -1129,8 +1129,15 @@ const arrivalDeps = {
   askCaptcha: (...args) => askCaptcha(...args),
   MESSAGES,
   describeFilled,
-  // The declaration's captcha is the bot's own to read: a refused code costs
-  // a reload and nothing else, so it tries before troubling the traveller.
+  // What is known and what is still wanted, for the one message that says the
+  // captcha is behind us and it is the traveller's turn.
+  describeDeclaration,
+  // The filled declaration goes back as a picture of the page, the way the
+  // visa form's does: what the traveller signs is the page, and a list of
+  // values retyped is the bot's account of it.
+  InputFile,
+  // The declaration's captcha is the bot's own to read: it has one go at it
+  // and hands the picture over, since this is a government site.
   ocr: {
     renderImage,
     upscale,

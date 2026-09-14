@@ -3,6 +3,7 @@ import {
   solveCaptcha,
   fillAndShow,
   ASK_AFTER_ROUNDS,
+  CAPTCHA_TRIES,
   CONFIDENT_VOTES,
 } from '../src/evisa-arrival-run.mjs';
 import { answerCaptcha } from '../src/evisa-prearrival-form.mjs';
@@ -200,26 +201,54 @@ describe('solving the declaration captcha', () => {
     expect(rounds).toEqual([]);
   });
 
-  it('replaces a picture too unclear to be worth submitting', async () => {
-    // A reading nothing agrees on is cheaper to replace than to send: a
-    // refusal costs a round trip and a fresh picture costs nothing.
+  it('submits nothing when its reading is one it does not trust', async () => {
+    // A wrong answer counts against the sender whoever sent it, and this is a
+    // government immigration site. A reading with a handful of votes behind
+    // it is usually wrong, so it is not sent at all: the picture goes
+    // untouched to the person, who reads these better anyway.
     const { site, page } = fakeSite({ passOn: 'NEVER' });
     let call = 0;
     const ocr = readsAs(() => {
       call += 1;
-      // Eighteen readings per picture, each saying something different, so
+      // Eighteen readings of the picture, each saying something different, so
       // nothing reaches the votes a code needs behind it.
       return `X${String(call % 90).padStart(3, '0')}`;
     });
+    const before = site.picture;
     await solveCaptcha({
       page,
       chatId: 1,
       log: quiet,
       ocr,
-      tries: 2,
-      onRound: async () => {},
+      onRound: async () => true,
     });
-    expect(site.redraws > 0).toBe(true);
+    // Nothing typed, nothing verified, and the picture still the one read.
+    expect(site.tried).toEqual([]);
+    expect(site.drawn).toBe(0);
+    expect(site.picture).toBe(before);
+  });
+
+  it('has exactly one go at it before the person is asked', async () => {
+    // Six pictures a minute against a government site's captcha looks like
+    // something being attacked, and being blocked costs a traveller the
+    // filing altogether.
+    const { site, page } = fakeSite({ passOn: 'NEVER' });
+    const rounds = [];
+    await solveCaptcha({
+      page,
+      chatId: 1,
+      log: quiet,
+      ocr: readsAs(() => 'ABCDE'),
+      onRound: async (round) => {
+        rounds.push(round);
+        return true;
+      },
+    });
+    expect(CAPTCHA_TRIES).toBe(1);
+    expect(ASK_AFTER_ROUNDS).toBe(1);
+    // One submission, and the chat asked on that very round.
+    expect(site.tried).toEqual(['ABCDE']);
+    expect(rounds).toEqual([1]);
   });
 
   it("waits out a brief outage of the site's own captcha service", async () => {

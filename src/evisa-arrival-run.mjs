@@ -107,7 +107,7 @@ export async function startDeclaration({
   MESSAGES,
   describeFilled,
   ocr = null,
-  tries = 6,
+  tries = CAPTCHA_TRIES,
   headless = true,
   debugPort = 0,
   quiet = false,
@@ -135,9 +135,10 @@ export async function startDeclaration({
     return { asked: false, solved: true, page: opened.page };
   }
 
-  // Reading it is free to get wrong: a refused code only draws another
-  // picture. So the bot tries for itself first, and the traveller is asked
-  // only for the pictures it cannot read.
+  // The bot has one go at reading it, and only submits that reading if the
+  // engines agree on it. Anything else goes to the traveller, who reads these
+  // better than any of them and whose attempt is not a bot hammering a
+  // government site's defences.
   let asked = false;
   // The site's own captcha service failing, which is neither a picture the
   // bot misread nor anything the traveller can put right by trying harder.
@@ -152,11 +153,11 @@ export async function startDeclaration({
       onStalled: () => {
         stalled = true;
       },
-      // A few pictures in, the bot stops and hands the picture to the
-      // traveller. It has to stop: every further round draws a new picture,
-      // and a code read off the one already sent would be answered against a
-      // picture that no longer exists. So asking ends the reading, and the
-      // page is left holding exactly the picture the chat was shown.
+      // The picture goes to the traveller, and the bot stops there. Whatever
+      // is on the page at this moment is what is sent — the picture it read,
+      // if it submitted nothing, or the one the site drew in answer to a
+      // refusal — and nothing touches the page afterwards, so the code that
+      // comes back is answered against the very picture they read it from.
       onRound: async (round) => {
         if (asked || round < ASK_AFTER_ROUNDS) {
           return false;
@@ -226,33 +227,43 @@ export async function startDeclaration({
 export const CONFIDENT_VOTES = 6;
 
 /**
- * How many pictures the bot reads for itself before the chat is asked too.
+ * How many pictures the bot reads for itself before the chat is asked.
+ *
+ * One. This is a government immigration site, and a bot working through six
+ * pictures a minute against its captcha looks exactly like something being
+ * attacked — the cost of being blocked there falls on a traveller who then
+ * cannot file at all, which is far worse than being asked to read a picture.
+ * So the bot reads once, and whatever comes of that the picture goes to the
+ * person, who can read it better anyway.
  *
  * Asking hands the picture over: the bot stops there and the page keeps the
  * picture the chat was shown, so the code that comes back is answered against
  * the one the traveller actually read. A bot that kept reading would redraw
  * it, and every code they sent would be refused for a picture since replaced.
- *
- * What this bounds is how long somebody watches an unsolved dialog before
- * being given the chance to do it themselves.
  */
-export const ASK_AFTER_ROUNDS = 2;
+export const ASK_AFTER_ROUNDS = 1;
 
 /**
- * Reads the captcha and tries it, for as many pictures as it takes.
+ * How many pictures the bot may submit a reading of, at most.
  *
- * Each refusal draws a fresh picture, and the pictures differ in how legible
- * they are, so trying again is worth more than trying harder at one of them.
+ * One, for the same reason. A refused code costs the site a round trip, and
+ * repeated wrong answers are what a defence counts. The one reading is worth
+ * submitting because it is free when right and hands over when wrong.
+ */
+export const CAPTCHA_TRIES = 1;
+
+/**
+ * Reads the captcha, tries that reading once, and hands the picture over.
  *
- * `onRound` is told after every picture that did not pass, so the caller can
- * bring the traveller in after the bot has had a fair go on its own.
+ * `onRound` is told after a picture that did not pass, so the caller can put
+ * it in front of the person who can actually read it.
  */
 export async function solveCaptcha({
   page,
   chatId,
   log,
   ocr,
-  tries = 6,
+  tries = CAPTCHA_TRIES,
   onRound = null,
   // Told when the site itself draws no picture, which is not a captcha the
   // bot failed to read but a declaration that cannot be started at all.
@@ -260,7 +271,10 @@ export async function solveCaptcha({
 }) {
   const { renderImage, withImageFile, ...rest } = ocr;
   for (let round = 1; round <= tries; round += 1) {
-    const bytes = await aPictureToRead(page, chatId, log, round < tries);
+    // Pressing the site's own Reload after it served nothing is not a captcha
+    // attempt — no answer is being submitted — so it stays whatever the limit
+    // on attempts is. Without it a moment's hiccup ends the declaration.
+    const bytes = await aPictureToRead(page, chatId, log, true);
     if (!bytes) {
       log(chatId, 'the site is drawing no captcha at all');
       await onStalled?.();
@@ -270,9 +284,11 @@ export async function solveCaptcha({
     const { code, agreed } = readCaptchaText(img, { renderImage, ...rest });
     // How many readings agreed says how likely the code is right: every code
     // the site accepted had most of them behind it, and every one it refused
-    // had a handful. A picture this hard to read is cheaper to replace than
-    // to submit, since a refusal costs a round trip and a new picture is free.
-    const worthTrying = code && (agreed >= CONFIDENT_VOTES || round === tries);
+    // had a handful. A reading with a handful behind it is not submitted at
+    // all — a wrong answer is a wrong answer as far as the site's defences
+    // are concerned, and the picture is about to go to someone who can read
+    // it properly regardless.
+    const worthTrying = Boolean(code) && agreed >= CONFIDENT_VOTES;
     if (worthTrying && (await answerCaptcha(page, code))) {
       log(chatId, `captcha ${round}: "${code}" accepted (${agreed} agreed)`);
       return true;
@@ -286,14 +302,8 @@ export async function solveCaptcha({
     if (await onRound?.(round)) {
       return false;
     }
-    // A code the site refused is answered with a fresh picture of its own, so
-    // only a picture nobody submitted has to be asked for.
-    if (!worthTrying && round < tries) {
-      log(chatId, `captcha ${round}: drawing another`);
-      await refreshCaptchaImage(page);
-    }
   }
-  log(chatId, `the captcha beat ${tries} readings; asking the chat`);
+  log(chatId, `the captcha beat ${tries} reading(s); asking the chat`);
   return false;
 }
 
@@ -317,13 +327,11 @@ async function aPictureToRead(page, chatId, log, mayRetry) {
 /** What to say in the log about a picture that did not get through. */
 function whatHappened(code, agreed, tried) {
   if (!code) {
-    return 'nothing readable';
+    return 'nothing readable; not submitted';
   }
-  // What became of the picture is said by the line after this one — asked
-  // for, redrawn, or the last of them — so this says only what was read.
   return tried
     ? `"${code}" refused (${agreed} agreed)`
-    : `"${code}" carried only ${agreed} readings`;
+    : `"${code}" had only ${agreed} readings behind it; not submitted`;
 }
 
 /**

@@ -36,6 +36,36 @@ export const MESSAGES = {
     // their turn.
     arrivalNothingToFill: 'The form is open. Send me these and I fill it:',
     arrivalShotName: 'declaration.png',
+    arrivalPageOf: (at, of, title) => `<b>Page ${at} of ${of}: ${title}</b>`,
+    arrivalReviewShot:
+      '<b>Page 3 of 3: Review &amp; Submit</b>\n\n' +
+      'This is the whole declaration as the department will read it. ' +
+      'Check it over. Nothing has been sent — the confirmation box is ' +
+      'untouched and Submit is unpressed.\n\n' +
+      'Send <b>submit</b> when you want me to file it, or tell me what to ' +
+      'change and I will fill it again.',
+    arrivalPageRefused: (page, why) =>
+      [
+        `The site would not accept <b>${page}</b>.`,
+        why.length
+          ? `It is asking for:\n${why.map((one) => `• ${one}`).join('\n')}`
+          : '',
+        'Send me what it wants and I will fill it again.',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    arrivalAtTheReview:
+      'All three pages are filled and the declaration is waiting on its ' +
+      'review page. Nothing has been sent.',
+    arrivalFiling: 'Filing the declaration now.',
+    arrivalFiled:
+      'The declaration is filed. The site is showing its result — check it ' +
+      'and keep whatever reference it gives you.',
+    arrivalNotFiled: (why) =>
+      `I did not file it: ${why}. Nothing has been sent.`,
+    arrivalNothingToFile:
+      'There is no declaration waiting on its review page. Send /arrival to ' +
+      'start one.',
     // Said as soon as the landing date is known, and again with the values
     // read off each document. Nothing is wrong when the window is shut: it is
     // simply not open yet, and the traveller should not be left wondering
@@ -338,6 +368,36 @@ export const MESSAGES = {
     // пока не выбрано гражданство.
     arrivalNothingToFill: 'Форма открыта. Пришлите это, и я её заполню:',
     arrivalShotName: 'declaration.png',
+    arrivalPageOf: (at, of, title) =>
+      `<b>Страница ${at} из ${of}: ${title}</b>`,
+    arrivalReviewShot:
+      '<b>Страница 3 из 3: Review &amp; Submit</b>\n\n' +
+      'Это вся декларация в том виде, в каком её прочитает департамент. ' +
+      'Проверьте её. Ничего не отправлено — галочка подтверждения не ' +
+      'поставлена, кнопка Submit не нажата.\n\n' +
+      'Напишите <b>submit</b>, когда захотите, чтобы я её подал, или ' +
+      'скажите, что исправить, и я заполню заново.',
+    arrivalPageRefused: (page, why) =>
+      [
+        `Сайт не принял страницу <b>${page}</b>.`,
+        why.length
+          ? `Он просит:\n${why.map((one) => `• ${one}`).join('\n')}`
+          : '',
+        'Пришлите нужное, и я заполню заново.',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    arrivalAtTheReview:
+      'Все три страницы заполнены, декларация ждёт на странице проверки. ' +
+      'Ничего не отправлено.',
+    arrivalFiling: 'Подаю декларацию.',
+    arrivalFiled:
+      'Декларация подана. Сайт показывает результат — проверьте его и ' +
+      'сохраните номер, если он есть.',
+    arrivalNotFiled: (why) => `Я её не подал: ${why}. Ничего не отправлено.`,
+    arrivalNothingToFile:
+      'Нет декларации, ждущей на странице проверки. Отправьте /arrival, ' +
+      'чтобы начать.',
     arrivalWindowShut: (arrival, opens, days) =>
       `Вы прилетаете ${arrival}, поэтому сайт начнёт принимать эту ` +
       `декларацию ${opens} — ${days === 1 ? 'завтра' : `через ${days} ${days < 5 ? 'дня' : 'дней'}`}. ` +

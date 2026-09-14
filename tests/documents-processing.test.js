@@ -84,6 +84,8 @@ describe('documents-processing commands', () => {
     'evisa-arrival-documents.mjs',
     'evisa-arrival-run.mjs',
     'evisa-prearrival-form.mjs',
+    'evisa-prearrival-trip.mjs',
+    'evisa-prearrival-pages.mjs',
     'evisa-captcha-routing.mjs',
     'evisa-details.mjs',
     'evisa-keep.mjs',

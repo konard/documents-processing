@@ -125,6 +125,7 @@ export default [
       'src/evisa-sections.mjs',
       'src/evisa-trace.mjs',
       'src/evisa-prearrival-form.mjs',
+      'src/evisa-prearrival-pages.mjs',
     ],
     languageOptions: {
       globals: {

@@ -104,6 +104,7 @@ import {
   declarationOpener,
   declarationCaptchaTaker,
   declarationRefiller,
+  declarationFiler,
   closeDeclaration,
   arrivalDateOverride,
 } from './evisa-arrival-run.mjs';
@@ -1062,6 +1063,15 @@ function confirm(ctx, chatId) {
     log(chatId, 'confirmation received; skipping the rest of the countdown');
     return;
   }
+  // A declaration standing filled on its review page is what a confirmation
+  // is about: the traveller has the whole thing in front of them and has said
+  // to file it. This is the only path in the bot that sends anything to the
+  // immigration department, and it starts here, with their word.
+  if (session.arrival?.stage === 'review') {
+    log(chatId, 'confirmation received; filing the declaration');
+    fileArrival(ctx, chatId).catch(failing('filing the declaration'));
+    return;
+  }
   const stage = session.stage ?? 'form';
   if (stage === 'form') {
     if (formIsStale(session)) {
@@ -1153,6 +1163,9 @@ const arrivalDeps = {
 const beginArrival = declarationOpener(arrivalDeps);
 const tookArrivalCaptcha = declarationCaptchaTaker(arrivalDeps);
 const refillArrival = declarationRefiller(arrivalDeps);
+// The one path that files. It runs only from a confirmation sent by the
+// traveller with the filled declaration already in front of them.
+const fileArrival = declarationFiler(arrivalDeps);
 
 registerArrivalCommand(bot, {
   ...commandDeps,

@@ -26,6 +26,11 @@ import {
   refreshCaptchaImage,
   readCaptchaText,
 } from './evisa-prearrival-form.mjs';
+import { fillTrip } from './evisa-prearrival-trip.mjs';
+import {
+  walkTheDeclaration,
+  fileTheDeclaration,
+} from './evisa-prearrival-pages.mjs';
 import { buildDeclaration, fullNameOf } from './evisa-prearrival.mjs';
 
 /**
@@ -439,96 +444,144 @@ export async function fillAndShow({
 
   const passportImage = passportToUpload(session, held);
 
-  // The built declaration wins over the raw record. It holds the values that
-  // are the same for every e-visa traveller — the visa type, the issuing
-  // department — which the record has no field for at all, so a record laid
-  // over the top puts those back to nothing.
-  const result = await fillDeclaration(
-    held.page,
-    {
-      ...applicant,
-      ...values,
-    },
-    { passportImage }
-  );
+  // The declaration is three pages, and each is shown as it is done: the
+  // traveller watches it fill the way the visa form's applicant does, and a
+  // page that goes wrong is seen at the page it went wrong on.
+  const walk = await walkTheDeclaration({
+    page: held.page,
+    log: (said) => log(chatId, said),
+    // The built declaration wins over the raw record. It holds the values
+    // that are the same for every e-visa traveller — the visa type, the
+    // issuing department — which the record has no field for at all, so a
+    // record laid over the top puts those back to nothing.
+    fillPassenger: () =>
+      fillDeclaration(
+        held.page,
+        { ...applicant, ...values },
+        { passportImage }
+      ),
+    fillTrip: () =>
+      fillTrip(held.page, tripFrom(applicant, values), {
+        log: (said) => log(chatId, said),
+      }),
+    onPage: ({ at, title, filled, missing, failed }) =>
+      showThePage({
+        ctx,
+        chatId,
+        page: held.page,
+        at,
+        title,
+        result: { filled, missing, failed },
+        session,
+        describeFilled,
+        log,
+        strings,
+        InputFile,
+      }),
+  });
 
-  if (result.arrival?.tooEarly) {
+  const first = walk.pages[0] ?? { filled: [], missing: [], failed: [] };
+  if (first.arrival?.tooEarly) {
     const offered = await offeredArrivalDates(held.page);
     log(
       chatId,
       `too early to declare: wanted ${applicant.arrivalDate}, offered ${offered.join(', ')}`
     );
     await ctx.reply(strings.arrivalTooEarly(applicant.arrivalDate, offered));
-    return result;
+    return first;
   }
 
-  if (result.expired) {
-    log(chatId, `the declaration expired: ${result.expired}`);
+  if (first.expired) {
+    log(chatId, `the declaration expired: ${first.expired}`);
     await closeDeclaration(session);
     await ctx.reply(strings.arrivalExpired);
-    return result;
+    return first;
   }
 
-  const onThePage = await readDeclaration(held.page);
-  log(
-    chatId,
-    `declaration filled ${result.filled.length}, missing ${result.missing.length}, failed ${result.failed.length}`
-  );
-  await showTheDeclaration({
-    ctx,
-    chatId,
-    page: held.page,
-    onThePage,
-    result,
-    language: session.language,
-    describeFilled,
-    log,
-    strings,
-    InputFile,
-  });
-  return result;
+  // A page the site would not accept: it named the fields holding it up, so
+  // the traveller is told which, in the site's own words.
+  if (walk.reached < 2) {
+    log(
+      chatId,
+      `the declaration stopped on ${walk.stopped}: ${walk.refused?.join('; ') || 'no reason given'}`
+    );
+    await ctx
+      .reply(strings.arrivalPageRefused(walk.stopped, walk.refused ?? []))
+      .catch(() => {});
+  } else {
+    // On the review, filled and waiting. The last press is the traveller's.
+    held.stage = 'review';
+    await ctx.reply(strings.arrivalAtTheReview).catch(() => {});
+  }
+  return { ...first, walk };
 }
 
 /**
- * Shows the filled declaration the way the visa form shows its own: a picture
- * of the page, with the words kept to what a picture cannot say.
+ * What the trip page is filled from.
  *
- * The traveller is about to sign this, and what they need to check is the
- * page itself — the same page an officer will read. A list of values typed
- * out again is the bot's account of the page, which is exactly the thing in
- * doubt when something has gone in wrong. The caption carries what the
- * picture leaves out: fields still wanted, values the site will refuse, and
- * a passport its own reading and the bot's disagree about.
+ * The record holds the journey under the names the rest of the bot uses, and
+ * the trip page wants its own. Nothing is invented: a value not there is left
+ * out and the page reports it as missing.
  */
-async function showTheDeclaration({
+export function tripFrom(applicant = {}, values = {}) {
+  const both = { ...applicant, ...values };
+  return {
+    modeOfTravel: both.modeOfTravel ?? 'Air',
+    vehicleNumber: both.vehicleNumber ?? both.flightNumber ?? null,
+    departedFrom: both.departedFrom ?? null,
+    purpose: both.purpose ?? null,
+    accommodationType: both.accommodationType ?? null,
+    province: both.province ?? null,
+    ward: both.ward ?? null,
+    accommodationAddress: both.accommodationAddress ?? null,
+    workplace: both.workplace ?? null,
+    departureDate: both.departureDate ?? null,
+  };
+}
+
+/**
+ * Sends one page of the declaration as it is finished.
+ *
+ * A picture of the page and, under it, only what a picture cannot say. The
+ * review carries no list at all: it is the site's own summary of everything
+ * above it, and a list beside it would say the same thing twice.
+ */
+async function showThePage({
   ctx,
   chatId,
   page,
-  onThePage,
+  at,
+  title,
   result,
-  language,
+  session,
   describeFilled,
   log,
   strings,
   InputFile,
 }) {
-  const said = describeFilled(onThePage, result, language);
   const shot = InputFile
     ? await photographDeclaration(page).catch((error) => {
-        log(chatId, `could not photograph the declaration: ${error.message}`);
+        log(chatId, `could not photograph ${title}: ${error.message}`);
         return null;
       })
     : null;
+  // Only the first page is read back off the screen. Its fields are the ones
+  // the bot's own reading of the passport is checked against, and it is the
+  // page those fields are on. Asked for them anywhere else, every one of them
+  // waits out its timeout for a field that page has not got — twenty seconds
+  // apiece, which is the walk stopped dead in front of the traveller.
+  const said =
+    at === 2
+      ? strings.arrivalReviewShot
+      : `${strings.arrivalPageOf(at + 1, 3, title)}\n\n${describeFilled(
+          at === 0 ? await readDeclaration(page).catch(() => ({})) : {},
+          result,
+          session.language
+        )}`;
   if (!shot) {
-    // Nothing to show, so the words stand in for the picture.
     await ctx.reply(said, { parse_mode: 'HTML' }).catch(() => {});
     return;
   }
-  // Telegram cuts a caption off at about a thousand characters, and what
-  // would be cut is the part worth reading: the refusals and the two
-  // readings of a passport that disagree both sit at the end. Too long for a
-  // caption, the words follow the picture as their own message so none of
-  // them is lost.
   const fits = said.length <= CAPTION_LIMIT;
   await ctx
     .replyWithPhoto(new InputFile(shot, strings.arrivalShotName), {
@@ -599,7 +652,10 @@ export function declarationRefiller(deps) {
   const { sessions, log, showStatus = () => () => {} } = deps;
   return async function refill(ctx, chatId) {
     const held = sessions.get(chatId).arrival;
-    if (!held || held.stage !== 'form') {
+    // A declaration standing on its review page is filled, not finished: a
+    // correction sent now is a correction to what is on it, and the walk
+    // starts again from the first page with the new value in hand.
+    if (!held || (held.stage !== 'form' && held.stage !== 'review')) {
       return;
     }
     const busy = showStatus(ctx, 'typing');
@@ -607,6 +663,59 @@ export function declarationRefiller(deps) {
       await fillAndShow({ ...deps, ctx, chatId });
     } catch (error) {
       log(chatId, `the declaration did not take it: ${error.message}`);
+    } finally {
+      busy();
+    }
+  };
+}
+
+/**
+ * Files the declaration that is standing on its review page.
+ *
+ * This is the only thing in the bot that sends anything to the immigration
+ * department, and it runs on one condition: the traveller asked for it, in
+ * this chat, with the filled declaration already in front of them. The walk
+ * never reaches here on its own — it stops at the review with the box
+ * untouched — so nothing files itself while somebody is reading.
+ *
+ * Everything is said out loud: what is about to happen, and what the site
+ * made of it. A filing nobody is told about is one nobody can act on.
+ */
+export function declarationFiler(deps) {
+  const { sessions, log, MESSAGES, showStatus = () => () => {} } = deps;
+  return async function file(ctx, chatId) {
+    const session = sessions.get(chatId);
+    const strings = MESSAGES[session.language];
+    const held = session.arrival;
+    if (!held || held.stage !== 'review') {
+      log(chatId, 'asked to file, but no declaration is on its review page');
+      await ctx.reply(strings.arrivalNothingToFile).catch(() => {});
+      return false;
+    }
+    const busy = showStatus(ctx, 'typing');
+    try {
+      await ctx.reply(strings.arrivalFiling).catch(() => {});
+      const out = await fileTheDeclaration(held.page, {
+        confirmed: true,
+        log: (said) => log(chatId, said),
+      });
+      if (out.filed) {
+        held.stage = 'filed';
+        await ctx.reply(strings.arrivalFiled).catch(() => {});
+        return true;
+      }
+      await ctx
+        .reply(
+          strings.arrivalNotFiled(
+            [out.why, ...(out.refused ?? [])].filter(Boolean).join('; ')
+          )
+        )
+        .catch(() => {});
+      return false;
+    } catch (error) {
+      log(chatId, `the declaration did not file: ${error.message}`);
+      await ctx.reply(strings.arrivalNotFiled(error.message)).catch(() => {});
+      return false;
     } finally {
       busy();
     }

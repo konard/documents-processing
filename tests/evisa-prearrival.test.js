@@ -301,42 +301,47 @@ describe('asked for the arrival card, the bot goes and gets it', () => {
   });
 });
 
-describe('the nationality that gates the whole form', () => {
-  it('opens no browser when the record has none', async () => {
-    // The site draws no field until a nationality is chosen. Without one the
-    // browser opens, a captcha is read, and the page stops on an empty box
-    // with nothing said — which is what a lost session looks like from the
-    // chat, and what a restart had actually caused.
-    const filled = [];
+describe('the browser opens on the word, not on the record', () => {
+  /** Registers the command and returns its handlers. */
+  function register(data, fillArrival) {
     const handlers = new Map();
     registerArrivalCommand(
       {
         command: (n, run) => [].concat(n).forEach((o) => handlers.set(o, run)),
       },
       {
-        sessions: {
-          get: () => ({ language: 'en', data: { entryDate: '14/09/2026' } }),
-        },
+        sessions: { get: () => ({ language: 'en', data }) },
         log: () => {},
         touch: () => {},
         describeDeclaration: () => 'the declaration',
-        MESSAGES: {
-          en: {
-            arrivalIntro: 'the rule',
-            arrivalNothingToFill: 'no fields without a nationality',
-          },
-        },
-        fillArrival: (ctx, chatId) => filled.push(chatId),
+        MESSAGES: { en: { arrivalIntro: 'the rule' } },
+        fillArrival,
       }
     );
-    const said = [];
-    await handlers.get('arrival')({
-      chat: { id: 7 },
-      reply: async (text) => said.push(text),
-    });
-    expect(filled).toEqual([]);
-    // And it says why. A list of what is wanted, with no sign that anything
-    // was waiting on it, reads as a bot that stopped.
-    expect(said.includes('no fields without a nationality')).toBe(true);
+    return handlers;
+  }
+
+  it('opens the browser even with nothing to fill it with', async () => {
+    // Opening the site and reading captchas until one is accepted takes the
+    // better part of a minute, and the documents are usually still arriving
+    // while it happens. Held back until the record looked complete, the same
+    // work left a chat with no window and nothing happening — which is a bot
+    // that has died as far as anyone watching can tell.
+    const opened = [];
+    const handlers = register({ entryDate: '14/09/2026' }, (ctx, chatId) =>
+      opened.push(chatId)
+    );
+    await handlers.get('arrival')({ chat: { id: 7 }, reply: async () => {} });
+    expect(opened).toEqual([7]);
+  });
+
+  it('opens it when the record is complete too', async () => {
+    const opened = [];
+    const handlers = register(
+      { entryDate: '14/09/2026', nationality: 'Russia' },
+      (ctx, chatId) => opened.push(chatId)
+    );
+    await handlers.get('arrival')({ chat: { id: 7 }, reply: async () => {} });
+    expect(opened).toEqual([7]);
   });
 });

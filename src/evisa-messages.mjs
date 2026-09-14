@@ -27,14 +27,13 @@ export const MESSAGES = {
     // line at a time, which is what this bot exists to avoid.
     arrivalHowToSend:
       'Send it all in one message, in your own words — I will sort it out.',
-    // Why the form was not opened. The site draws no field until a
-    // nationality is chosen, so without one there is nothing to fill in and a
-    // browser would open on an empty page. Said plainly, because the
-    // alternative is a list of what is wanted and no sign that anything was
-    // waiting on it.
+    // The form is open and past its captcha; the site draws no field until a
+    // nationality is chosen, so that is the one thing holding the fill up.
+    // Said plainly, because a window standing open with nothing happening in
+    // it looks like a bot that has stopped.
     arrivalNothingToFill:
-      'I have not opened the form yet: the site shows no fields until it ' +
-      'knows the nationality, so tell me that and I fill everything in one go.',
+      'The form is open and ready — the site shows no fields until it knows ' +
+      'the nationality. Tell me that and I fill everything in one go.',
     // Said as soon as the landing date is known, and again with the values
     // read off each document. Nothing is wrong when the window is shut: it is
     // simply not open yet, and the traveller should not be left wondering
@@ -323,11 +322,11 @@ export const MESSAGES = {
     arrivalMissing: 'Ещё нужно:',
     arrivalHowToSend:
       'Пришлите всё одним сообщением, своими словами — я разберу.',
-    // Почему форма ещё не открыта: сайт не показывает ни одного поля, пока не
-    // выбрано гражданство.
+    // Форма уже открыта и капча пройдена: сайт не показывает ни одного поля,
+    // пока не выбрано гражданство.
     arrivalNothingToFill:
-      'Форму пока не открываю: сайт не показывает поля, пока не знает ' +
-      'гражданство. Напишите его — и я заполню всё разом.',
+      'Форма открыта и готова — сайт не показывает поля, пока не знает ' +
+      'гражданство. Напишите его, и я заполню всё разом.',
     arrivalWindowShut: (arrival, opens, days) =>
       `Вы прилетаете ${arrival}, поэтому сайт начнёт принимать эту ` +
       `декларацию ${opens} — ${days === 1 ? 'завтра' : `через ${days} ${days < 5 ? 'дня' : 'дней'}`}. ` +

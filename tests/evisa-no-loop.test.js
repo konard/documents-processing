@@ -586,3 +586,18 @@ describe('the values outlive the process that collected them', () => {
     expect(sessions.get(12).data.surname).toBe('TRAVELLER');
   });
 });
+
+describe('documents that land while no declaration is open', () => {
+  it('opens one for them to go onto', () => {
+    // A chat that sends /arrival before its documents has no declaration
+    // open when they arrive. The documents are exactly what the declaration
+    // was waiting for, so their landing is the moment to open one: a chat
+    // that has sent everything and sees no window reads it as a dead bot.
+    const at = runner.indexOf('arrive: (ctx, chatId) =>');
+    const body = runner.slice(at, at + 300);
+    expect(body.includes('beginArrival(ctx, chatId)')).toBe(true);
+    expect(body.includes('refillArrival(ctx, chatId)')).toBe(true);
+    // And an unopened declaration is not answered with a list of values.
+    expect(body.includes('showArrival')).toBe(false);
+  });
+});

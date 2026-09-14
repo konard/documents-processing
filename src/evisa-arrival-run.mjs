@@ -279,6 +279,17 @@ export async function fillAndShow({
     );
   }
 
+  // The nationality gates the whole form: the site draws no field until one
+  // is chosen. Without it there is nothing to type into yet, so the prepared
+  // page is left waiting and the chat is told what it is waiting for. The
+  // captcha is already behind us, so the fill that follows the missing value
+  // costs nothing but the typing.
+  if (!applicant.nationality) {
+    log(chatId, 'the form is open and waiting: the record has no nationality');
+    await ctx.reply(strings.arrivalNothingToFill).catch(() => {});
+    return { filled: [], missing: [], failed: [], waiting: true };
+  }
+
   await chooseNationality(held.page, applicant.nationality).catch((error) =>
     log(chatId, `the nationality did not take: ${error.message}`)
   );

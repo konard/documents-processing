@@ -99,7 +99,7 @@ import { startPolling, MENU } from './evisa-start.mjs';
 import { countNoise, watchBrowser } from './evisa-noise.mjs';
 import { createLookup, isCommand } from './evisa-lookup.mjs';
 import { createArrivalDocuments } from './evisa-arrival-documents.mjs';
-import { showArrival, registerArrivalCommand } from './evisa-prearrival.mjs';
+import { registerArrivalCommand } from './evisa-prearrival.mjs';
 import {
   declarationOpener,
   declarationCaptchaTaker,
@@ -203,16 +203,15 @@ const { batch, armIdleFill, holdIdleFill, disarmIdleFill } = createFillBatcher({
     log,
     fill: (ctx, chatId) => fillNow(ctx, chatId, 'quiet window'),
     // A chat doing its arrival card gets the same treatment the visa form
-    // gets: what it sent goes onto the open declaration and the page comes
-    // back. With no declaration open there is nothing to type on, so the
-    // list of what is known is the answer instead.
+    // gets: what it sent goes onto the declaration and the page comes back.
+    // Where no declaration is open yet, one is opened now — the documents
+    // that just landed are the ones it was waiting for, and printing the list
+    // again instead left a chat that had sent everything looking at a bot
+    // doing nothing.
     arrive: (ctx, chatId) =>
       sessions.get(chatId).arrival
         ? refillArrival(ctx, chatId)
-        : showArrival({ sessions, MESSAGES, describeDeclaration, log })(
-            ctx,
-            chatId
-          ),
+        : beginArrival(ctx, chatId),
   }),
 });
 

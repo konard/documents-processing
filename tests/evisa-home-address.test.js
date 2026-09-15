@@ -758,6 +758,9 @@ describe('the contact person, as people name them', () => {
   });
 
   it('takes a word of confirmation as the signal to fill now', () => {
+    expect(isConfirmation('Далее')).toBe(true);
+    expect(isConfirmation('дальше!')).toBe(true);
+    expect(isConfirmation('next')).toBe(true);
     expect(isConfirmation('Подтверждаю')).toBe(true);
     expect(isConfirmation('отправляй!')).toBe(true);
     expect(isConfirmation('Отправь.')).toBe(true);

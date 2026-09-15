@@ -3,6 +3,7 @@ import {
   solveCaptcha,
   fillAndShow,
   declarationRefiller,
+  tookDeclarationCaptcha,
   ASK_AFTER_ROUNDS,
   CAPTCHA_TRIES,
   CONFIDENT_VOTES,
@@ -118,6 +119,31 @@ describe('answering the declaration captcha', () => {
     const { site, page } = fakeSite({ passOn: 'RIGHT' });
     expect(await answerCaptcha(page, 'RIGHT')).toBe(true);
     expect(site.up).toBe(false);
+  });
+
+  it('resumes the exact page action an intermediate CAPTCHA interrupted', async () => {
+    const { page } = fakeSite({ passOn: 'RIGHT' });
+    const resumed = [];
+    const session = {
+      language: 'en',
+      arrival: { stage: 'captcha', resumeStage: 'trip', page },
+    };
+    const taken = await tookDeclarationCaptcha({
+      ctx: {},
+      chatId: 1,
+      sessions: { get: () => session },
+      log: () => {},
+      code: 'RIGHT',
+      askCaptcha: async () => true,
+      MESSAGES: { en: {} },
+      describeFilled: () => '',
+      resumeAfterCaptcha: async (_ctx, _chatId, stage) => resumed.push(stage),
+    });
+
+    expect(taken).toBe(true);
+    expect(session.arrival.stage).toBe('trip');
+    expect(session.arrival.resumeStage).toBe(undefined);
+    expect(resumed).toEqual(['trip']);
   });
 });
 

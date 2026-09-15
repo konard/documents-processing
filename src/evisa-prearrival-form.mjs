@@ -446,9 +446,8 @@ export async function openDeclaration({
 
 /** Whether the captcha dialog is up, which is how the site opens. */
 export function captchaIsUp(page) {
-  return page
-    .locator('[role=dialog]:has-text("CAPTCHA")')
-    .isVisible()
+  return Promise.resolve()
+    .then(() => page.locator('[role=dialog]:has-text("CAPTCHA")').isVisible())
     .catch(() => false);
 }
 
@@ -624,7 +623,15 @@ export async function chooseNationality(page, nationality) {
   await option.waitFor({ state: 'visible', timeout: 10000 });
   await option.click();
   await page.getByRole('button', { name: 'Next' }).click();
-  await page.waitForURL(/\/foreign\?nat=/, { timeout: 20000 });
+  // A fresh CAPTCHA can intercept this Next just as it can intercept either
+  // page transition later. Stop waiting as soon as either outcome is drawn;
+  // the caller handles the dialog without taking a covered-page screenshot.
+  await Promise.race([
+    page.waitForURL(/\/foreign\?nat=/, { timeout: 20000 }),
+    page
+      .locator('[role=dialog]:has-text("CAPTCHA")')
+      .waitFor({ state: 'visible', timeout: 20000 }),
+  ]);
   return named;
 }
 

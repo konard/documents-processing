@@ -8,11 +8,6 @@
 // sends. A declaration is a real filing with the immigration department about
 // a real person, so the last press belongs to the person it describes.
 //
-// The site gates every declaration behind a captcha drawn before any field,
-// so the work splits in two around it: opening and asking, then filling once
-// the code comes back. A chat waiting on a code is held in `arrival`, and the
-// text handler gives it there.
-
 import {
   openDeclaration,
   answerCaptcha,
@@ -35,7 +30,6 @@ import {
   wardAsNamedHere,
 } from './evisa-prearrival-trip.mjs';
 import {
-  fileTheDeclaration,
   returnToPassenger,
   STEPS,
   turnTo,
@@ -49,11 +43,16 @@ import {
   arrivalAnswerFor,
   sendArrivalAnswer,
 } from './evisa-arrival-answer.mjs';
+import {
+  holdDeclarationCaptcha,
+  takeCaptchaResumeStage,
+} from './evisa-arrival-captcha-stage.mjs';
 
 export {
   arrivalAnswerFor,
   sendArrivalAnswer,
 } from './evisa-arrival-answer.mjs';
+export { declarationFiler } from './evisa-arrival-filing.mjs';
 
 /**
  * The arrival gate the ticket lands at, as the declaration names it.
@@ -164,6 +163,7 @@ export async function startDeclaration({
       describeFilled,
       describeDeclaration,
       InputFile,
+      askCaptcha,
     });
     return { asked: false, solved: true, page: opened.page };
   }
@@ -219,6 +219,7 @@ export async function startDeclaration({
         describeFilled,
         describeDeclaration,
         InputFile,
+        askCaptcha,
       });
       return { asked: false, solved: true, page: opened.page };
     }
@@ -406,6 +407,7 @@ export async function tookDeclarationCaptcha({
   describeFilled,
   describeDeclaration = null,
   InputFile = null,
+  resumeAfterCaptcha = null,
 }) {
   const session = sessions.get(chatId);
   const held = session.arrival;
@@ -419,8 +421,13 @@ export async function tookDeclarationCaptcha({
     await askCaptcha(ctx, chatId, strings.arrivalCaptchaAgain, held.page);
     return true;
   }
-  held.stage = 'form';
+  const resumeStage = takeCaptchaResumeStage(held);
+  held.stage = resumeStage ?? 'form';
   log(chatId, 'the declaration captcha was accepted');
+  if (resumeStage) {
+    await resumeAfterCaptcha?.(ctx, chatId, resumeStage);
+    return true;
+  }
   await fillAndShow({
     ctx,
     chatId,
@@ -430,6 +437,7 @@ export async function tookDeclarationCaptcha({
     describeFilled,
     describeDeclaration,
     InputFile,
+    askCaptcha,
   });
   return true;
 }
@@ -441,7 +449,7 @@ export async function tookDeclarationCaptcha({
  * the traveller confirms that this checkpoint may advance.
  */
 // The branches mirror distinct states of the live government page.
-// eslint-disable-next-line complexity
+// eslint-disable-next-line complexity, max-lines-per-function
 export async function fillAndShow({
   ctx,
   chatId,
@@ -454,6 +462,7 @@ export async function fillAndShow({
   // the way is clear also says what would clear it.
   describeDeclaration = null,
   InputFile = null,
+  askCaptcha = () => Promise.resolve(false),
 }) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
@@ -497,6 +506,18 @@ export async function fillAndShow({
   if (current.at < 0) {
     try {
       await chooseNationality(held.page, applicant.nationality);
+      if (await captchaIsUp(held.page)) {
+        await holdDeclarationCaptcha({
+          ctx,
+          chatId,
+          held,
+          strings,
+          log,
+          askCaptcha,
+          resumeStage: 'form',
+        });
+        return { filled: [], missing: [], failed: [], waiting: true };
+      }
       atPassenger = true;
     } catch (error) {
       log(chatId, `the nationality did not take: ${error.message}`);
@@ -547,6 +568,18 @@ export async function fillAndShow({
     held.uploaded = { ...held.uploaded, passportPage: true };
   }
   log(chatId, `page 1/3 ${STEPS[0]}: ${pageResult(first)}`);
+  if (await captchaIsUp(held.page)) {
+    await holdDeclarationCaptcha({
+      ctx,
+      chatId,
+      held,
+      strings,
+      log,
+      askCaptcha,
+      resumeStage: 'form',
+    });
+    return { ...first, waiting: true };
+  }
   const captured = await captureThePage({
     chatId,
     page: held.page,
@@ -663,6 +696,9 @@ export function declarationAdvancer(deps) {
     capturePage = captureThePage,
     secureReview = leaveReviewUnconfirmed,
     sendPage = sendArrivalAnswer,
+    askCaptcha = () => Promise.resolve(false),
+    captchaOnPage = captchaIsUp,
+    holdCaptcha = holdDeclarationCaptcha,
   } = deps;
   return async function advance(ctx, chatId) {
     const session = sessions.get(chatId);
@@ -675,6 +711,18 @@ export function declarationAdvancer(deps) {
     const busy = showStatus(ctx, 'typing');
     held.stage = 'advancing';
     try {
+      if (await captchaOnPage(held.page)) {
+        await holdCaptcha({
+          ctx,
+          chatId,
+          held,
+          strings,
+          log,
+          askCaptcha,
+          resumeStage: from,
+        });
+        return false;
+      }
       const current = await stepOf(held.page);
       if (from === 'passenger') {
         return await advancePassenger({
@@ -693,6 +741,8 @@ export function declarationAdvancer(deps) {
             readPassengerPage,
             capturePage,
             sendPage,
+            askCaptcha,
+            holdCaptcha,
           },
         });
       }
@@ -712,6 +762,8 @@ export function declarationAdvancer(deps) {
           capturePage,
           secureReview,
           sendPage,
+          askCaptcha,
+          holdCaptcha,
         },
       });
     } catch (error) {
@@ -742,6 +794,8 @@ async function advancePassenger({ deps }) {
     readPassengerPage,
     capturePage,
     sendPage,
+    askCaptcha,
+    holdCaptcha,
   } = deps;
   if (step.at === 0) {
     const live = await readPassengerPage(held.page, held);
@@ -772,6 +826,18 @@ async function advancePassenger({ deps }) {
       return false;
     }
     const moved = await turnPage(held.page, STEPS[1]);
+    if (moved.captcha) {
+      await holdCaptcha({
+        ctx,
+        chatId,
+        held,
+        strings,
+        log,
+        askCaptcha,
+        resumeStage: 'passenger',
+      });
+      return false;
+    }
     if (!moved.turned) {
       held.stage = 'passenger';
       const capture = await capturePage({
@@ -855,6 +921,8 @@ async function advanceTrip({ deps }) {
     capturePage,
     secureReview,
     sendPage,
+    askCaptcha,
+    holdCaptcha,
   } = deps;
   if (step.at === 1) {
     const live = await readTripPage(held.page);
@@ -885,6 +953,18 @@ async function advanceTrip({ deps }) {
       return false;
     }
     const moved = await turnPage(held.page, STEPS[2]);
+    if (moved.captcha) {
+      await holdCaptcha({
+        ctx,
+        chatId,
+        held,
+        strings,
+        log,
+        askCaptcha,
+        resumeStage: 'trip',
+      });
+      return false;
+    }
     if (!moved.turned) {
       held.stage = 'trip';
       const capture = await capturePage({
@@ -1221,6 +1301,9 @@ async function captureThePage({
   log,
   InputFile,
 }) {
+  if (await captchaIsUp(page)) {
+    throw new Error(`refusing to photograph ${title}: CAPTCHA is covering it`);
+  }
   const shot = InputFile
     ? await photographDeclaration(page).catch((error) => {
         log(chatId, `could not photograph ${title}: ${error.message}`);
@@ -1343,60 +1426,6 @@ export function declarationRefiller(deps) {
  * Everything is said out loud: what is about to happen, and what the site
  * made of it. A filing nobody is told about is one nobody can act on.
  */
-export function declarationFiler(deps) {
-  const {
-    sessions,
-    log,
-    MESSAGES,
-    showStatus = () => () => {},
-    fileDeclaration = fileTheDeclaration,
-  } = deps;
-  return async function file(ctx, chatId) {
-    const session = sessions.get(chatId);
-    const strings = MESSAGES[session.language];
-    const held = session.arrival;
-    if (!held || held.stage !== 'review') {
-      log(chatId, 'asked to file, but no declaration is on its review page');
-      await ctx
-        .reply(
-          held ? strings.arrivalCannotConfirmNow : strings.arrivalNothingToFile
-        )
-        .catch(() => {});
-      return false;
-    }
-    held.stage = 'filing';
-    const busy = showStatus(ctx, 'typing');
-    try {
-      await ctx.reply(strings.arrivalFiling).catch(() => {});
-      const out = await fileDeclaration(held.page, {
-        confirmed: true,
-        log: (said) => log(chatId, said),
-      });
-      if (out.filed) {
-        held.stage = 'filed';
-        await ctx.reply(strings.arrivalFiled).catch(() => {});
-        return true;
-      }
-      held.stage = 'review';
-      await ctx
-        .reply(
-          strings.arrivalNotFiled(
-            [out.why, ...(out.refused ?? [])].filter(Boolean).join('; ')
-          )
-        )
-        .catch(() => {});
-      return false;
-    } catch (error) {
-      held.stage = 'filing-unknown';
-      log(chatId, `the declaration did not file: ${error.message}`);
-      await ctx.reply(strings.arrivalFilingUnknown).catch(() => {});
-      return false;
-    } finally {
-      busy();
-    }
-  };
-}
-
 /**
  * Opens the declaration for a chat, closing any left over from before.
  *

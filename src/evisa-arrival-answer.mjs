@@ -117,15 +117,22 @@ function arrivalPageStatus({
           : strings.arrivalPageReady,
     };
   }
+  const actionable = Boolean(
+    result.missing?.length || result.failed?.length || refused.length
+  );
   return {
-    details: describeFilled(values, result, session.language, {
-      showValues: false,
-      forceNeedsWork: true,
-      showStatus: false,
-    }),
-    instruction: refused.length
-      ? strings.arrivalPageRefused(title, [])
-      : strings.arrivalPageIncomplete(title),
+    details: actionable
+      ? describeFilled(values, result, session.language, {
+          showValues: false,
+          forceNeedsWork: true,
+          showStatus: false,
+        })
+      : '',
+    instruction: actionable
+      ? refused.length
+        ? strings.arrivalPageRefused(title, [])
+        : strings.arrivalPageIncomplete(title)
+      : strings.arrivalPageRetry,
   };
 }
 

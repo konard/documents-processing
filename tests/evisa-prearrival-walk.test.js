@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync } from 'node:fs';
+import { chromium } from 'playwright';
 import {
   walkTheDeclaration,
   fileTheDeclaration,
@@ -27,10 +28,14 @@ import {
  * prints its complaint under the fields holding it up. Nothing else says
  * whether a page turned.
  */
-function fakeSite({ blocks = {}, at = 0 } = {}) {
-  const site = { at, pressed: [], ticked: false, filed: false };
+function fakeSite({ blocks = {}, at = 0, captchaOn = [] } = {}) {
+  const site = { at, pressed: [], ticked: false, filed: false, captcha: false };
   const refusals = () => blocks[site.at] ?? [];
   globalThis.document = {
+    querySelector: (what) =>
+      /role=dialog/.test(what) && site.captcha
+        ? { innerText: 'CAPTCHA Verification' }
+        : null,
     querySelectorAll: (what) => {
       if (/MuiStep-root/.test(what)) {
         return STEPS.map((title, index) => ({
@@ -49,6 +54,9 @@ function fakeSite({ blocks = {}, at = 0 } = {}) {
     evaluate: async (fn) => fn(),
     waitForFunction: async (fn, arg) => fn(arg),
     waitForTimeout: async () => {},
+    locator: (what) => ({
+      isVisible: async () => /role=dialog/.test(String(what)) && site.captcha,
+    }),
     getByRole: (role, options) => ({
       first: () => ({
         click: async () => {
@@ -63,6 +71,11 @@ function fakeSite({ blocks = {}, at = 0 } = {}) {
               ? wanted.test('Submit')
               : /Submit/.test(wanted);
           site.pressed.push(hit ?? (isSubmit ? 'Submit' : String(wanted)));
+          const action = hit ?? (isSubmit ? 'Submit' : String(wanted));
+          if (captchaOn.includes(action)) {
+            site.captcha = true;
+            return;
+          }
           if (!hit && isSubmit) {
             site.filed = true;
             site.at = 3;
@@ -314,6 +327,15 @@ describe('filing the declaration', () => {
     expect(site.ticked).toBe(true);
     expect(site.pressed.some((one) => /Submit/.test(one))).toBe(true);
   });
+
+  it('reports a CAPTCHA gate without claiming the declaration failed', async () => {
+    const { site, page } = fakeSite({ at: 2, captchaOn: ['Submit'] });
+    const out = await fileTheDeclaration(page, { confirmed: true });
+    expect(out.captcha).toBe(true);
+    expect(out.filed).toBe(false);
+    expect(out.refused).toEqual([]);
+    expect(site.filed).toBe(false);
+  });
 });
 
 describe('reading where the form has got to', () => {
@@ -327,6 +349,47 @@ describe('reading where the form has got to', () => {
     const turned = await turnTo(page, 'Trip Information');
     expect(turned.turned).toBe(false);
     expect(turned.refused).toEqual(['something']);
+  });
+
+  it('recognizes a CAPTCHA before returning or photographing the old page', async () => {
+    const { site, page } = fakeSite({ captchaOn: ['Trip Information'] });
+    const turned = await turnTo(page, 'Trip Information');
+    expect(turned).toEqual({
+      turned: false,
+      at: 0,
+      refused: [],
+      captcha: true,
+    });
+    expect(site.at).toBe(0);
+  });
+
+  it('detects the transition CAPTCHA in a real Playwright page', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`
+        <div class="MuiStep-root"><span class="Mui-active"></span>Passenger Information</div>
+        <div class="MuiStep-root">Trip Information</div>
+        <button id="next">Trip Information</button>
+        <script>
+          document.querySelector('#next').addEventListener('click', () => {
+            const dialog = document.createElement('div');
+            dialog.setAttribute('role', 'dialog');
+            dialog.textContent = 'CAPTCHA Verification';
+            document.body.append(dialog);
+          });
+        </script>
+      `);
+
+      expect(await turnTo(page, 'Trip Information')).toEqual({
+        turned: false,
+        at: 0,
+        refused: [],
+        captcha: true,
+      });
+    } finally {
+      await browser.close();
+    }
   });
 });
 

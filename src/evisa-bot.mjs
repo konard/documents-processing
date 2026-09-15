@@ -138,7 +138,7 @@ export function labelFor(key, language) {
 
 /** Words that tell the bot to fill the form now, without waiting. */
 const CONFIRMATIONS =
-  /^[^\p{L}\p{N}]*(?:подтверждаю|отправляй|отправляйте|отправь|отправьте|отправить|заполняй|заполни|готово|давай|поехали|confirm(?:ed)?|go|fill|send|submit|ok|okay|yes|да)[^\p{L}\p{N}]*$/iu;
+  /^[^\p{L}\p{N}]*(?:далее|дальше|подтверждаю|отправляй|отправляйте|отправь|отправьте|отправить|заполняй|заполни|готово|давай|поехали|next|confirm(?:ed)?|go|fill|send|submit|ok|okay|yes|да)[^\p{L}\p{N}]*$/iu;
 
 /** True for a message that says "go ahead", in either language. */
 export function isConfirmation(text) {

@@ -39,13 +39,14 @@ export const MESSAGES = {
     arrivalPageName: (name) => name,
     arrivalPageOf: (at, of, title) => `<b>Page ${at} of ${of}: ${title}</b>`,
     arrivalPageReady:
-      'Check this page here and in the open browser. If correct, send ' +
-      '<b>send</b> to continue; otherwise send corrections.',
+      'Check here and in browser. If correct, send <b>next</b> ' +
+      '(<b>send</b> works). For changes or optional fields, send text ' +
+      'or a document.',
     arrivalReviewReady:
       'Check the whole declaration here and in the open browser. Nothing ' +
       'has been sent: confirmation is unticked and Submit is unpressed. If ' +
       'everything is correct, send <b>send</b> (or <b>submit</b>); otherwise ' +
-      'send corrections.',
+      'send text or a document with corrections or optional details.',
     arrivalReviewSafetyUnknown:
       'Nothing has been sent and Submit is unpressed, but I could not verify ' +
       'that the confirmation box is unticked. Check it in the open browser. ' +
@@ -57,6 +58,10 @@ export const MESSAGES = {
     arrivalNotAdvanced:
       'The declaration remains on this page. Nothing was submitted; the ' +
       'browser stays open. Check it there or send corrections.',
+    arrivalPageRetry:
+      'Every required field is filled, but the site stayed on this page. ' +
+      'Check the open browser and send <b>next</b> to try again. You can ' +
+      'also send text or a document to change any field or add optional details.',
     arrivalPassengerCheck: (values) =>
       compactSummary('<b>Page 1 filled:</b>', [
         compactLine(
@@ -120,7 +125,8 @@ export const MESSAGES = {
         .filter(Boolean)
         .join('\n\n'),
     arrivalPageIncomplete: () =>
-      'Send the missing details and I will refill it. The browser stays open.',
+      'Send the missing details, corrections, or optional details as text or ' +
+      'a document, and I will refill it. The browser stays open.',
     arrivalFiling: 'Filing the declaration now.',
     arrivalFiled:
       'The declaration is filed. The site is showing its result — check it ' +
@@ -156,6 +162,12 @@ export const MESSAGES = {
       'Send me what you read.',
     arrivalCaptchaAgain:
       'That code was refused. Here is a fresh one — send me what you read.',
+    arrivalCaptchaContinue:
+      'The site requested another security code before continuing. Send me ' +
+      'what you read; the covered form will not be sent as a page screenshot.',
+    arrivalCaptchaUnavailable:
+      'The site requested a security code but has not supplied its image. ' +
+      'Nothing advanced or was submitted. Send <b>next</b> to try again.',
     arrivalDisagreed:
       'The site read your passport photo differently from me. I kept my ' +
       'reading — check these and tell me if the site was right:',
@@ -287,8 +299,9 @@ export const MESSAGES = {
     needed: 'Still needed:',
     thenAgain: 'Once you send it, I fill the form again and show it.',
     ready:
-      'Check the form. If everything is right, say "send" and the site will ' +
-      'lay the application out for a last look. If not, send the correction.',
+      'Check the form. If everything is right, say "next" and the site will ' +
+      'lay the application out for a last look ("send" still works). If not, ' +
+      'send the correction.',
     stages: {
       form: 'the application form',
       review: 'review of the application',
@@ -317,7 +330,7 @@ export const MESSAGES = {
     reviewEmpty:
       'The site opened the review page, but empty: no ' +
       'application and no code on it. That is a failure on its side. Your ' +
-      'form is still in the browser as you left it — say "send" to try ' +
+      'form is still in the browser as you left it — say "next" to try ' +
       'again, or send a correction first.',
     stepMessages: (n) =>
       `${n} ${n === 1 ? 'message' : 'messages'} on it. Send the corrections.`,
@@ -390,9 +403,9 @@ export const MESSAGES = {
       })[meaning],
     captchaEntered: (seconds) =>
       `Typed the code. Sending the application in ${seconds} seconds. Say ` +
-      '"stop" to cancel, or "send" to skip the wait.',
+      '"stop" to cancel, or "next" to skip the wait.',
     sendCountdown: (seconds) =>
-      `Sending in ${seconds} seconds. Say "stop" to cancel, or "send" ` +
+      `Sending in ${seconds} seconds. Say "stop" to cancel, or "next" ` +
       'to skip the wait.',
     pastForm:
       'The application has gone past the form, and I cannot change it from ' +
@@ -426,13 +439,14 @@ export const MESSAGES = {
     arrivalPageOf: (at, of, title) =>
       `<b>Страница ${at} из ${of}: ${title}</b>`,
     arrivalPageReady:
-      'Проверьте эту страницу здесь и в открытом браузере. Если всё верно, ' +
-      'напишите <b>отправляй</b>; для исправления пришлите данные.',
+      'Проверьте здесь и в браузере. Если всё верно, напишите <b>далее</b> ' +
+      '(«отправляй» тоже работает). Для изменений или необязательных полей ' +
+      'пришлите текст или документ.',
     arrivalReviewReady:
       'Проверьте всю декларацию здесь и в открытом браузере. Ничего не ' +
       'отправлено: галочка не поставлена, Submit не нажат. Если всё верно, ' +
       'напишите <b>отправляй</b> (или <b>submit</b>); для исправления ' +
-      'пришлите данные.',
+      'или добавления необязательных сведений пришлите текст или документ.',
     arrivalReviewSafetyUnknown:
       'Ничего не отправлено и Submit не нажат, но я не смог проверить, что ' +
       'галочка подтверждения снята. Проверьте её в открытом браузере. Если ' +
@@ -444,6 +458,11 @@ export const MESSAGES = {
     arrivalNotAdvanced:
       'Декларация остаётся на этой странице. Ничего не отправлено; браузер ' +
       'остаётся открытым. Проверьте её там или пришлите исправления.',
+    arrivalPageRetry:
+      'Все обязательные поля заполнены, но сайт остался на этой странице. ' +
+      'Проверьте открытый браузер и напишите <b>далее</b>, чтобы повторить. ' +
+      'Также можно прислать текст или документ, чтобы изменить любое поле ' +
+      'или добавить необязательные сведения.',
     arrivalPassengerCheck: (values) =>
       compactSummary('<b>Страница 1 заполнена:</b>', [
         compactLine(
@@ -504,7 +523,8 @@ export const MESSAGES = {
         .filter(Boolean)
         .join('\n\n'),
     arrivalPageIncomplete: () =>
-      'Пришлите недостающее — заполню снова. Браузер остаётся открытым.',
+      'Пришлите недостающее, исправления или необязательные сведения текстом ' +
+      'либо документом — заполню снова. Браузер остаётся открытым.',
     arrivalFiling: 'Подаю декларацию.',
     arrivalFiled:
       'Декларация подана. Сайт показывает результат — проверьте его и ' +
@@ -532,6 +552,12 @@ export const MESSAGES = {
       'Сайт декларации просит этот код, прежде чем показать форму. ' +
       'Пришлите то, что видите.',
     arrivalCaptchaAgain: 'Код не подошёл. Вот новый — пришлите то, что видите.',
+    arrivalCaptchaContinue:
+      'Перед продолжением сайт запросил ещё один код проверки. Пришлите то, ' +
+      'что видите; закрытую им форму я не буду отправлять как снимок страницы.',
+    arrivalCaptchaUnavailable:
+      'Сайт запросил код проверки, но не выдал картинку. Переход не выполнен; ' +
+      'ничего не отправлено. Напишите <b>далее</b>, чтобы попробовать снова.',
     arrivalDisagreed:
       'Сайт прочитал фото паспорта иначе, чем я. Я оставил своё — ' +
       'проверьте и скажите, если прав сайт:',
@@ -661,8 +687,9 @@ export const MESSAGES = {
     needed: 'Ещё нужно:',
     thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',
     ready:
-      'Проверьте анкету. Если всё верно, напишите «отправляй» — сайт ' +
-      'покажет её на последнюю проверку. Если нет, пришлите исправление.',
+      'Проверьте анкету. Если всё верно, напишите «далее» — сайт покажет её ' +
+      'на последнюю проверку («отправляй» тоже сработает). Если нет, ' +
+      'пришлите исправление.',
     stages: {
       form: 'анкета',
       review: 'проверка анкеты',
@@ -689,7 +716,7 @@ export const MESSAGES = {
     reviewEmpty:
       'Сайт открыл страницу проверки, но пустую: ни анкеты, ' +
       'ни кода на ней. Это сбой на его стороне. Ваша анкета в браузере ' +
-      'осталась как была — напишите «отправляй», чтобы попробовать ещё раз, ' +
+      'осталась как была — напишите «далее», чтобы попробовать ещё раз, ' +
       'или сначала пришлите исправление.',
     stepMessages: (n) => `Замечаний на ней: ${n}. Пришлите исправления.`,
     siteSaid: (text) => `Сайт ответил: «${text}».`,
@@ -756,10 +783,10 @@ export const MESSAGES = {
       })[meaning],
     captchaEntered: (seconds) =>
       `Вписал код. Отправлю анкету через ${seconds} секунд. Напишите ` +
-      '«стой», чтобы отменить, или «отправляй», чтобы не ждать.',
+      '«стой», чтобы отменить, или «далее», чтобы не ждать.',
     sendCountdown: (seconds) =>
       `Отправлю через ${seconds} секунд. Напишите «стой», чтобы ` +
-      'отменить, или «отправляй», чтобы не ждать.',
+      'отменить, или «далее», чтобы не ждать.',
     pastForm:
       'Анкета уже ушла дальше, и из чата я её не изменю. Исправьте в ' +
       'браузере или начните заново: /start.',

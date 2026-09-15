@@ -73,6 +73,8 @@ describe('one readable answer for each arrival page', () => {
     expect(answer.caption).not.toContain('На странице 2 заполнено');
     expect(answer.caption).not.toContain('Страница 3 из 3');
     expect(answer.caption.endsWith(MESSAGES.ru.arrivalPageReady)).toBe(true);
+    expect(answer.caption).toContain('<b>далее</b>');
+    expect(answer.caption).toContain('текст или документ');
   });
 
   it('shows page 2 with the default stay filled and no optional departure warning', () => {
@@ -141,6 +143,27 @@ describe('one readable answer for each arrival page', () => {
     expect(answer.caption.endsWith(MESSAGES.ru.arrivalPageIncomplete())).toBe(
       true
     );
+  });
+
+  it('never asks for missing data when a complete page merely stayed put', () => {
+    const answer = answerFor(
+      capture(1, {
+        departedFrom: 'India',
+        modeOfTravel: 'Air',
+        vehicleNumber: '[REDACTED]',
+        borderGate: 'SGN - Tan Son Nhat International Airport',
+        purpose: 'Travel',
+        accommodationType: 'Hotel',
+        province: 'Ho Chi Minh City',
+        ward: 'Tan Binh Ward',
+        accommodationAddress: '[REDACTED]',
+      }),
+      { ready: false }
+    );
+
+    expect(answer.caption).toContain('Все обязательные поля заполнены');
+    expect(answer.caption).not.toContain('Пришлите недостающее');
+    expect(answer.caption).toContain('текст или документ');
   });
 
   it('distinguishes an unread uploaded passport from a failed upload', () => {
@@ -311,9 +334,7 @@ describe('sending a declaration page', () => {
     expect(sent.length).toBe(1);
     expect(sent[0][0].bytes.toString()).toBe('page');
     expect(sent[0][1].caption.length <= 1024).toBe(true);
-    expect(sent[0][1].caption.endsWith('otherwise send corrections.')).toBe(
-      true
-    );
+    expect(sent[0][1].caption.endsWith('or a document.')).toBe(true);
   });
 });
 

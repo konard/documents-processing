@@ -20,6 +20,7 @@
 // what to tell the traveller when it did not.
 
 import { saidBriefly } from './evisa-messages.mjs';
+import { captchaIsUp } from './evisa-prearrival-form.mjs';
 
 /**
  * The steps the site prints across the top, in order.
@@ -117,6 +118,9 @@ export function whyItWillNotTurn(page) {
  */
 export async function turnTo(page, name, { timeout = TURN_MS } = {}) {
   const was = await whichStep(page);
+  if (await captchaIsUp(page)) {
+    return { turned: false, at: was.at, refused: [], captcha: true };
+  }
   await page
     .getByRole('button', { name: new RegExp(name, 'i') })
     .first()
@@ -130,13 +134,18 @@ export async function turnTo(page, name, { timeout = TURN_MS } = {}) {
         const at = steps.findIndex((step) =>
           step.querySelector('.Mui-active, [class*="Mui-active"]')
         );
-        return at !== before;
+        const dialog = document.querySelector?.('[role=dialog]');
+        const captcha = /CAPTCHA/i.test(dialog?.innerText ?? '');
+        return at !== before || captcha;
       },
       was.at,
       { timeout }
     )
     .catch(() => {});
   const now = await whichStep(page);
+  if (await captchaIsUp(page)) {
+    return { turned: false, at: now.at, refused: [], captcha: true };
+  }
   if (now.at === was.at) {
     return { turned: false, at: now.at, refused: await whyItWillNotTurn(page) };
   }
@@ -268,6 +277,9 @@ export async function fileTheDeclaration(
     return { filed: false, why: 'not confirmed' };
   }
   const step = await whichStep(page);
+  if (step.at >= 3) {
+    return { filed: true, why: null, refused: [], alreadyFiled: true };
+  }
   if (step.at !== 2) {
     log(`not filing: the form is on step ${step.at + 1}, not the review`);
     return { filed: false, why: 'not on the review page' };
@@ -287,11 +299,31 @@ export async function fileTheDeclaration(
       .click({ timeout: 10000 });
   }
   log('the confirmation box is ticked; filing');
-  await page
-    .getByRole('button', { name: /^Submit$/i })
-    .first()
-    .click({ timeout: TURN_MS });
+  try {
+    await page
+      .getByRole('button', { name: /^Submit$/i })
+      .first()
+      .click({ timeout: TURN_MS });
+  } catch (error) {
+    if (await captchaIsUp(page)) {
+      return {
+        filed: false,
+        why: 'captcha required',
+        refused: [],
+        captcha: true,
+      };
+    }
+    throw error;
+  }
   await page.waitForTimeout(3000);
+  if (await captchaIsUp(page)) {
+    return {
+      filed: false,
+      why: 'captcha required',
+      refused: [],
+      captcha: true,
+    };
+  }
   const now = await whichStep(page);
   const filed = now.at >= 3;
   log(

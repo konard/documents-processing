@@ -92,6 +92,43 @@ describe('page-by-page declaration checkpoints', () => {
     expect(sent[0].caption).toContain('Submit не нажат');
     expect(sent[0].caption.endsWith(MESSAGES.ru.arrivalReviewReady)).toBe(true);
   });
+
+  it('sends only a CAPTCHA image when a gate interrupts Next', async () => {
+    const captchas = [];
+    let captures = 0;
+    const session = {
+      language: 'ru',
+      data: {},
+      arrival: { stage: 'trip', page: {} },
+    };
+    const advance = declarationAdvancer({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+      describeFilled,
+      stepOf: async () => ({ at: 1, titles: [] }),
+      readTripPage: async () => tripCheckpointFromValues(tripValues()),
+      turnPage: async () => ({
+        turned: false,
+        at: 1,
+        refused: [],
+        captcha: true,
+      }),
+      capturePage: async () => {
+        captures += 1;
+      },
+      askCaptcha: async (_ctx, _chatId, caption) => {
+        captchas.push(caption);
+        return true;
+      },
+    });
+
+    expect(await advance({}, 1)).toBe(false);
+    expect(captures).toBe(0);
+    expect(captchas).toEqual([MESSAGES.ru.arrivalCaptchaContinue]);
+    expect(session.arrival.stage).toBe('captcha');
+    expect(session.arrival.resumeStage).toBe('trip');
+  });
 });
 
 describe('checkpoint delivery safeguards', () => {
@@ -263,6 +300,7 @@ describe('final declaration confirmation', () => {
       sessions: { get: () => session },
       log: () => {},
       MESSAGES,
+      captchaOnPage: () => false,
       fileDeclaration: async () => {
         filings += 1;
         return result;
@@ -302,5 +340,34 @@ describe('final declaration confirmation', () => {
     expect(logs.join('\n')).toContain('locator.click');
     expect(replies.at(-1)).toBe(MESSAGES.ru.arrivalFilingUnknown);
     expect(replies.join('\n')).not.toContain('locator');
+  });
+
+  it('pauses final filing at a CAPTCHA without reporting missing fields', async () => {
+    const replies = [];
+    const captchas = [];
+    const session = {
+      language: 'ru',
+      arrival: { stage: 'review', page: {} },
+    };
+    const file = declarationFiler({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+      captchaOnPage: async () => false,
+      fileDeclaration: async () => ({ captcha: true, filed: false }),
+      askCaptcha: async (_ctx, _chatId, caption) => {
+        captchas.push(caption);
+        return true;
+      },
+    });
+
+    expect(await file({ reply: async (text) => replies.push(text) }, 1)).toBe(
+      false
+    );
+    expect(session.arrival.stage).toBe('captcha');
+    expect(session.arrival.resumeStage).toBe('review');
+    expect(captchas).toEqual([MESSAGES.ru.arrivalCaptchaContinue]);
+    expect(replies).toEqual([MESSAGES.ru.arrivalFiling]);
+    expect(replies.join('\n')).not.toContain('недоста');
   });
 });

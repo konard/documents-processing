@@ -1079,12 +1079,16 @@ const arrivalDeps = {
 };
 
 const beginArrival = declarationOpener(arrivalDeps);
-const tookArrivalCaptcha = declarationCaptchaTaker(arrivalDeps);
 const refillArrival = declarationRefiller(arrivalDeps);
 const advanceArrival = declarationAdvancer(arrivalDeps);
 // The one path that files. It runs only from a confirmation sent by the
 // traveller with the filled declaration already in front of them.
 const fileArrival = declarationFiler(arrivalDeps);
+const tookArrivalCaptcha = declarationCaptchaTaker({
+  ...arrivalDeps,
+  resumeAfterCaptcha: (ctx, chatId, stage) =>
+    stage === 'review' ? fileArrival(ctx, chatId) : advanceArrival(ctx, chatId),
+});
 
 registerArrivalCommand(bot, {
   ...commandDeps,
@@ -1216,7 +1220,7 @@ async function receiveText(ctx) {
     return;
   }
   if (isConfirmation(ctx.message.text)) {
-    // "Подтверждаю", "отправляй", "go": runs on its own, so a "стой" sent
+    // "Далее", "отправляй", "next": runs on its own, so a "стой" sent
     // after it is still heard.
     confirm(ctx, chatId);
     return;

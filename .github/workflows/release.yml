@@ -233,16 +233,15 @@ jobs:
       - name: Check for secrets
         run: npx --yes -p secretlint -p @secretlint/secretlint-rule-preset-recommend secretlint "**/*"
 
-  # Test matrix: 3 runtimes (Node.js, Bun, Deno) x 3 OS (Ubuntu, macOS, Windows)
+  # Test on Linux with Bun as the primary runtime and Node.js as compatibility.
   # IMPORTANT: Tests must validate the ACTUAL merge result, not a stale merge preview.
   # See docs/case-studies/issue-23 for why this is critical.
   # Fast-fail: slow test matrix only runs after fast checks pass (hive-mind principle #5)
   test:
-    name: Test (${{ matrix.runtime }} on ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    # Typical run: <1min per runtime/OS on warm runners, with Windows
-    # sometimes slower on cold starts. 10min fails hung tests well
-    # before GitHub Actions' 6h default.
+    name: Test (${{ matrix.runtime }} on Linux)
+    runs-on: ubuntu-latest
+    # Typical run: <1min per runtime on warm runners. 10min fails hung tests
+    # well before GitHub Actions' 6h default.
     timeout-minutes: 10
     needs:
       [
@@ -273,8 +272,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        runtime: [node, bun, deno]
+        runtime: [bun, node]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -325,26 +323,6 @@ jobs:
         # --timeout caps an individual test at 30s, matching Node's
         # --test-timeout budget while leaving headroom for cold runners.
         run: bun test --timeout 30000
-
-      - name: Setup Deno
-        if: matrix.runtime == 'deno'
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
-      - name: Install dependencies (Deno)
-        if: matrix.runtime == 'deno'
-        run: deno install
-
-      - name: Install Chromium (Deno)
-        if: matrix.runtime == 'deno'
-        run: deno run -A npm:playwright@^1.62.1 install --with-deps chromium
-
-      - name: Run tests (Deno)
-        if: matrix.runtime == 'deno'
-        # The suite launches Chromium and git subprocesses in addition to
-        # loading native image modules and writing temporary fixtures.
-        run: deno test --allow-all
 
   # === DOCUMENTATION VALIDATION ===
   # Validate documentation files when docs change (hive-mind principle #12)

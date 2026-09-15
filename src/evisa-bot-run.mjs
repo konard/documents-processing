@@ -18,7 +18,6 @@ import {
   log,
   withholdFromLog,
   describeFields,
-  logPassportReading,
   logFill,
   keepMarkup,
   announce,
@@ -50,7 +49,6 @@ import {
   createSessionStore,
   withTempFile,
 } from './evisa-bot.mjs';
-import { normalizeApplicant } from './evisa-data.mjs';
 import {
   readRequiredFields,
   outstandingFields,
@@ -59,10 +57,7 @@ import {
 import {
   openForm,
   loadForm,
-  readPassportDocumentInWorker,
-  fillBySection,
   captureSection,
-  captureForm,
   advanceAndCapture,
   showBrowser,
   presentSections,
@@ -74,25 +69,14 @@ import {
   fillCaptcha,
   enlargeCaptcha,
 } from './evisa-fill.mjs';
-import {
-  createDocuments,
-  tellWhatIsStuck,
-  keepPassport,
-  keepPortrait,
-} from './evisa-documents.mjs';
+import { createDocuments, tellWhatIsStuck } from './evisa-documents.mjs';
 import {
   sendSection,
   sendOutcome,
   showPageInParts,
 } from './evisa-sections.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
-import {
-  traceFor,
-  sweepTracesIn,
-  recordArrival,
-  recordFill,
-  recordStep,
-} from './evisa-trace.mjs';
+import { traceFor, sweepTracesIn, recordStep } from './evisa-trace.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
 import { onShutdown } from './evisa-shutdown.mjs';
 import { startPolling, MENU } from './evisa-start.mjs';
@@ -132,21 +116,17 @@ import {
   languageFollower,
 } from './evisa-commands.mjs';
 import { prepareStore, openStore } from './evisa-store.mjs';
-import { sortUnreadableImage } from './evisa-image-role.mjs';
 import { verifyAddress } from './evisa-geocode.mjs';
-import {
-  downloadFile,
-  keepForUpload,
-  takeTypedDetails,
-} from './evisa-details.mjs';
+import { takeTypedDetails } from './evisa-details.mjs';
 import {
   describeDocumentIssues,
-  noteDocumentIssue,
   restoreDocumentIssues,
   takeDocumentIssues,
 } from './evisa-document-feedback.mjs';
 import { reserveDocumentCommit } from './evisa-document-order.mjs';
 import { keepCollectedValues } from './evisa-keep.mjs';
+import { createDocumentReceiver } from './evisa-document-receiver.mjs';
+import { createPageFiller, formIsStale } from './evisa-page-filler.mjs';
 
 loadEnv();
 
@@ -267,13 +247,6 @@ const noise = countNoise();
 
 const logBrowserEvents = (chatId, page) =>
   watchBrowser(chatId, page, { log, noise });
-
-/** Fields read off the printed side of a passport, which fill gaps only. */
-const PRINTED_SIDE = [
-  'passportIssueDate',
-  'placeOfBirth',
-  'passportIssuingAuthority',
-];
 
 /**
  * True within a minute of the chat hearing that its browser closed: a
@@ -454,92 +427,6 @@ async function sweepIdleChats() {
   }
 }
 
-/**
- * Fills the form with the chat's data and captures the page into `dir`.
- * Returns the fill's result with the summary that explains it: what went on
- * the form, grouped by section, or null when nothing new did.
- *
- * The chat shows "typing" throughout, so the applicant knows the bot is at
- * work without a message saying so. A document already on the page is not
- * uploaded again, and a value already explained is not explained again.
- */
-async function fillPage(ctx, chatId, page, dir) {
-  const session = sessions.get(chatId);
-  // The status belongs to the caller, which goes on working after this
-  // returns: it still asks the page what is required, builds the summary and
-  // uploads a page several megabytes large. Stopping it here left the chat
-  // silent through all of that, and the applicant reading the silence as a
-  // bot that had died.
-  const received = session.received ?? 0;
-  try {
-    const applicant = normalizeApplicant(session.data);
-    log(chatId, `filling with: ${describeFields(applicant)}`);
-    session.filling = true;
-
-    const uploads = {};
-    for (const [key, file] of Object.entries(session.uploads)) {
-      if (session.uploaded[key] !== file) {
-        uploads[key] = file;
-      }
-    }
-    // The page as it stands before this fill. What the applicant changed by
-    // hand in the browser since the last one shows up as a change made by
-    // them, which is exactly what an automation of that step has to learn.
-    const wasOnPage = await recordArrival(
-      trace,
-      chatId,
-      page,
-      session.lastPageState
-    );
-    // Filled a part at a time, in the order the form prints them, and each
-    // part sent as it is done, so the applicant watches the form fill from
-    // the top down.
-    const result = await fillBySection(page, applicant, {
-      uploads,
-      capture: (at, title) =>
-        captureSection(page, title, path.join(dir, `section-${at}.png`)),
-      onSection: (part) =>
-        sendSection({
-          ctx,
-          chatId,
-          part,
-          log,
-          InputFile,
-          name: (title) => sectionName(title, session.language),
-        }),
-    });
-    // What this fill put on the page, kept as edits so the run replays.
-    session.lastPageState = await recordFill(trace, chatId, page, {
-      before: wasOnPage,
-      result,
-    });
-    // The whole page as well, which is what the applicant keeps.
-    result.screenshot = await captureForm(page, path.join(dir, 'form.png'));
-    for (const key of Object.keys(uploads)) {
-      if (result.filled.includes(key)) {
-        session.uploaded[key] = uploads[key];
-      }
-    }
-    await keepMarkup(chatId, page, 'filled-form');
-    session.filledThrough = received;
-    // What this fill actually put on the page. A fill that writes the same
-    // values as the one before it has nothing new to show, and repeating a
-    // form the applicant has already seen looks like a loop to them.
-    const wrote = JSON.stringify({
-      values: applicant,
-      failed: result.failures.map((failure) => failure.field).sort(),
-    });
-    const repeat = wrote === session.lastFill;
-    session.lastFill = wrote;
-    // The summary is built where it is sent, not here: what goes at the end
-    // of it depends on the fill's own result, which is only settled once the
-    // fill is done.
-    return { result, applicant, repeat };
-  } finally {
-    session.filling = false;
-  }
-}
-
 /** How many times a fill takes in what arrived while it was running. */
 const FILL_ROUNDS = 2;
 
@@ -710,14 +597,6 @@ async function fillNow(ctx, chatId, reason = 'fill') {
   // The chain stays settled whatever a fill did, so the next one still runs.
   session.fillChain = turn.catch(() => {});
   await turn;
-}
-
-/** True when something has arrived since the last fill, or nothing was filled. */
-function formIsStale(session) {
-  return (
-    session.filledThrough === undefined ||
-    session.filledThrough !== (session.received ?? 0)
-  );
 }
 
 /**
@@ -988,6 +867,12 @@ const trace = traceFor(STORE_DIR, {
   enabled: valuesAllowed(),
   notation: await prepareStore(),
 });
+const fillPage = createPageFiller({
+  sessions,
+  trace,
+  InputFile,
+  ...PAGE_PART_DEPS,
+});
 
 bot.command('start', async (ctx) => {
   const chatId = ctx.chat.id;
@@ -1212,6 +1097,17 @@ const tookArrivalDocument = createArrivalDocuments({
   log,
   describeFields,
 });
+const receiveDocument = createDocumentReceiver({
+  sessions,
+  touch,
+  refuseIfPastForm,
+  showStatus,
+  token,
+  log,
+  holdIdleFill,
+  transcript,
+  tookArrivalDocument,
+});
 
 bot.command(['download_visa', 'download-visa', 'documents'], async (ctx) => {
   touch(ctx.chat.id);
@@ -1261,154 +1157,6 @@ async function andKeep(ctx, handle) {
       .save(ctx.chat.id)
       .catch((error) => log(ctx.chat.id, `could not keep values: ${error}`));
   }
-}
-
-async function receiveDocument(ctx, commit) {
-  try {
-    return await readDocument(ctx, commit);
-  } finally {
-    // Unknown files and early failures still release the next message.
-    await commit();
-  }
-}
-
-/** Reads concurrently, then uses the message's reserved ordered commit. */
-async function readDocument(ctx, commit) {
-  const chatId = ctx.chat.id;
-  const session = sessions.get(chatId);
-  touch(chatId);
-  if (await refuseIfPastForm(ctx, session)) {
-    return;
-  }
-  const busy = showStatus(ctx, 'typing');
-
-  let buffer;
-  let extension;
-  try {
-    ({ buffer, extension } = await downloadFile(ctx, token));
-  } catch (error) {
-    busy();
-    log(chatId, error.message);
-    await commit(() => {
-      noteDocumentIssue(session, 'downloadFailed');
-      markReceived(session);
-    });
-    holdIdleFill(ctx, chatId);
-    return;
-  }
-  const kb = Math.round(buffer.length / 1024);
-  log(chatId, `document received: ${extension}, ${kb} KB`);
-  // Kept beside the transcript under its own name, so the picture that
-  // caused a misreading can be read again in a later session.
-  const kept = transcript.keepFile(
-    chatId,
-    buffer,
-    `${ctx.message.document?.file_name ?? 'photo'}${
-      ctx.message.document?.file_name ? '' : extension
-    }`
-  );
-  if (kept) {
-    log(chatId, `document kept for the transcript at ${kept}`);
-  }
-  const compressedPhoto = Boolean(ctx.message.photo);
-  if (compressedPhoto) {
-    // Telegram shrinks a photo and strips what the camera wrote; the site
-    // then doubts the portrait. Worth saying, and worth saying once: the
-    // advice is the same for every photo that follows, and every file sent
-    // is used whether or not it was compressed.
-    log(chatId, 'sent as a photo, not a file; noted for the batch answer');
-  }
-
-  // A granted e-visa and an airline's e-ticket are PDFs whose values are
-  // text, not pictures. Read as pictures they yielded a QR code and a
-  // banner, and the applicant was told their visa was unrecognisable.
-  if (extension === '.pdf') {
-    const took = await withTempFile(buffer, extension, (local) =>
-      tookArrivalDocument(ctx, chatId, local, (work) =>
-        commit(async () => {
-          if (compressedPhoto) {
-            noteDocumentIssue(session, 'compressedPhoto');
-          }
-          await work();
-          markReceived(session);
-        })
-      )
-    );
-    if (took) {
-      busy();
-      holdIdleFill(ctx, chatId);
-      return;
-    }
-  }
-
-  // Kept for inspection while debugging: a bad crop or read is only
-  // diagnosable against the image that caused it.
-  await withTempFile(
-    buffer,
-    extension,
-    async (local) => {
-      log(chatId, `document written to ${local}`);
-      // A photo of a whole passport carries background the form has no use
-      // for, so the data page is cut out, and both sides of it are read. The
-      // reading runs off the main thread, so the chat stays responsive.
-      const prepared = `${local}.upload.jpg`;
-      const read = await readPassportDocumentInWorker(local, prepared).catch(
-        (error) => {
-          log(chatId, `reading the document failed: ${error.message}`);
-          return null;
-        }
-      );
-      logPassportReading(chatId, read, { log, shown });
-
-      // Two readings finishing together must not write over each other, so
-      // what each puts into the session goes in in turn.
-      await commit(async () => {
-        if (compressedPhoto) {
-          noteDocumentIssue(session, 'compressedPhoto');
-        }
-        if (read && Object.keys(read.data).length) {
-          keepPassport(session, read, extension, {
-            PRINTED_SIDE,
-            keepForUpload,
-          });
-        } else {
-          // No zone read means the picture is something else, and which
-          // something matters: a booking screenshot in the portrait upload is
-          // what made the site answer "no face detected".
-          await sortUnreadableImage({
-            chatId,
-            session,
-            read,
-            local,
-            extension,
-            log,
-            shown,
-            keepPortrait: (...args) =>
-              keepPortrait(...args, { log, keepForUpload }),
-            keepForUpload,
-            noteIssue: (issue) => noteDocumentIssue(session, issue),
-          });
-        }
-        markReceived(session);
-      });
-    },
-    // Kept while debugging, under the system temp directory. What eventually
-    // removes them is the sweep below, which runs daily: a container's volume
-    // survives restarts, so nothing else would.
-    { keep: valuesAllowed() }
-  ).finally(busy);
-
-  // The document was counted when it landed. Reading it took longer than the
-  // quiet window, so the window is held open for the fill that follows; the
-  // reading does not ask for a fill of its own.
-  holdIdleFill(ctx, chatId);
-}
-
-/** Makes the next form fill reflect the attachment that just landed. */
-function markReceived(session) {
-  session.received = (session.received ?? 0) + 1;
-  session.toldWhatIsStuck = false;
-  session.lastFill = null;
 }
 
 bot.on('message:text', (ctx) => {

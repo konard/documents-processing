@@ -116,7 +116,8 @@ describe('nothing fills or sends the form on its own', () => {
   it('sends nothing when a fill wrote what the last one wrote', () => {
     // A field the site refuses stays refused, so the same form is not sent
     // over and over; the applicant is told which field and asked.
-    expect(runner.includes('session.lastFill')).toBe(true);
+    const pageFiller = readFileSync('src/evisa-page-filler.mjs', 'utf8');
+    expect(pageFiller.includes('session.lastFill')).toBe(true);
     expect(runner.includes('tellWhatIsStuck')).toBe(true);
   });
 
@@ -159,7 +160,10 @@ describe('nothing fills or sends the form on its own', () => {
     // Whatever the applicant sends next is worth filling and showing again.
     // Both ways in count: a document the bot read, handled by the runner, and
     // a sentence the applicant typed, handled where typed details are taken.
-    const sent = runner + readFileSync('src/evisa-details.mjs', 'utf8');
+    const sent =
+      runner +
+      readFileSync('src/evisa-details.mjs', 'utf8') +
+      readFileSync('src/evisa-document-receiver.mjs', 'utf8');
     const cleared = sent.match(/session\.lastFill = null/g) ?? [];
     expect(cleared.length >= 2).toBe(true);
     const untold = sent.match(/session\.toldWhatIsStuck = false/g) ?? [];

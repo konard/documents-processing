@@ -346,23 +346,23 @@ describe('the rehearsal that fills the form for a day the site offers', () => {
   it('replaces unsupported name hyphens only for the declaration and records it', () => {
     const session = {
       data: {
-        surname: '[REDACTED]',
-        givenName: '[REDACTED]',
+        surname: 'SAMPLE',
+        givenName: 'JOHN-ALEX',
         entryDate: '[REDACTED]',
       },
     };
     const { applicant, values, nameCorrections } = declarationFor(session);
 
-    expect(applicant.givenName).toBe('[REDACTED]');
-    expect(values.fullName).toBe('[REDACTED]');
+    expect(applicant.givenName).toBe('JOHN ALEX');
+    expect(values.fullName).toBe('SAMPLE JOHN ALEX');
     expect(nameCorrections).toEqual([
       {
         key: 'givenName',
-        from: '[REDACTED]',
-        to: '[REDACTED]',
+        from: 'JOHN-ALEX',
+        to: 'JOHN ALEX',
       },
     ]);
-    expect(session.data.givenName).toBe('[REDACTED]');
+    expect(session.data.givenName).toBe('JOHN-ALEX');
   });
 
   it('replaces the arrival date and says so in the log', () => {

@@ -499,7 +499,7 @@ describe('final declaration confirmation', () => {
       verifyEmail: async () => ({
         filed: false,
         duplicate: true,
-        passportNumber: '[REDACTED]',
+        passportNumber: '712345678',
       }),
     });
 
@@ -513,7 +513,7 @@ describe('final declaration confirmation', () => {
       )
     ).toBe(true);
     expect(session.arrival.stage).toBe('duplicate');
-    expect(replies).toEqual([MESSAGES.ru.arrivalDuplicate('[REDACTED]')]);
+    expect(replies).toEqual([MESSAGES.ru.arrivalDuplicate('712345678')]);
     expect(replies.join('\n')).not.toContain('успешно подана');
   });
 

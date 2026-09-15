@@ -124,12 +124,12 @@ describe('declaration result delivery', () => {
     try {
       const page = await browser.newPage();
       await page.setContent(`
-        <p>Duplicate pre-arrival information for traveller Passport Number [REDACTED]</p>
+        <p>Duplicate pre-arrival information for traveller Passport Number 712345678</p>
         <button>New Submission</button>
       `);
       expect(await readDeclarationResult(page)).toEqual({
         status: 'duplicate',
-        passportNumber: '[REDACTED]',
+        passportNumber: '712345678',
       });
       const markup = [];
       const photos = [];
@@ -148,7 +148,7 @@ describe('declaration result delivery', () => {
         chatId: 9,
         page,
         strings: MESSAGES.en,
-        passportNumber: '[REDACTED]',
+        passportNumber: '712345678',
         InputFile,
         keepMarkup: async (_chatId, markedPage, moment) =>
           markup.push({ moment, html: await markedPage.content() }),
@@ -159,7 +159,7 @@ describe('declaration result delivery', () => {
       expect(photos[0].options.caption).toContain(
         'No new declaration was filed'
       );
-      expect(photos[0].options.caption).toContain('[REDACTED]');
+      expect(photos[0].options.caption).toContain('712345678');
     } finally {
       await browser.close();
     }

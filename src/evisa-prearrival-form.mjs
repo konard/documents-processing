@@ -1176,6 +1176,20 @@ export function isMissingFromPage(error) {
  * traveller is about to send.
  */
 export async function photographDeclaration(page) {
+  // A focused Material UI input keeps its orange focus underline. That is
+  // useful while typing, but misleading in the evidence photo: it makes the
+  // last filled control look invalid. Blur it without changing any value.
+  await page
+    .evaluate(() => {
+      const active = document.activeElement;
+      if (typeof active?.blur === 'function') {
+        active.blur();
+      }
+    })
+    .catch(() => {});
+  // The focus underline has a 250 ms CSS transition; expose only after it
+  // reaches the unfocused state.
+  await page.waitForTimeout?.(250);
   const pinned = await page
     .evaluate(() => {
       const bar = document.querySelector('header');

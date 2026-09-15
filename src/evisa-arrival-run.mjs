@@ -637,9 +637,10 @@ export async function settleArrivalWalk({
  *
  * The record holds the journey under the names the rest of the bot uses, and
  * the trip page wants its own. The ticket gives the flight and where the
- * journey began, and a booking can give the place to stay. Facts that no
- * supplied document states remain empty: an address does not prove a hotel,
- * and a visa's final valid day is not the traveller's planned departure day.
+ * journey began, and a booking can give the place to stay. The live form opens
+ * with Hotel selected, so that remains the default unless the traveller gave
+ * another kind of stay. Its optional departure date remains empty unless the
+ * traveller actually supplied one; a visa expiry is not a planned departure.
  */
 export function tripFrom(applicant = {}, values = {}) {
   // `values` contains generic declaration defaults as well as copied record
@@ -652,7 +653,10 @@ export function tripFrom(applicant = {}, values = {}) {
     vehicleNumber: firstFrom(sources, 'vehicleNumber', 'flightNumber'),
     departedFrom: countryFlownFrom(...sources),
     purpose: firstKnown(firstFrom(sources, 'purpose'), 'Tourist'),
-    accommodationType: firstFrom(sources, 'accommodationType'),
+    accommodationType: firstKnown(
+      firstFrom(sources, 'accommodationType'),
+      'Hotel'
+    ),
     province: staying.province,
     ward: staying.ward,
     accommodationAddress: staying.address,
@@ -812,10 +816,12 @@ export function arrivalAnswerFor({
 }) {
   const last = captured.at(-1) ?? {};
   const passenger = reportableValues(captured.find(({ at }) => at === 0) ?? {});
+  const trip = reportableValues(captured.find(({ at }) => at === 1) ?? {});
   const main = mainArrivalAnswer({
     walk,
     last,
     passenger,
+    trip,
     session,
     strings,
     describeFilled,
@@ -830,7 +836,8 @@ export function arrivalAnswerFor({
   ]
     .filter(Boolean)
     .join('\n\n');
-  return { caption, shot: last.shot ?? null };
+  const shots = captured.map(({ shot }) => shot).filter(Boolean);
+  return { caption, shot: last.shot ?? shots.at(-1) ?? null, shots };
 }
 
 /** Non-blocking fill failures that still belong in the one final answer. */
@@ -848,6 +855,7 @@ function mainArrivalAnswer({
   walk,
   last,
   passenger,
+  trip,
   session,
   strings,
   describeFilled,
@@ -865,6 +873,7 @@ function mainArrivalAnswer({
       walk,
       last,
       passenger,
+      trip,
       session,
       strings,
       describeFilled,
@@ -873,6 +882,7 @@ function mainArrivalAnswer({
   return [
     strings.arrivalReviewShot,
     strings.arrivalPassengerCheck?.(escapedValues(passenger)),
+    strings.arrivalTripCheck?.(escapedValues(trip)),
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -883,6 +893,7 @@ function blockedArrivalAnswer({
   walk,
   last,
   passenger,
+  trip,
   session,
   strings,
   describeFilled,
@@ -901,9 +912,7 @@ function blockedArrivalAnswer({
   return [
     strings.arrivalPageOf((last.at ?? walk.reached) + 1, 3, pageTitle),
     strings.arrivalPassengerCheck?.(escapedValues(passenger)),
-    last.at === 1
-      ? strings.arrivalTripCheck?.(escapedValues(reportableValues(last)))
-      : '',
+    last.at === 1 ? strings.arrivalTripCheck?.(escapedValues(trip)) : '',
     describeFilled({}, result, session.language, {
       showValues: false,
       forceNeedsWork: true,
@@ -926,13 +935,29 @@ export async function sendArrivalAnswer({
   strings,
   InputFile,
   log,
+  combineScreenshots = combineArrivalScreenshots,
 }) {
   // `arrivalAnswerFor` has already described exactly this snapshot. Detach
   // it synchronously, before Telegram is awaited; later document warnings
   // then start a new collection and survive this send.
   const issueSnapshot = takeDocumentIssues(session);
   try {
-    if (answer.shot && InputFile) {
+    const shots = (answer.shots?.length ? answer.shots : [answer.shot]).filter(
+      Boolean
+    );
+    let shot = shots.at(-1) ?? null;
+    if (InputFile && shots.length > 1) {
+      try {
+        shot = await combineScreenshots(shots);
+        log(chatId, `combined ${shots.length} declaration page screenshots`);
+      } catch (error) {
+        log(
+          chatId,
+          `could not combine declaration screenshots; using the last page: ${error.message}`
+        );
+      }
+    }
+    if (shot && InputFile) {
       const fits = answer.caption.length <= CAPTION_LIMIT;
       const caption = fits
         ? answer.caption
@@ -943,14 +968,11 @@ export async function sendArrivalAnswer({
           `the consolidated arrival caption is ${answer.caption.length} characters; shortened under its screenshot`
         );
       }
-      await ctx.replyWithPhoto(
-        new InputFile(answer.shot, strings.arrivalShotName),
-        {
-          caption,
-          ...(fits ? { parse_mode: 'HTML' } : {}),
-          show_caption_above_media: true,
-        }
-      );
+      await ctx.replyWithPhoto(new InputFile(shot, strings.arrivalShotName), {
+        caption,
+        ...(fits ? { parse_mode: 'HTML' } : {}),
+        show_caption_above_media: true,
+      });
     } else {
       await ctx.reply(answer.caption, { parse_mode: 'HTML' });
     }
@@ -960,6 +982,60 @@ export async function sendArrivalAnswer({
     log(chatId, `the declaration answer did not send: ${error.message}`);
     return false;
   }
+}
+
+/** All visited declaration pages in one Telegram photo, in visit order. */
+export async function combineArrivalScreenshots(
+  shots,
+  { gap = 24, maxDimensionSum = 9800 } = {}
+) {
+  const pages = (shots ?? []).filter(Boolean);
+  if (!pages.length) {
+    return null;
+  }
+  if (pages.length === 1) {
+    return pages[0];
+  }
+  const { default: sharp } = await import('sharp');
+  const metadata = await Promise.all(
+    pages.map((page) => sharp(page, { failOn: 'none' }).metadata())
+  );
+  const width = Math.max(...metadata.map(({ width }) => width ?? 0));
+  const heights = metadata.map(({ height }) => height ?? 0);
+  if (!width || heights.some((height) => !height)) {
+    throw new Error('one or more screenshots have no dimensions');
+  }
+  const height =
+    heights.reduce((total, pageHeight) => total + pageHeight, 0) +
+    gap * (pages.length - 1);
+  let top = 0;
+  const composite = pages.map((input, index) => {
+    const layer = { input, left: 0, top };
+    top += heights[index] + gap;
+    return layer;
+  });
+  const combined = await sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: '#ffffff',
+    },
+  })
+    .composite(composite)
+    .png()
+    .toBuffer();
+  // Telegram caps width + height at 10,000 pixels. A three-page browser
+  // capture can cross that boundary even though every page is valid, so keep
+  // a small delivery margin and shrink only when necessary.
+  if (width + height > maxDimensionSum) {
+    const scale = maxDimensionSum / (width + height);
+    return sharp(combined)
+      .resize({ width: Math.floor(width * scale) })
+      .png()
+      .toBuffer();
+  }
+  return combined;
 }
 
 /** Markup-free fallback for a pathological Telegram caption. */

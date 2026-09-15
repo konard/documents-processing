@@ -144,6 +144,7 @@ export const TRIP_FIELDS = [
     key: 'departureDate',
     heading: 'Expected date of departure from Vietnam',
     how: 'date',
+    required: false,
   },
 ];
 
@@ -351,8 +352,12 @@ export async function fillTrip(page, trip = {}, { log = () => {} } = {}) {
       'the purpose'
     )
   );
-  await put('accommodationType', stayAsNamedHere(trip.accommodationType), () =>
-    tickOneOf(page, stayAsNamedHere(trip.accommodationType))
+  // Hotel is already selected when the live form opens. Treat that visible
+  // state as the declared default, and still honour another kind of stay when
+  // the traveller supplied one.
+  const accommodationType = stayAsNamedHere(trip.accommodationType ?? 'Hotel');
+  await put('accommodationType', accommodationType, () =>
+    tickOneOf(page, accommodationType)
   );
   // The province draws the ward, and the ward draws the address.
   const province = provinceAsNamedHere(trip.province);

@@ -69,12 +69,13 @@ describe('the pre-arrival declaration', () => {
     expect(values.visaIssuedPlace).toContain('Immigration Department');
   });
 
-  it('names the flight and the hotel as the questions still to ask', () => {
-    const { missing } = buildDeclaration(APPLICANT);
-    // Nothing about the flight or the stay was ever asked for the visa.
+  it('asks only for required facts that have no form default', () => {
+    const { values, missing } = buildDeclaration(APPLICANT);
+    // Nothing about the flight was ever asked for the visa.
     expect(missing.includes('vehicleNumber')).toBe(true);
-    expect(missing.includes('departureDate')).toBe(true);
-    expect(missing.includes('accommodationType')).toBe(true);
+    expect(missing.includes('departureDate')).toBe(false);
+    expect(missing.includes('accommodationType')).toBe(false);
+    expect(values.accommodationType).toBe('Hotel');
     // Nor is the visa itself known until it is granted.
     expect(missing.includes('visaNumber')).toBe(true);
   });
@@ -83,9 +84,11 @@ describe('the pre-arrival declaration', () => {
     const { values, missing } = buildDeclaration(APPLICANT, {
       vehicleNumber: 'XX1234',
       borderGate: 'Another Int Airport',
+      accommodationType: 'Residential',
     });
     expect(values.vehicleNumber).toBe('XX1234');
     expect(values.borderGate).toBe('Another Int Airport');
+    expect(values.accommodationType).toBe('Residential');
     expect(missing.includes('vehicleNumber')).toBe(false);
   });
 
@@ -97,12 +100,11 @@ describe('the pre-arrival declaration', () => {
 });
 
 describe('the trip page from documents already sent', () => {
-  it('does not invent trip facts the documents do not state', () => {
+  it('keeps the live form defaults without inventing a departure date', () => {
     // The arrival flow receives a passport, a granted visa and an inbound
     // ticket. Those documents name the origin airport and the visa window,
-    // but no hotel was sent and the ticket has no return leg. A visa expiry
-    // is not a planned departure and an address does not prove
-    // whether the traveller is in a hotel, a home or another kind of stay.
+    // but the ticket has no return leg. The live form starts on Hotel and a
+    // visa expiry is not a planned departure date.
     const trip = tripFrom({
       vehicleNumber: '[REDACTED]',
       departedFrom: 'GOA MOPA AIRPORT',
@@ -114,7 +116,7 @@ describe('the trip page from documents already sent', () => {
       vehicleNumber: '[REDACTED]',
       departedFrom: 'India',
       purpose: 'Tourist',
-      accommodationType: null,
+      accommodationType: 'Hotel',
       province: 'HO CHI MINH',
       ward: 'TAN BINH',
       accommodationAddress: '[REDACTED]',
@@ -192,7 +194,7 @@ describe('the trip page from documents already sent', () => {
       visaExpiryDate: '[REDACTED]',
     });
     expect(trip.purpose).toBe('Tourist');
-    expect(trip.accommodationType).toBe(null);
+    expect(trip.accommodationType).toBe('Hotel');
     expect(trip.province).toBe('HO CHI MINH');
     expect(trip.ward).toBe('TAN BINH');
     expect(trip.accommodationAddress).toBe(

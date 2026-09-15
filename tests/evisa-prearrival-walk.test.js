@@ -198,7 +198,7 @@ describe('walking the declaration to its review', () => {
   });
 
   it('does not let a permissive Next button hide missing trip facts', async () => {
-    // The live site currently advances with these two mandatory facts blank.
+    // The live site may advance with required stay details blank.
     // Reaching Review therefore cannot be used as evidence that the record is
     // complete: the bot has to keep the traveller on the page that needs them.
     const { site, page } = fakeSite();
@@ -207,7 +207,7 @@ describe('walking the declaration to its review', () => {
       fillPassenger: async () => done(),
       fillTrip: async () => ({
         filled: ['vehicleNumber'],
-        missing: ['accommodationType', 'departureDate'],
+        missing: ['province', 'accommodationAddress'],
         failed: [],
       }),
     });
@@ -356,7 +356,7 @@ describe('what the trip page is told to say', () => {
     expect(FLIGHT_LIST_MS >= 15000).toBe(true);
   });
 
-  it('does not call the optional workplace a missing requirement', async () => {
+  it('does not call optional fields or the selected Hotel default missing', async () => {
     const selected = {
       waitFor: async () => {},
       isChecked: async () => true,
@@ -367,7 +367,8 @@ describe('what the trip page is told to say', () => {
     const result = await fillTrip(page, {});
     expect(result.missing.includes('workplace')).toBe(false);
     expect(result.missing.includes('vehicleNumber')).toBe(true);
-    expect(result.missing.includes('departureDate')).toBe(true);
+    expect(result.missing.includes('departureDate')).toBe(false);
+    expect(result.missing.includes('accommodationType')).toBe(false);
   });
 
   it('reads the selected radio labels without relying on their names', async () => {

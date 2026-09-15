@@ -657,8 +657,15 @@ describe('photographing the filled declaration', () => {
    */
   function pageWithStickyHeader() {
     const bar = { style: { position: '', top: '' }, dataset: {} };
+    const active = {
+      blurred: false,
+      blur() {
+        this.blurred = true;
+      },
+    };
     const seen = [];
     globalThis.document = {
+      activeElement: active,
       querySelector: (what) => (what === 'header' ? bar : null),
     };
     globalThis.getComputedStyle = (el) => ({
@@ -666,6 +673,7 @@ describe('photographing the filled declaration', () => {
     });
     return {
       bar,
+      active,
       seen,
       page: {
         evaluate: async (fn) => fn(),
@@ -686,6 +694,12 @@ describe('photographing the filled declaration', () => {
     const shot = await photographDeclaration(page);
     expect(shot.toString()).toBe('picture');
     expect(seen).toEqual(['absolute']);
+  });
+
+  it('removes the last input focus before the exposure', async () => {
+    const { page, active } = pageWithStickyHeader();
+    await photographDeclaration(page);
+    expect(active.blurred).toBe(true);
   });
 
   it('gives the page back the way it was found', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'test-anywhere';
 import {
   arrivalAnswerFor,
+  combineArrivalScreenshots,
   sendArrivalAnswer,
   settleArrivalWalk,
 } from '../src/evisa-arrival-run.mjs';
@@ -16,7 +17,7 @@ class InputFile {
 }
 
 describe('the one answer for a forwarded arrival batch', () => {
-  it('sends only the review screenshot with a complete passenger check', async () => {
+  it('sends every captured page as one image with a complete passenger check', async () => {
     const session = { language: 'en' };
     for (const issue of [
       'downloadFailed',
@@ -45,6 +46,21 @@ describe('the one answer for a forwarded arrival batch', () => {
         shot: Buffer.from('passenger'),
       },
       {
+        at: 1,
+        title: 'Trip Information',
+        result: {
+          filled: ['modeOfTravel', 'accommodationType'],
+          missing: [],
+          failed: [],
+        },
+        onThePage: {
+          modeOfTravel: 'Air',
+          accommodationType: 'Hotel',
+          vehicleNumber: 'XX1234',
+        },
+        shot: Buffer.from('trip'),
+      },
+      {
         at: 2,
         title: 'Review & Submit',
         result: { filled: [], missing: [], failed: [] },
@@ -66,6 +82,8 @@ describe('the one answer for a forwarded arrival batch', () => {
       'Male',
       '15/09/2026',
       '+12025550123',
+      'XX1234',
+      'Hotel',
       'could not reread the passport image',
       'not a photo-quality error',
     ]) {
@@ -73,6 +91,11 @@ describe('the one answer for a forwarded arrival batch', () => {
     }
     expect(answer.caption.length <= 1024).toBe(true);
     expect(answer.shot.toString()).toBe('review');
+    expect(answer.shots.map((shot) => shot.toString())).toEqual([
+      'passenger',
+      'trip',
+      'review',
+    ]);
 
     const sent = [];
     const ctx = {
@@ -88,17 +111,19 @@ describe('the one answer for a forwarded arrival batch', () => {
         strings: MESSAGES.en,
         InputFile,
         log: () => {},
+        combineScreenshots: async (shots) =>
+          Buffer.from(shots.map((shot) => shot.toString()).join('+')),
       })
     ).toBe(true);
     expect(sent.length).toBe(1);
     expect(sent[0][0]).toBe('photo');
-    expect(sent[0][1].bytes.toString()).toBe('review');
+    expect(sent[0][1].bytes.toString()).toBe('passenger+trip+review');
     expect(session.documentIssues).toBe(undefined);
   });
 });
 
 describe('a blocked forwarded arrival batch', () => {
-  it('shows one blocked-page screenshot with localised actionable fields', async () => {
+  it('shows all visited pages with localised actionable fields', async () => {
     const session = { language: 'ru' };
     const failed = 'departedFrom: locator.waitFor: Timeout 10000ms exceeded.';
     const passenger = {
@@ -132,8 +157,8 @@ describe('a blocked forwarded arrival batch', () => {
       at: 1,
       title: 'Trip Information',
       result: {
-        filled: ['modeOfTravel'],
-        missing: ['accommodationType', 'departureDate'],
+        filled: ['modeOfTravel', 'accommodationType'],
+        missing: [],
         failed: [failed],
       },
       onThePage: {
@@ -141,9 +166,8 @@ describe('a blocked forwarded arrival batch', () => {
         vehicleNumber: 'XX1234',
         borderGate: 'XYZ - Example International Airport',
         purpose: 'Travel',
-        // The live site selects Hotel by default. It remains a missing fact
-        // until the traveller says where they are staying, so it must not be
-        // reported as one of the values the bot filled.
+        // The live site selects Hotel by default, and that visible selection
+        // is a filled value even when it did not come from a document.
         accommodationType: 'Hotel',
         province: 'Example City',
         ward: 'Central Ward',
@@ -165,8 +189,8 @@ describe('a blocked forwarded arrival batch', () => {
       describeFilled,
     });
 
-    expect(answer.caption.includes('где остановитесь')).toBe(true);
-    expect(answer.caption.includes('дата вылета из Вьетнама')).toBe(true);
+    expect(answer.caption.includes('где остановитесь')).toBe(false);
+    expect(answer.caption.includes('дата вылета из Вьетнама')).toBe(false);
     expect(answer.caption.includes('Информация о поездке')).toBe(true);
     expect(answer.caption.includes('Trip Information')).toBe(false);
     expect(answer.caption.includes('Сайт не принял')).toBe(false);
@@ -190,8 +214,12 @@ describe('a blocked forwarded arrival batch', () => {
     expect(answer.caption.includes('Страница 1 заполнена')).toBe(true);
     expect(answer.caption.includes('На странице 2 заполнено')).toBe(true);
     expect(answer.caption.includes('паспорт загружен')).toBe(true);
-    expect(answer.caption.includes('проживание: Hotel')).toBe(false);
+    expect(answer.caption.includes('проживание: Hotel')).toBe(true);
     expect(answer.caption.length <= 1024).toBe(true);
+    expect(answer.shots.map((shot) => shot.toString())).toEqual([
+      'passenger',
+      'blocked',
+    ]);
 
     const sent = [];
     await sendArrivalAnswer({
@@ -205,9 +233,49 @@ describe('a blocked forwarded arrival batch', () => {
       strings: MESSAGES.ru,
       InputFile,
       log: () => {},
+      combineScreenshots: async (shots) =>
+        Buffer.from(shots.map((shot) => shot.toString()).join('+')),
     });
     expect(sent.length).toBe(1);
     expect(sent[0][0]).toBe('photo');
+    expect(sent[0][1].bytes.toString()).toBe('passenger+blocked');
+  });
+});
+
+describe('the one image containing the declaration pages', () => {
+  it('stacks the pages in visit order without changing their width', async () => {
+    const { default: sharp } = await import('sharp');
+    const passenger = await solidPng(sharp, 8, 5, '#d32f2f');
+    const trip = await solidPng(sharp, 6, 7, '#1976d2');
+    const combined = await combineArrivalScreenshots([passenger, trip], {
+      gap: 3,
+    });
+    const { data, info } = await sharp(combined)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    expect(info.width).toBe(8);
+    expect(info.height).toBe(15);
+    expect(pixelAt(data, info, 0, 0)).toEqual([211, 47, 47]);
+    expect(pixelAt(data, info, 1, 6)).toEqual([255, 255, 255]);
+    expect(pixelAt(data, info, 1, 14)).toEqual([25, 118, 210]);
+  });
+
+  it('returns one page unchanged and no image for no pages', async () => {
+    const one = Buffer.from('one page');
+    expect(await combineArrivalScreenshots([one])).toBe(one);
+    expect(await combineArrivalScreenshots([])).toBe(null);
+  });
+
+  it('keeps a multi-page photo within Telegram dimensions', async () => {
+    const { default: sharp } = await import('sharp');
+    const page = await solidPng(sharp, 80, 50, '#ffffff');
+    const combined = await combineArrivalScreenshots([page, page, page], {
+      gap: 5,
+      maxDimensionSum: 100,
+    });
+    const { width, height } = await sharp(combined).metadata();
+    expect(width + height <= 100).toBe(true);
   });
 });
 
@@ -390,4 +458,17 @@ function describeIssues(session) {
   )
     .map(([issue, count]) => MESSAGES.en.documentIssues[issue](count))
     .join('\n')}`;
+}
+
+/** A tiny lossless page fixture in one solid colour. */
+function solidPng(sharp, width, height, background) {
+  return sharp({ create: { width, height, channels: 3, background } })
+    .png()
+    .toBuffer();
+}
+
+/** The RGB triplet at one point in a decoded test image. */
+function pixelAt(data, info, x, y) {
+  const at = (y * info.width + x) * info.channels;
+  return [...data.subarray(at, at + 3)];
 }

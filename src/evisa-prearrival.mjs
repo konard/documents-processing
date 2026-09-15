@@ -118,6 +118,7 @@ export const PREARRIVAL_FIELDS = [
     key: 'departureDate',
     label: 'Date of departure from Vietnam',
     group: 'trip',
+    required: false,
   },
   { key: 'modeOfTravel', label: 'Mode of Travel', fixed: 'Air', group: 'trip' },
   {
@@ -134,6 +135,8 @@ export const PREARRIVAL_FIELDS = [
   {
     key: 'accommodationType',
     label: 'Type of Accommodation in Vietnam',
+    from: 'accommodationType',
+    fixed: 'Hotel',
     group: 'trip',
   },
   {
@@ -196,7 +199,9 @@ export function buildDeclaration(applicant = {}, extras = {}) {
   for (const field of PREARRIVAL_FIELDS) {
     const value = valueFor(field, applicant, extras);
     if (value === null || value === undefined || value === '') {
-      missing.push(field.key);
+      if (field.required !== false) {
+        missing.push(field.key);
+      }
       continue;
     }
     values[field.key] = value;

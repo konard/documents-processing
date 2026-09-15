@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // evisa-arrival-filing.mjs
 //
 // The final, separately confirmed declaration action. CAPTCHA remains an

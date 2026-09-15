@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // evisa-arrival-captcha-stage.mjs
 //
 // A CAPTCHA can cover any transition in the pre-arrival declaration, not

@@ -1020,7 +1020,7 @@ const MONTH_STEMS = [
   /^(?:дек|dec)/i,
 ];
 
-/** A date as people write it: "16 сентября 2026 года", "5 Oct 2026", "[REDACTED]". */
+/** A date as people write it: "17 сентября 2026 года", "5 Oct 2026", "17.09.2026". */
 const WRITTEN_DATE =
   /(\d{1,2})\s+(\p{L}{3,})\.?,?\s+(\d{4})|(\d{1,2})[./-](\d{1,2})[./-](\d{4})/u;
 

@@ -58,6 +58,8 @@ function fakeSite({ blocks = {}, at = 0, captchaOn = [] } = {}) {
     waitForTimeout: async () => {},
     locator: (what) => ({
       isVisible: async () => /role=dialog/.test(String(what)) && site.captcha,
+      innerText: async () =>
+        site.filed ? 'Your submission is successful!' : '',
     }),
     getByRole: (role, options) => ({
       first: () => ({
@@ -390,6 +392,9 @@ describe('filing the declaration', () => {
             document.querySelector('.Mui-active').remove();
             document.querySelectorAll('.MuiStep-root')[3]
               .append(Object.assign(document.createElement('span'), { className: 'Mui-active' }));
+            document.body.append(Object.assign(document.createElement('h1'), {
+              textContent: 'Your submission is successful!'
+            }));
           });
         </script>
       `);

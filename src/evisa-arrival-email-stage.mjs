@@ -25,6 +25,11 @@ export function declarationEmailCodeTaker(deps) {
     holdCaptcha = holdDeclarationCaptcha,
     sendFiledResult = ({ ctx: filingContext, strings: filingStrings }) =>
       filingContext.reply(filingStrings.arrivalFiled),
+    sendDuplicateResult = ({
+      ctx: filingContext,
+      strings: filingStrings,
+      passportNumber,
+    }) => filingContext.reply(filingStrings.arrivalDuplicate(passportNumber)),
   } = deps;
   return async function tookEmailCode(ctx, chatId) {
     const session = sessions.get(chatId);
@@ -52,6 +57,20 @@ export function declarationEmailCodeTaker(deps) {
           askCaptcha,
           resumeStage: 'email-code',
         });
+        return true;
+      }
+      if (result.duplicate) {
+        held.stage = 'duplicate';
+        log(chatId, 'the email code was accepted; the result is a duplicate');
+        await sendDuplicateResult({
+          ctx,
+          chatId,
+          page: held.page,
+          strings,
+          passportNumber: result.passportNumber,
+        }).catch((error) =>
+          log(chatId, `duplicate result delivery failed: ${error.message}`)
+        );
         return true;
       }
       if (result.filed) {

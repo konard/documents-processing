@@ -132,6 +132,7 @@ import { createDocumentReceiver } from './evisa-document-receiver.mjs';
 import { createPageFiller, formIsStale } from './evisa-page-filler.mjs';
 import {
   configuredDownloadsDirectory,
+  sendDuplicateDeclarationResult,
   sendDeclarationResult,
 } from './evisa-arrival-result.mjs';
 
@@ -1095,6 +1096,13 @@ const arrivalDeps = {
       ...args,
       InputFile,
       downloadsDirectory: DOWNLOADS_DIR,
+      keepMarkup,
+      log,
+    }),
+  sendDuplicateResult: (args) =>
+    sendDuplicateDeclarationResult({
+      ...args,
+      InputFile,
       keepMarkup,
       log,
     }),

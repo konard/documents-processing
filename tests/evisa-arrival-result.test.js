@@ -8,6 +8,8 @@ import {
   DECLARATION_PDF_NAME,
   DECLARATION_QR_NAME,
   keepBrowserDownloads,
+  readDeclarationResult,
+  sendDuplicateDeclarationResult,
   sendDeclarationResult,
 } from '../src/evisa-arrival-result.mjs';
 import { MESSAGES } from '../src/evisa-messages.mjs';
@@ -102,6 +104,52 @@ describe('declaration result delivery', () => {
     } finally {
       await browser.close();
       fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes and reports a duplicate without looking for artifacts', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`
+        <p>Duplicate pre-arrival information for traveller Passport Number [REDACTED]</p>
+        <button>New Submission</button>
+      `);
+      expect(await readDeclarationResult(page)).toEqual({
+        status: 'duplicate',
+        passportNumber: '[REDACTED]',
+      });
+      const markup = [];
+      const photos = [];
+      class InputFile {
+        constructor(source, filename) {
+          this.source = source;
+          this.filename = filename;
+        }
+      }
+      await sendDuplicateDeclarationResult({
+        ctx: {
+          reply: async () => {},
+          replyWithPhoto: async (file, options) =>
+            photos.push({ file, options }),
+        },
+        chatId: 9,
+        page,
+        strings: MESSAGES.en,
+        passportNumber: '[REDACTED]',
+        InputFile,
+        keepMarkup: async (_chatId, markedPage, moment) =>
+          markup.push({ moment, html: await markedPage.content() }),
+      });
+      expect(markup[0].moment).toBe('arrival-result-duplicate');
+      expect(markup[0].html).toContain('Duplicate pre-arrival information');
+      expect(photos.length).toBe(1);
+      expect(photos[0].options.caption).toContain(
+        'No new declaration was filed'
+      );
+      expect(photos[0].options.caption).toContain('[REDACTED]');
+    } finally {
+      await browser.close();
     }
   });
 });

@@ -21,6 +21,7 @@
 
 import { saidBriefly } from './evisa-messages.mjs';
 import { captchaIsUp } from './evisa-prearrival-form.mjs';
+import { readDeclarationResult } from './evisa-arrival-result.mjs';
 
 /**
  * The steps the site prints across the top, in order.
@@ -147,11 +148,31 @@ export async function verifyDeclarationEmail(
       why: 'verification code was refused',
     };
   }
+  return emailVerificationOutcome(page);
+}
+
+/** Classifies the page after the email dialog closes. */
+async function emailVerificationOutcome(page) {
   const now = await whichStep(page);
+  const result = now.at >= 3 ? await readDeclarationResult(page) : null;
+  if (result?.status === 'duplicate') {
+    return {
+      filed: false,
+      emailCode: false,
+      duplicate: true,
+      passportNumber: result.passportNumber,
+      why: 'duplicate pre-arrival information',
+    };
+  }
   return {
-    filed: now.at >= 3,
+    filed: result?.status === 'successful',
     emailCode: false,
-    why: now.at >= 3 ? null : 'the result page did not appear',
+    why:
+      result?.status === 'successful'
+        ? null
+        : now.at >= 3
+          ? 'the site showed an unrecognized result'
+          : 'the result page did not appear',
   };
 }
 
@@ -428,13 +449,32 @@ export async function fileTheDeclaration(
     };
   }
   const now = await whichStep(page);
-  const filed = now.at >= 3;
+  const result = now.at >= 3 ? await readDeclarationResult(page) : null;
+  if (result?.status === 'duplicate') {
+    log('the site refused a duplicate pre-arrival declaration');
+    return {
+      filed: false,
+      duplicate: true,
+      passportNumber: result.passportNumber,
+      why: 'duplicate pre-arrival information',
+      refused: [],
+    };
+  }
+  const filed = result?.status === 'successful';
   log(
-    filed ? 'the declaration is filed' : 'the site did not move to the result'
+    filed
+      ? 'the declaration is filed'
+      : now.at >= 3
+        ? 'the site showed an unrecognized result'
+        : 'the site did not move to the result'
   );
   return {
     filed,
-    why: filed ? null : 'the site stayed on the review',
+    why: filed
+      ? null
+      : now.at >= 3
+        ? 'the site showed an unrecognized result'
+        : 'the site stayed on the review',
     refused: filed ? [] : await whyItWillNotTurn(page),
   };
 }

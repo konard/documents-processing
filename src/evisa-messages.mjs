@@ -139,6 +139,10 @@ export const MESSAGES = {
     arrivalResultIncomplete: (artifacts) =>
       `The declaration was filed, but I could not retrieve: ${artifacts.join(', ')}. ` +
       'The result remains open in the browser for a short time.',
+    arrivalDuplicate: (passportNumber = '') =>
+      'No new declaration was filed: pre-arrival information already exists' +
+      `${passportNumber ? ` for passport ${passportNumber}` : ''}. ` +
+      'Use the previously filed declaration.',
     arrivalFilingUnknown:
       'I could not verify the filing result. Check the open browser before ' +
       'trying again; I will not press Submit again automatically.',
@@ -546,6 +550,10 @@ export const MESSAGES = {
     arrivalResultIncomplete: (artifacts) =>
       `Декларация подана, но не удалось получить: ${artifacts.join(', ')}. ` +
       'Результат ещё ненадолго остаётся открытым в браузере.',
+    arrivalDuplicate: (passportNumber = '') =>
+      'Новая декларация не подана: предварительная информация уже существует' +
+      `${passportNumber ? ` для паспорта ${passportNumber}` : ''}. ` +
+      'Используйте ранее поданную декларацию.',
     arrivalFilingUnknown:
       'Я не смог проверить результат подачи. Проверьте открытый браузер ' +
       'перед новой попыткой; автоматически нажимать Submit ещё раз не буду.',

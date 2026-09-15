@@ -489,6 +489,37 @@ describe('final declaration confirmation', () => {
     expect(replies).toEqual([MESSAGES.ru.arrivalFiled]);
   });
 
+  it('reports a duplicate result without claiming filing success', async () => {
+    const replies = [];
+    const session = {
+      language: 'ru',
+      arrival: { stage: 'email-code', page: {} },
+    };
+    const takeCode = declarationEmailCodeTaker({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+      verifyEmail: async () => ({
+        filed: false,
+        duplicate: true,
+        passportNumber: '[REDACTED]',
+      }),
+    });
+
+    expect(
+      await takeCode(
+        {
+          message: { text: '123456' },
+          reply: async (text) => replies.push(text),
+        },
+        1
+      )
+    ).toBe(true);
+    expect(session.arrival.stage).toBe('duplicate');
+    expect(replies).toEqual([MESSAGES.ru.arrivalDuplicate('[REDACTED]')]);
+    expect(replies.join('\n')).not.toContain('успешно подана');
+  });
+
   it('asks again after the site refuses an email code', async () => {
     const replies = [];
     const session = {

@@ -22,6 +22,11 @@ export function declarationFiler(deps) {
     holdCaptcha = holdDeclarationCaptcha,
     sendFiledResult = ({ ctx: filingContext, strings: filingStrings }) =>
       filingContext.reply(filingStrings.arrivalFiled),
+    sendDuplicateResult = ({
+      ctx: filingContext,
+      strings: filingStrings,
+      passportNumber,
+    }) => filingContext.reply(filingStrings.arrivalDuplicate(passportNumber)),
   } = deps;
   return async function file(ctx, chatId) {
     const session = sessions.get(chatId);
@@ -79,6 +84,20 @@ export function declarationFiler(deps) {
         held.stage = 'email-code';
         log(chatId, 'Submit is waiting for the emailed verification code');
         await ctx.reply(strings.arrivalEmailCode).catch(() => {});
+        return false;
+      }
+      if (out.duplicate) {
+        held.stage = 'duplicate';
+        log(chatId, 'the declaration was refused as a duplicate');
+        await sendDuplicateResult({
+          ctx,
+          chatId,
+          page: held.page,
+          strings,
+          passportNumber: out.passportNumber,
+        }).catch((error) =>
+          log(chatId, `duplicate result delivery failed: ${error.message}`)
+        );
         return false;
       }
       if (out.filed) {

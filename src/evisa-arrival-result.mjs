@@ -15,6 +15,25 @@ export const DECLARATION_QR_NAME = 'Vietnam-Pre-Arrival-QR.png';
 const savedDownloads = new WeakMap();
 const plannedNames = new WeakMap();
 
+/** Reads the site's terminal result without treating every step 4 as success. */
+export async function readDeclarationResult(page) {
+  const text = await page
+    .locator('body')
+    .innerText()
+    .catch(() => '');
+  const duplicate =
+    /Duplicate pre-arrival information for traveller Passport Number\s+([^\s]+)/i.exec(
+      text
+    );
+  if (duplicate) {
+    return { status: 'duplicate', passportNumber: duplicate[1] };
+  }
+  if (/Your submission is successful!/i.test(text)) {
+    return { status: 'successful', passportNumber: null };
+  }
+  return { status: 'unknown', passportNumber: null };
+}
+
 /** The persistent download folder used by the visible bot browser. */
 export function configuredDownloadsDirectory(
   env = process.env,
@@ -207,6 +226,35 @@ export async function sendDeclarationResult({
     fs.rmSync(result.directory, { recursive: true, force: true });
   }
   return result;
+}
+
+/** Logs and shows a duplicate terminal result without looking for artifacts. */
+export async function sendDuplicateDeclarationResult({
+  ctx,
+  chatId,
+  page,
+  strings,
+  passportNumber,
+  InputFile,
+  keepMarkup,
+  log = () => {},
+}) {
+  await keepMarkup(chatId, page, 'arrival-result-duplicate');
+  const caption = strings.arrivalDuplicate(passportNumber);
+  try {
+    const screenshot = await page.screenshot({ fullPage: true });
+    await ctx.replyWithPhoto(
+      new InputFile(screenshot, 'Vietnam-Pre-Arrival-Duplicate.png'),
+      { caption }
+    );
+    log(chatId, 'duplicate result screenshot sent');
+  } catch (error) {
+    log(
+      chatId,
+      `duplicate result screenshot could not be sent: ${error.message}`
+    );
+    await ctx.reply(caption).catch(() => {});
+  }
 }
 
 function saveDownload(download, directory, preferredName) {

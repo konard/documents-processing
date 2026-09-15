@@ -75,6 +75,7 @@ describe('one readable answer for each arrival page', () => {
     expect(answer.caption.endsWith(MESSAGES.ru.arrivalPageReady)).toBe(true);
     expect(answer.caption).toContain('<b>далее</b>');
     expect(answer.caption).toContain('текст или документ');
+    expect(answer.caption).not.toContain('тоже работает');
   });
 
   it('shows page 2 with the default stay filled and no optional departure warning', () => {
@@ -114,8 +115,9 @@ describe('one readable answer for each arrival page', () => {
     expect(answer.caption).not.toContain('Страница 1 заполнена');
     expect(answer.caption).not.toContain('На странице 2 заполнено');
     expect(answer.caption.endsWith(MESSAGES.ru.arrivalReviewReady)).toBe(true);
-    expect(answer.caption).toContain('галочка не поставлена');
-    expect(answer.caption).toContain('Submit не нажат');
+    expect(answer.caption).not.toContain('галочка не поставлена');
+    expect(answer.caption).not.toContain('Submit не нажат');
+    expect(answer.caption).toContain('<b>отправляй</b>');
   });
 
   it('keeps actionable failures on their own page and instructions last', () => {

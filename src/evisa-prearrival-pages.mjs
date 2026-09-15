@@ -70,6 +70,91 @@ export function whichStep(page) {
     .catch(() => ({ at: -1, titles: [] }));
 }
 
+/** Whether Submit is waiting for the six-digit code sent by email. */
+export function emailVerificationIsUp(page) {
+  return Promise.resolve()
+    .then(() =>
+      page
+        .locator('[role=dialog]')
+        .filter({ hasText: /Verify your email|6-digit code to your email/i })
+        .first()
+        .isVisible()
+    )
+    .catch(() => false);
+}
+
+/** Enters the emailed code and reports only a definite result. */
+export async function verifyDeclarationEmail(
+  page,
+  code,
+  { settleMs = 3000 } = {}
+) {
+  const value = String(code ?? '').trim();
+  if (!/^\d{6}$/.test(value)) {
+    return {
+      filed: false,
+      emailCode: true,
+      why: 'the email code must contain six digits',
+    };
+  }
+  if (!(await emailVerificationIsUp(page))) {
+    return {
+      filed: false,
+      emailCode: false,
+      why: 'the email verification dialog is not open',
+    };
+  }
+
+  const dialog = page
+    .locator('[role=dialog]')
+    .filter({ hasText: /Verify your email|6-digit code to your email/i })
+    .first();
+  const inputs = dialog.locator('input');
+  const count = await inputs.count();
+  if (count >= 6) {
+    for (let index = 0; index < 6; index += 1) {
+      await inputs.nth(index).fill(value[index]);
+    }
+  } else if (count === 1) {
+    await inputs.first().fill(value);
+  } else {
+    return {
+      filed: false,
+      emailCode: true,
+      why: 'the email-code fields are unavailable',
+    };
+  }
+
+  await dialog
+    .getByRole('button', { name: /^Verify$/i })
+    .first()
+    .click({ timeout: TURN_MS });
+  if (settleMs > 0) {
+    await page.waitForTimeout(settleMs);
+  }
+  if (await captchaIsUp(page)) {
+    return {
+      filed: false,
+      emailCode: false,
+      captcha: true,
+      why: 'captcha required',
+    };
+  }
+  if (await emailVerificationIsUp(page)) {
+    return {
+      filed: false,
+      emailCode: true,
+      why: 'verification code was refused',
+    };
+  }
+  const now = await whichStep(page);
+  return {
+    filed: now.at >= 3,
+    emailCode: false,
+    why: now.at >= 3 ? null : 'the result page did not appear',
+  };
+}
+
 /**
  * What the site is refusing to accept, in its own words.
  *
@@ -181,9 +266,9 @@ export async function returnToPassenger(page, { log = () => {} } = {}) {
  * own words kept for diagnosis; the chat answer names actionable fields in
  * the traveller's language.
  *
- * Nothing is filed. The walk stops on Review & Submit with the confirmation
- * box untouched, because the last press on a declaration to an immigration
- * department belongs to the person it describes.
+ * Nothing is filed. The walk stops on Review & Submit; the caller may tick
+ * its mandatory confirmation box for the screenshot, but only the traveller's
+ * later message is allowed to press Submit.
  */
 export async function walkTheDeclaration({
   page,
@@ -266,6 +351,8 @@ function pageNeedsWork(result = {}) {
  * Kept apart from the walk on purpose. A walk that could file at the end is
  * one press away from filing by mistake, and there is no taking it back.
  */
+// The branches are the definite gates and outcomes after the irreversible click.
+// eslint-disable-next-line complexity
 export async function fileTheDeclaration(
   page,
   { confirmed = false, log = () => {} } = {}
@@ -275,6 +362,14 @@ export async function fileTheDeclaration(
     // declaration waits, filled, for the person it is about.
     log('not filing: the traveller has not confirmed it');
     return { filed: false, why: 'not confirmed' };
+  }
+  if (await emailVerificationIsUp(page)) {
+    return {
+      filed: false,
+      why: 'email verification required',
+      refused: [],
+      emailCode: true,
+    };
   }
   const step = await whichStep(page);
   if (step.at >= 3) {
@@ -322,6 +417,14 @@ export async function fileTheDeclaration(
       why: 'captcha required',
       refused: [],
       captcha: true,
+    };
+  }
+  if (await emailVerificationIsUp(page)) {
+    return {
+      filed: false,
+      why: 'email verification required',
+      refused: [],
+      emailCode: true,
     };
   }
   const now = await whichStep(page);

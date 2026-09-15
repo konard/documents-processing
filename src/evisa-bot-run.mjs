@@ -89,6 +89,7 @@ import {
   declarationCaptchaTaker,
   declarationRefiller,
   declarationAdvancer,
+  declarationEmailCodeTaker,
   declarationFiler,
   closeDeclaration,
   arrivalDateOverride,
@@ -987,7 +988,11 @@ function confirm(ctx, chatId) {
       chatId,
       `confirmation received at declaration ${session.arrival.stage}; no action`
     );
-    ctx.reply(strings.arrivalCannotConfirmNow).catch(failing('the reply'));
+    const said =
+      session.arrival.stage === 'email-code'
+        ? strings.arrivalEmailCode
+        : strings.arrivalCannotConfirmNow;
+    ctx.reply(said).catch(failing('the reply'));
     return;
   }
   const stage = session.stage ?? 'form';
@@ -1084,10 +1089,19 @@ const advanceArrival = declarationAdvancer(arrivalDeps);
 // The one path that files. It runs only from a confirmation sent by the
 // traveller with the filled declaration already in front of them.
 const fileArrival = declarationFiler(arrivalDeps);
+const tookArrivalEmailCode = declarationEmailCodeTaker(arrivalDeps);
 const tookArrivalCaptcha = declarationCaptchaTaker({
   ...arrivalDeps,
-  resumeAfterCaptcha: (ctx, chatId, stage) =>
-    stage === 'review' ? fileArrival(ctx, chatId) : advanceArrival(ctx, chatId),
+  resumeAfterCaptcha: async (ctx, chatId, stage) => {
+    if (stage === 'review') {
+      return fileArrival(ctx, chatId);
+    }
+    if (stage === 'email-code') {
+      await ctx.reply(MESSAGES[sessions.get(chatId).language].arrivalEmailCode);
+      return true;
+    }
+    return advanceArrival(ctx, chatId);
+  },
 });
 
 registerArrivalCommand(bot, {
@@ -1217,6 +1231,9 @@ async function receiveText(ctx) {
   followLanguage(ctx, session);
   if (isCancellation(ctx.message.text)) {
     await stopFilling(ctx, chatId);
+    return;
+  }
+  if (await tookArrivalEmailCode(ctx, chatId)) {
     return;
   }
   if (isConfirmation(ctx.message.text)) {

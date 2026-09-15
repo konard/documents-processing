@@ -47,12 +47,15 @@ import {
   holdDeclarationCaptcha,
   takeCaptchaResumeStage,
 } from './evisa-arrival-captcha-stage.mjs';
+import { confirmDeclarationReview } from './evisa-arrival-review.mjs';
 
 export {
   arrivalAnswerFor,
   sendArrivalAnswer,
 } from './evisa-arrival-answer.mjs';
 export { declarationFiler } from './evisa-arrival-filing.mjs';
+export { declarationEmailCodeTaker } from './evisa-arrival-email-stage.mjs';
+export { confirmDeclarationReview } from './evisa-arrival-review.mjs';
 
 /**
  * The arrival gate the ticket lands at, as the declaration names it.
@@ -694,7 +697,7 @@ export function declarationAdvancer(deps) {
     readPassengerPage = readPassengerCheckpoint,
     readTripPage = readTripCheckpoint,
     capturePage = captureThePage,
-    secureReview = leaveReviewUnconfirmed,
+    secureReview = confirmDeclarationReview,
     sendPage = sendArrivalAnswer,
     askCaptcha = () => Promise.resolve(false),
     captchaOnPage = captchaIsUp,
@@ -996,11 +999,16 @@ async function advanceTrip({ deps }) {
     throw new Error(`expected page 2 or 3, found step ${step.at + 1}`);
   }
 
-  const reviewSafe = await secureReview(held.page);
+  const reviewConfirmed = await secureReview(held.page);
   log(
     chatId,
-    `page 3/3 ${STEPS[2]}: confirmation ${reviewSafe ? 'unchecked' : 'could not be verified unchecked'}; Submit untouched`
+    `page 3/3 ${STEPS[2]}: confirmation ${reviewConfirmed ? 'checked' : 'could not be checked'}; Submit untouched`
   );
+  if (!reviewConfirmed) {
+    held.stage = 'trip';
+    await ctx.reply(strings.arrivalReviewSafetyUnknown).catch(() => {});
+    return false;
+  }
   const capture = await capturePage({
     chatId,
     page: held.page,
@@ -1010,7 +1018,7 @@ async function advanceTrip({ deps }) {
     log,
     InputFile,
   });
-  capture.reviewSafe = reviewSafe;
+  capture.reviewConfirmed = reviewConfirmed;
   held.stage = 'review';
   const sent = await sendCheckpoint({
     ctx,
@@ -1145,18 +1153,6 @@ export function tripCheckpointFromValues(values = {}) {
       failed: [],
     },
   };
-}
-
-/** Makes the Review checkpoint truthful: checkbox off, Submit untouched. */
-async function leaveReviewUnconfirmed(page) {
-  const box = page.getByRole('checkbox').first();
-  if (!(await box.isVisible().catch(() => false))) {
-    return false;
-  }
-  if (await box.isChecked().catch(() => false)) {
-    await box.uncheck({ force: true, timeout: 10000 }).catch(() => {});
-  }
-  return !(await box.isChecked().catch(() => true));
 }
 
 /**
@@ -1420,8 +1416,8 @@ export function declarationRefiller(deps) {
  * This is the only thing in the bot that sends anything to the immigration
  * department, and it runs on one condition: the traveller asked for it, in
  * this chat, with the filled declaration already in front of them. The walk
- * never reaches here on its own — it stops at the review with the box
- * untouched — so nothing files itself while somebody is reading.
+ * never reaches here on its own — it stops at the review without pressing
+ * Submit — so nothing files itself while somebody is reading.
  *
  * Everything is said out loud: what is about to happen, and what the site
  * made of it. A filing nobody is told about is one nobody can act on.

@@ -73,6 +73,12 @@ export function declarationFiler(deps) {
         });
         return false;
       }
+      if (out.emailCode) {
+        held.stage = 'email-code';
+        log(chatId, 'Submit is waiting for the emailed verification code');
+        await ctx.reply(strings.arrivalEmailCode).catch(() => {});
+        return false;
+      }
       if (out.filed) {
         held.stage = 'filed';
         await ctx.reply(strings.arrivalFiled).catch(() => {});

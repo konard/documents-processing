@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'test-anywhere';
 import {
   declarationAdvancer,
+  confirmDeclarationReview,
+  declarationEmailCodeTaker,
   declarationFiler,
   tripCheckpointFromValues,
 } from '../src/evisa-arrival-run.mjs';
@@ -89,7 +91,7 @@ describe('page-by-page declaration checkpoints', () => {
     expect(session.arrival.stage).toBe('review');
     expect(sent.length).toBe(1);
     expect(sent[0].shot.toString()).toBe('page-3');
-    expect(sent[0].caption).toContain('Submit не нажат');
+    expect(sent[0].caption).not.toContain('Submit не нажат');
     expect(sent[0].caption.endsWith(MESSAGES.ru.arrivalReviewReady)).toBe(true);
   });
 
@@ -128,6 +130,34 @@ describe('page-by-page declaration checkpoints', () => {
     expect(captchas).toEqual([MESSAGES.ru.arrivalCaptchaContinue]);
     expect(session.arrival.stage).toBe('captcha');
     expect(session.arrival.resumeStage).toBe('trip');
+  });
+});
+
+describe('review-page confirmation', () => {
+  it('checks the mandatory box before the screenshot without pressing Submit', async () => {
+    let checked = false;
+    let submitted = false;
+    const box = {
+      isVisible: async () => true,
+      isChecked: async () => checked,
+      check: async () => {
+        checked = true;
+      },
+    };
+    const page = {
+      getByRole: () => ({ first: () => box }),
+      getByText: () => ({
+        first: () => ({
+          click: async () => {
+            submitted = true;
+          },
+        }),
+      }),
+    };
+
+    expect(await confirmDeclarationReview(page)).toBe(true);
+    expect(checked).toBe(true);
+    expect(submitted).toBe(false);
   });
 });
 
@@ -209,6 +239,36 @@ describe('checkpoint delivery safeguards', () => {
     expect(session.arrival.stage).toBe('trip');
   });
 
+  it('does not screenshot Review until its mandatory box is checked', async () => {
+    const { session, turns } = staged('trip', 1);
+    const replies = [];
+    let captures = 0;
+    const failed = declarationAdvancer({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+      describeFilled,
+      stepOf: async () => ({ at: 1, titles: [] }),
+      turnPage: async (_page, name) => {
+        turns.push(name);
+        return { turned: true, at: 2, refused: [] };
+      },
+      readTripPage: async () => tripCheckpointFromValues(tripValues()),
+      secureReview: async () => false,
+      capturePage: async () => {
+        captures += 1;
+      },
+    });
+
+    expect(await failed({ reply: async (text) => replies.push(text) }, 1)).toBe(
+      false
+    );
+    expect(turns).toEqual(['Review & Submit']);
+    expect(captures).toBe(0);
+    expect(session.arrival.stage).toBe('trip');
+    expect(replies).toEqual([MESSAGES.ru.arrivalReviewSafetyUnknown]);
+  });
+
   it('logs browser details without exposing them to the traveller', async () => {
     const logged = [];
     const replies = [];
@@ -284,6 +344,8 @@ describe('required declaration fields', () => {
   });
 });
 
+// Each case protects a separate irreversible-action checkpoint.
+// eslint-disable-next-line max-lines-per-function
 describe('final declaration confirmation', () => {
   it('admits only one filing call when confirmations arrive together', async () => {
     let release;
@@ -369,5 +431,107 @@ describe('final declaration confirmation', () => {
     expect(captchas).toEqual([MESSAGES.ru.arrivalCaptchaContinue]);
     expect(replies).toEqual([MESSAGES.ru.arrivalFiling]);
     expect(replies.join('\n')).not.toContain('недоста');
+  });
+
+  it('asks for the email code when Submit opens email verification', async () => {
+    const replies = [];
+    const session = {
+      language: 'ru',
+      arrival: { stage: 'review', page: {} },
+    };
+    const file = declarationFiler({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+      captchaOnPage: async () => false,
+      fileDeclaration: async () => ({ emailCode: true, filed: false }),
+    });
+
+    expect(await file({ reply: async (text) => replies.push(text) }, 1)).toBe(
+      false
+    );
+    expect(session.arrival.stage).toBe('email-code');
+    expect(replies).toEqual([
+      MESSAGES.ru.arrivalFiling,
+      MESSAGES.ru.arrivalEmailCode,
+    ]);
+    expect(replies.join('\n')).not.toContain('site stayed');
+  });
+
+  it('takes a six-digit email code and reports the filed result', async () => {
+    const replies = [];
+    const verified = [];
+    const session = {
+      language: 'ru',
+      arrival: { stage: 'email-code', page: {} },
+    };
+    const takeCode = declarationEmailCodeTaker({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+      verifyEmail: async (_page, code) => {
+        verified.push(code);
+        return { filed: true };
+      },
+    });
+
+    expect(
+      await takeCode(
+        {
+          message: { text: '123456' },
+          reply: async (text) => replies.push(text),
+        },
+        1
+      )
+    ).toBe(true);
+    expect(verified).toEqual(['123456']);
+    expect(session.arrival.stage).toBe('filed');
+    expect(replies).toEqual([MESSAGES.ru.arrivalFiled]);
+  });
+
+  it('asks again after the site refuses an email code', async () => {
+    const replies = [];
+    const session = {
+      language: 'ru',
+      arrival: { stage: 'email-code', page: {} },
+    };
+    const takeCode = declarationEmailCodeTaker({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+      verifyEmail: async () => ({
+        filed: false,
+        emailCode: true,
+        why: 'verification code was refused',
+      }),
+    });
+
+    expect(
+      await takeCode(
+        {
+          message: { text: '654321' },
+          reply: async (text) => replies.push(text),
+        },
+        1
+      )
+    ).toBe(true);
+    expect(session.arrival.stage).toBe('email-code');
+    expect(replies).toEqual([MESSAGES.ru.arrivalEmailCodeAgain]);
+  });
+
+  it('does not claim unrelated text as an email code', async () => {
+    const session = {
+      language: 'ru',
+      arrival: { stage: 'email-code', page: {} },
+    };
+    const takeCode = declarationEmailCodeTaker({
+      sessions: { get: () => session },
+      log: () => {},
+      MESSAGES,
+    });
+
+    expect(await takeCode({ message: { text: '12345' } }, 1)).toBe(false);
+    expect(await takeCode({ message: { text: 'ABC123' } }, 1)).toBe(false);
+    expect(session.arrival.stage).toBe('email-code');
   });
 });

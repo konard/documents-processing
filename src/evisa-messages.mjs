@@ -39,19 +39,16 @@ export const MESSAGES = {
     arrivalPageName: (name) => name,
     arrivalPageOf: (at, of, title) => `<b>Page ${at} of ${of}: ${title}</b>`,
     arrivalPageReady:
-      'Check here and in browser. If correct, send <b>next</b> ' +
-      '(<b>send</b> works). For changes or optional fields, send text ' +
-      'or a document.',
+      'Check here and in browser. If correct, send <b>next</b>. For changes ' +
+      'or optional fields, send text or a document.',
     arrivalReviewReady:
-      'Check the whole declaration here and in the open browser. Nothing ' +
-      'has been sent: confirmation is unticked and Submit is unpressed. If ' +
-      'everything is correct, send <b>send</b> (or <b>submit</b>); otherwise ' +
-      'send text or a document with corrections or optional details.',
+      'Check the whole declaration here and in the open browser. If ' +
+      'everything is correct, send <b>send</b>. For corrections or optional ' +
+      'details, send text or a document.',
     arrivalReviewSafetyUnknown:
-      'Nothing has been sent and Submit is unpressed, but I could not verify ' +
-      'that the confirmation box is unticked. Check it in the open browser. ' +
-      'If the whole declaration is correct, send <b>send</b> (or ' +
-      '<b>submit</b>); otherwise send corrections.',
+      'I could not tick the required confirmation box. Check it in the open ' +
+      'browser. When it is ticked and the declaration is correct, send ' +
+      '<b>send</b>.',
     arrivalCannotConfirmNow:
       'There is no filled declaration page waiting for confirmation yet. ' +
       'Check the open browser or send the missing details.',
@@ -128,6 +125,14 @@ export const MESSAGES = {
       'Send the missing details, corrections, or optional details as text or ' +
       'a document, and I will refill it. The browser stays open.',
     arrivalFiling: 'Filing the declaration now.',
+    arrivalEmailCode:
+      'The site sent a six-digit code to your email. Send that code here.',
+    arrivalEmailCodeAgain:
+      'The site did not accept that code. Check the email and send the ' +
+      'six-digit code again.',
+    arrivalEmailVerificationUnknown:
+      'Email verification failed: the site did not show a definite result. ' +
+      'Check the open browser before trying again.',
     arrivalFiled:
       'The declaration is filed. The site is showing its result — check it ' +
       'and keep whatever reference it gives you.',
@@ -135,7 +140,8 @@ export const MESSAGES = {
       'I could not verify the filing result. Check the open browser before ' +
       'trying again; I will not press Submit again automatically.',
     arrivalNotFiled: (why) =>
-      `I did not file it: ${why}. Nothing has been sent.`,
+      `The declaration could not be filed. Reason: ${filingReason(why, 'en')}. ` +
+      'Check the open browser before trying again.',
     arrivalNothingToFile:
       'There is no declaration waiting on its review page. Send /arrival to ' +
       'start one.',
@@ -300,8 +306,7 @@ export const MESSAGES = {
     thenAgain: 'Once you send it, I fill the form again and show it.',
     ready:
       'Check the form. If everything is right, say "next" and the site will ' +
-      'lay the application out for a last look ("send" still works). If not, ' +
-      'send the correction.',
+      'lay the application out for a last look. If not, send the correction.',
     stages: {
       form: 'the application form',
       review: 'review of the application',
@@ -439,19 +444,16 @@ export const MESSAGES = {
     arrivalPageOf: (at, of, title) =>
       `<b>Страница ${at} из ${of}: ${title}</b>`,
     arrivalPageReady:
-      'Проверьте здесь и в браузере. Если всё верно, напишите <b>далее</b> ' +
-      '(«отправляй» тоже работает). Для изменений или необязательных полей ' +
-      'пришлите текст или документ.',
+      'Проверьте здесь и в браузере. Если всё верно, напишите <b>далее</b>. ' +
+      'Для изменений или необязательных полей пришлите текст или документ.',
     arrivalReviewReady:
-      'Проверьте всю декларацию здесь и в открытом браузере. Ничего не ' +
-      'отправлено: галочка не поставлена, Submit не нажат. Если всё верно, ' +
-      'напишите <b>отправляй</b> (или <b>submit</b>); для исправления ' +
-      'или добавления необязательных сведений пришлите текст или документ.',
+      'Проверьте всю декларацию здесь и в открытом браузере. Если всё верно, ' +
+      'напишите <b>отправляй</b>. Для исправления или добавления ' +
+      'необязательных сведений пришлите текст или документ.',
     arrivalReviewSafetyUnknown:
-      'Ничего не отправлено и Submit не нажат, но я не смог проверить, что ' +
-      'галочка подтверждения снята. Проверьте её в открытом браузере. Если ' +
-      'вся декларация верна, напишите <b>отправляй</b> (или <b>submit</b>); ' +
-      'для исправления пришлите данные.',
+      'Не удалось поставить обязательную галочку подтверждения. Проверьте её ' +
+      'в открытом браузере. Когда галочка поставлена и декларация верна, ' +
+      'напишите <b>отправляй</b>.',
     arrivalCannotConfirmNow:
       'Сейчас нет заполненной страницы декларации, ожидающей подтверждения. ' +
       'Проверьте открытый браузер или пришлите недостающие данные.',
@@ -526,13 +528,24 @@ export const MESSAGES = {
       'Пришлите недостающее, исправления или необязательные сведения текстом ' +
       'либо документом — заполню снова. Браузер остаётся открытым.',
     arrivalFiling: 'Подаю декларацию.',
+    arrivalEmailCode:
+      'Сайт отправил шестизначный код на вашу электронную почту. Пришлите ' +
+      'этот код сюда.',
+    arrivalEmailCodeAgain:
+      'Сайт не принял этот код. Проверьте письмо и пришлите шестизначный код ' +
+      'ещё раз.',
+    arrivalEmailVerificationUnknown:
+      'Не удалось завершить проверку электронной почты: сайт не показал ' +
+      'однозначный результат. Проверьте открытый браузер перед новой попыткой.',
     arrivalFiled:
       'Декларация подана. Сайт показывает результат — проверьте его и ' +
       'сохраните номер, если он есть.',
     arrivalFilingUnknown:
       'Я не смог проверить результат подачи. Проверьте открытый браузер ' +
       'перед новой попыткой; автоматически нажимать Submit ещё раз не буду.',
-    arrivalNotFiled: (why) => `Я её не подал: ${why}. Ничего не отправлено.`,
+    arrivalNotFiled: (why) =>
+      `Не удалось подать декларацию. Причина: ${filingReason(why, 'ru')}. ` +
+      'Проверьте открытый браузер перед новой попыткой.',
     arrivalNothingToFile:
       'Нет декларации, ждущей на странице проверки. Отправьте /arrival, ' +
       'чтобы начать.',
@@ -688,8 +701,7 @@ export const MESSAGES = {
     thenAgain: 'Как пришлёте, заполню анкету заново и покажу.',
     ready:
       'Проверьте анкету. Если всё верно, напишите «далее» — сайт покажет её ' +
-      'на последнюю проверку («отправляй» тоже сработает). Если нет, ' +
-      'пришлите исправление.',
+      'на последнюю проверку. Если нет, пришлите исправление.',
     stages: {
       form: 'анкета',
       review: 'проверка анкеты',
@@ -816,6 +828,25 @@ function genderInRussian(gender) {
   return (
     { Male: 'мужской', Female: 'женский', Other: 'другой' }[gender] ?? gender
   );
+}
+
+/** Stable filing outcomes in the traveller's language, never driver jargon. */
+function filingReason(reason, language) {
+  const known = {
+    en: {
+      'the site stayed on the review':
+        'the site stayed on the review page after Submit',
+      'not on the review page': 'the review page is not open',
+      'not confirmed': 'the declaration was not confirmed',
+    },
+    ru: {
+      'the site stayed on the review':
+        'после нажатия Submit сайт остался на странице проверки',
+      'not on the review page': 'страница проверки не открыта',
+      'not confirmed': 'декларация не подтверждена',
+    },
+  };
+  return known[language]?.[reason] ?? saidBriefly(reason);
 }
 
 /** Field prompts, so a request names the document in plain language. */

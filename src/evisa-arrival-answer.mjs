@@ -47,7 +47,7 @@ export function arrivalAnswerFor({
     title,
     result,
     values,
-    reviewSafe: capture.reviewSafe !== false,
+    reviewConfirmed: capture.reviewConfirmed !== false,
     session,
     strings,
     describeFilled,
@@ -92,7 +92,7 @@ function arrivalPageStatus({
   title,
   result,
   values,
-  reviewSafe,
+  reviewConfirmed,
   session,
   strings,
   describeFilled,
@@ -111,7 +111,7 @@ function arrivalPageStatus({
       details: '',
       instruction:
         at === 2
-          ? reviewSafe
+          ? reviewConfirmed
             ? strings.arrivalReviewReady
             : strings.arrivalReviewSafetyUnknown
           : strings.arrivalPageReady,

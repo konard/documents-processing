@@ -4,6 +4,8 @@ import { chromium } from 'playwright';
 import {
   walkTheDeclaration,
   fileTheDeclaration,
+  emailVerificationIsUp,
+  verifyDeclarationEmail,
   whichStep,
   turnTo,
   returnToPassenger,
@@ -335,6 +337,74 @@ describe('filing the declaration', () => {
     expect(out.filed).toBe(false);
     expect(out.refused).toEqual([]);
     expect(site.filed).toBe(false);
+  });
+
+  it('reports the email-code gate after Submit', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`
+        <div class="MuiStep-root">Passenger Information</div>
+        <div class="MuiStep-root">Trip Information</div>
+        <div class="MuiStep-root"><span class="Mui-active"></span>Review & Submit</div>
+        <div class="MuiStep-root">Result</div>
+        <label><input type="checkbox">I confirm that the information is correct.</label>
+        <button id="submit">Submit</button>
+        <script>
+          document.querySelector('#submit').addEventListener('click', () => {
+            const dialog = document.createElement('div');
+            dialog.setAttribute('role', 'dialog');
+            dialog.innerHTML = '<h2>Verify your email</h2><p>We sent a 6-digit code to your email.</p>' +
+              '<input><input><input><input><input><input><button>Verify</button>';
+            document.body.append(dialog);
+          });
+        </script>
+      `);
+
+      const out = await fileTheDeclaration(page, { confirmed: true });
+      expect(out.emailCode).toBe(true);
+      expect(out.filed).toBe(false);
+      expect(await emailVerificationIsUp(page)).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it('fills all six email-code boxes and reaches Result', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`
+        <div class="MuiStep-root">Passenger Information</div>
+        <div class="MuiStep-root">Trip Information</div>
+        <div class="MuiStep-root"><span class="Mui-active"></span>Review & Submit</div>
+        <div class="MuiStep-root">Result</div>
+        <div role="dialog"><h2>Verify your email</h2>
+          <input><input><input><input><input><input><button id="verify">Verify</button>
+        </div>
+        <script>
+          document.querySelector('#verify').addEventListener('click', () => {
+            window.entered = [...document.querySelectorAll('[role=dialog] input')]
+              .map((input) => input.value).join('');
+            document.querySelector('[role=dialog]').remove();
+            document.querySelector('.Mui-active').remove();
+            document.querySelectorAll('.MuiStep-root')[3]
+              .append(Object.assign(document.createElement('span'), { className: 'Mui-active' }));
+          });
+        </script>
+      `);
+
+      expect(
+        await verifyDeclarationEmail(page, '123456', { settleMs: 0 })
+      ).toEqual({
+        filed: true,
+        emailCode: false,
+        why: null,
+      });
+      expect(await page.evaluate(() => globalThis.entered)).toBe('123456');
+    } finally {
+      await browser.close();
+    }
   });
 });
 

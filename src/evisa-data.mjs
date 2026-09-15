@@ -411,8 +411,9 @@ export function normalizeApplicant(input) {
   normalizeFields(out);
 
   // The address is split before the passport's bilingual halves are resolved.
-  // A house number carries a slash of its own, so "[REDACTED], ..., Хошимин"
-  // reads as a <Latin>/<Cyrillic> pair and would be cut down to "406".
+  // A house number carries a slash of its own, so
+  // "123/45 Sample Street, ..., Хошимин" reads as a <Latin>/<Cyrillic> pair
+  // and would be cut down to "123".
   splitAddress(out);
 
   latinizeFields(out);

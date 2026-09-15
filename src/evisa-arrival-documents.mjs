@@ -17,7 +17,7 @@
 // these are read as documents, from the text layer, and what cannot be read
 // is left unset for the declaration to ask about by name.
 
-/** A date as an airline prints it: 16Sep2026. */
+/** A date as an airline prints it: 17Sep2026. */
 const TICKET_DATE = /\b(\d{1,2})([A-Za-z]{3})(\d{4})\b/;
 
 const MONTHS = {
@@ -83,7 +83,7 @@ export function readEvisa(text) {
   if (number) {
     found.visaNumber = number[1];
   }
-  // "valid from [REDACTED] until [REDACTED]", printed on one line with the
+  // "valid from 17/09/2026 until 15/12/2026", printed on one line with the
   // Vietnamese above it and the English label beneath.
   const window = said.match(
     /GIÁ TRỊ TỪ NGÀY\s*(\d{2}\/\d{2}\/\d{4})\s*ĐẾN NGÀY\s*(\d{2}\/\d{2}\/\d{4})/i

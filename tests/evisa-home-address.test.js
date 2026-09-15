@@ -386,12 +386,12 @@ describe('the contact person in a chat message', () => {
   });
 
   it('reads a date written in words or in digits', () => {
-    expect(dateInLine('Дата билетов на самолёт: 16 сентября 2026 года')).toBe(
-      '[REDACTED]'
+    expect(dateInLine('Дата билетов на самолёт: 17 сентября 2026 года')).toBe(
+      '17/09/2026'
     );
     expect(dateInLine('прилёт 5 мая 2027')).toBe('05/05/2027');
     expect(dateInLine('flight on 5 Oct 2026')).toBe('05/10/2026');
-    expect(dateInLine('въезд [REDACTED]')).toBe('[REDACTED]');
+    expect(dateInLine('въезд 17.09.2026')).toBe('17/09/2026');
     expect(dateInLine('no date here')).toBe(null);
   });
 
@@ -498,16 +498,16 @@ describe('what the bot says about a form', () => {
     // The applicant gave an address and an entry date; the contact address
     // and the visa's first day follow from those, and the last day is the
     // 90-day maximum.
-    const supplied = { permanentAddress: MOSCOW, entryDate: '[REDACTED]' };
+    const supplied = { permanentAddress: MOSCOW, entryDate: '17/09/2026' };
     const applicant = normalizeApplicant(supplied);
     const summary = describeSummary(applicant, supplied, 'ru');
     expect(summary).toContain(
       '• контактный адрес (как адрес регистрации): Russian Federation, 101000, Moscow, Pushkina street 10, bld. 2, apt. 5'
     );
-    expect(summary).toContain('• дата въезда: [REDACTED]');
-    expect(summary).toContain('• виза с (день въезда): [REDACTED]');
+    expect(summary).toContain('• дата въезда: 17/09/2026');
+    expect(summary).toContain('• виза с (день въезда): 17/09/2026');
     expect(summary).toContain(
-      '• виза по (90 дней, максимум для электронной визы): [REDACTED]'
+      '• виза по (90 дней, максимум для электронной визы): 15/12/2026'
     );
     expect(summary).toContain('• цель поездки *: Tourist');
     expect(summary).toContain('Со звёздочкой —');

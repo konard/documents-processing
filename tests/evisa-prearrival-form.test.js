@@ -86,7 +86,7 @@ describe('the three-day window the site allows', () => {
         throw new Error('nothing should be clicked for a date not offered');
       },
     };
-    const picked = await chooseArrivalDate(page, '[REDACTED]');
+    const picked = await chooseArrivalDate(page, '17/09/2026');
     expect(picked.tooEarly).toBe(true);
     expect(picked.chosen).toBe(null);
     expect(picked.offered).toEqual(offered);
@@ -125,7 +125,7 @@ describe('the three-day window the site allows', () => {
       },
     };
     const result = await fillDeclaration(page, {
-      arrivalDate: '[REDACTED]',
+      arrivalDate: '17/09/2026',
       sex: 'Male',
       surname: 'TRAVELLER',
     });

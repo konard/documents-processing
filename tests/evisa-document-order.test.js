@@ -39,8 +39,8 @@ describe('documents finishing out of order', () => {
     const secondCommit = reserveDocumentCommit(session);
     await firstCommit();
     await secondCommit(() => {
-      session.data.arrivalDate = '[REDACTED]';
+      session.data.arrivalDate = '17/09/2026';
     });
-    expect(session.data.arrivalDate).toBe('[REDACTED]');
+    expect(session.data.arrivalDate).toBe('17/09/2026');
   });
 });

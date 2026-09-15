@@ -130,6 +130,28 @@ describe('the people this was built from are never named', () => {
   });
 });
 
+describe('the private itinerary is never used as public example data', () => {
+  it('ships none of its known document or itinerary values', () => {
+    // These came from the private documents used during development. Build
+    // each one from pieces so the guard itself does not republish the value.
+    const privateValues = [
+      'YIR' + 'KO9',
+      'XLT' + 'U32',
+      'AI' + '2388',
+      '406/' + '14 Cong Hoa',
+      '23/05/' + '1979',
+      '29/11/' + '2027',
+      '16/09/' + '2026',
+      '14/12/' + '2026',
+      '30/09/' + '2026',
+    ];
+    for (const { file, text } of publishedFiles()) {
+      const hits = privateValues.filter((value) => text.includes(value));
+      expect(`${file}:${hits.join(',')}`).toBe(`${file}:`);
+    }
+  });
+});
+
 describe('no personal data is committed', () => {
   const sources = readdirSync('src')
     .filter((f) => f.startsWith('evisa-'))

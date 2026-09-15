@@ -16,13 +16,9 @@
 // saved filename (which already carries date + sender + subject), so a resumed
 // fetch that re-hashes a file does not break this build.
 //
-// This trip's affected flights are on Air India booking [REDACTED] (Goa -> Delhi
-// -> Ho Chi Minh City, [REDACTED]). That booking has two airline notices, both
-// with subject "Change in Itinerary", so it produces two exhibits:
-//   1. [REDACTED] — [REDACTED] DEL->SGN rescheduled (01 Aug -> 02 Aug).
-//   2. [REDACTED] — [REDACTED] GOX->DEL cancelled/modified, rebooked to [REDACTED].
-// A different booking [REDACTED] ([REDACTED]) has its own notices; this build leaves
-// them out, as they belong to a separate trip.
+// Each private configuration names one booking and only the notices belonging
+// to that trip. Notices for other bookings are left out, even when they share
+// the same sender and subject.
 //
 // Usage:  node build-frro-exhibits.mjs [baseDir]
 //   baseDir defaults to the project root (one level above src/).

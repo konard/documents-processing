@@ -30,7 +30,7 @@ const APPLICANT = {
   passportExpiryDate: '09/09/2030',
   email: 'someone@example.com',
   phone: '+10000000001',
-  entryDate: '[REDACTED]',
+  entryDate: '17/09/2026',
   purpose: 'Tourist',
   entryGate: 'Some Int Airport',
   addressInVietnam: '100/14 Some Street, Some Ward, Capital',
@@ -55,7 +55,7 @@ describe('the pre-arrival declaration', () => {
     expect(values.fullName).toBe('TRAVELLER JOHN ALEX');
     expect(values.passportNumber).toBe('712345678');
     expect(values.nationality).toBe('Wonderland');
-    expect(values.arrivalDate).toBe('[REDACTED]');
+    expect(values.arrivalDate).toBe('17/09/2026');
     expect(values.borderGate).toBe('Some Int Airport');
     expect(values.accommodationAddress).toBe(
       '100/14 Some Street, Some Ward, Capital'
@@ -106,20 +106,20 @@ describe('the trip page from documents already sent', () => {
     // but the ticket has no return leg. The live form starts on Hotel and a
     // visa expiry is not a planned departure date.
     const trip = tripFrom({
-      vehicleNumber: '[REDACTED]',
+      vehicleNumber: 'VN1234',
       departedFrom: 'GOA MOPA AIRPORT',
       purpose: 'Tourist',
-      visaExpiryDate: '[REDACTED]',
+      visaExpiryDate: '15/12/2026',
     });
     expect(trip).toEqual({
       modeOfTravel: 'Air',
-      vehicleNumber: '[REDACTED]',
+      vehicleNumber: 'VN1234',
       departedFrom: 'India',
       purpose: 'Tourist',
       accommodationType: 'Hotel',
       province: 'HO CHI MINH',
       ward: 'TAN BINH',
-      accommodationAddress: '[REDACTED]',
+      accommodationAddress: '123/45 Sample Street, Tan Binh, Ho Chi Minh',
       workplace: null,
       departureDate: null,
     });
@@ -133,9 +133,9 @@ describe('the trip page from documents already sent', () => {
       province: 'Khanh Hoa Province',
       ward: 'Nha Trang Ward',
       accommodationAddress: '25/7 Tran Phu, Nha Trang',
-      addressInVietnam: '[REDACTED]',
-      departureDate: '[REDACTED]',
-      visaExpiryDate: '[REDACTED]',
+      addressInVietnam: '123/45 Sample Street, Tan Binh, Ho Chi Minh',
+      departureDate: '01/10/2026',
+      visaExpiryDate: '15/12/2026',
     };
     // This is the production call shape: the generic declaration supplies
     // defaults too, but the traveller's explicit trip details must win.
@@ -146,7 +146,7 @@ describe('the trip page from documents already sent', () => {
     expect(trip.province).toBe('Khanh Hoa');
     expect(trip.ward).toBe('Nha Trang');
     expect(trip.accommodationAddress).toBe('25/7 Tran Phu, Nha Trang');
-    expect(trip.departureDate).toBe('[REDACTED]');
+    expect(trip.departureDate).toBe('01/10/2026');
   });
 
   it('takes the province and ward from a booking address', () => {
@@ -163,7 +163,7 @@ describe('the trip page from documents already sent', () => {
   it('keeps a new booking address separate from the old e-visa stay', () => {
     const applicant = {
       accommodationAddress: '25/7 Tran Phu, Vinh Hai Ward, Нячанг, Вьетнам',
-      addressInVietnam: '[REDACTED]',
+      addressInVietnam: '123/45 Sample Street, Tan Binh, Ho Chi Minh',
       provinceInVietnam: 'HO CHI MINH City',
       wardInVietnam: 'PHUONG TAN BINH',
     };
@@ -191,14 +191,14 @@ describe('the trip page from documents already sent', () => {
       accommodationType: '',
       accommodationAddress: '',
       departureDate: '',
-      visaExpiryDate: '[REDACTED]',
+      visaExpiryDate: '15/12/2026',
     });
     expect(trip.purpose).toBe('Tourist');
     expect(trip.accommodationType).toBe('Hotel');
     expect(trip.province).toBe('HO CHI MINH');
     expect(trip.ward).toBe('TAN BINH');
     expect(trip.accommodationAddress).toBe(
-      '[REDACTED]'
+      '123/45 Sample Street, Tan Binh, Ho Chi Minh'
     );
     expect(trip.departureDate).toBe(null);
   });
@@ -270,20 +270,20 @@ describe('waiting on the granted visa', () => {
 
 describe('the day the site starts taking the declaration', () => {
   // The site offers the day of arrival and the two before it, so filing for a
-  // flight landing on the 16th opens on the 14th.
+  // flight landing on the 17th opens on the 15th.
   const sept = (day) => Date.UTC(2026, 8, day);
 
   it('counts back two days from the landing', () => {
-    const shut = windowOpensOn('[REDACTED]', sept(12));
-    expect(shut.opens).toBe('14/09/2026');
-    expect(shut.days).toBe(2);
+    const shut = windowOpensOn('17/09/2026', sept(12));
+    expect(shut.opens).toBe('15/09/2026');
+    expect(shut.days).toBe(3);
   });
 
   it('says nothing while the window is open', () => {
     // On the day it opens there is nothing to wait for, and on the day of the
     // flight itself there is nothing to wait for either.
-    expect(windowOpensOn('[REDACTED]', sept(14))).toBe(null);
-    expect(windowOpensOn('[REDACTED]', sept(16))).toBe(null);
+    expect(windowOpensOn('17/09/2026', sept(15))).toBe(null);
+    expect(windowOpensOn('17/09/2026', sept(17))).toBe(null);
   });
 
   it('says nothing while the flight is unknown', () => {
@@ -331,7 +331,7 @@ describe('the rehearsal that fills the form for a day the site offers', () => {
   it('leaves the ticket alone when no rehearsal is asked for', () => {
     const said = [];
     const session = {
-      data: { surname: 'TRAVELLER', entryDate: '[REDACTED]' },
+      data: { surname: 'TRAVELLER', entryDate: '17/09/2026' },
     };
     const { values, rehearsal } = declarationFor(session, {
       log: (chatId, line) => said.push(line),
@@ -339,7 +339,7 @@ describe('the rehearsal that fills the form for a day the site offers', () => {
     });
     expect(rehearsal).toBe(null);
     // Without the setting the ticket's own date stands.
-    expect(values.arrivalDate).toBe('[REDACTED]');
+    expect(values.arrivalDate).toBe('17/09/2026');
     expect(said).toEqual([]);
   });
 
@@ -348,7 +348,7 @@ describe('the rehearsal that fills the form for a day the site offers', () => {
       data: {
         surname: 'SAMPLE',
         givenName: 'JOHN-ALEX',
-        entryDate: '[REDACTED]',
+        entryDate: '17/09/2026',
       },
     };
     const { applicant, values, nameCorrections } = declarationFor(session);
@@ -373,7 +373,7 @@ describe('the rehearsal that fills the form for a day the site offers', () => {
     process.env.EVISA_ARRIVAL_DATE_OVERRIDE = '14/09/2026';
     try {
       const { values, applicant, rehearsal } = declarationFor(
-        { data: { surname: 'TRAVELLER', entryDate: '[REDACTED]' } },
+        { data: { surname: 'TRAVELLER', entryDate: '17/09/2026' } },
         { log: (chatId, line) => said.push(line), chatId: 1 }
       );
       expect(rehearsal).toBe('14/09/2026');
@@ -382,7 +382,7 @@ describe('the rehearsal that fills the form for a day the site offers', () => {
       expect(said.length).toBe(1);
       expect(said[0].includes('REHEARSAL')).toBe(true);
       expect(said[0].includes('14/09/2026')).toBe(true);
-      expect(said[0].includes('[REDACTED]')).toBe(true);
+      expect(said[0].includes('17/09/2026')).toBe(true);
     } finally {
       delete process.env.EVISA_ARRIVAL_DATE_OVERRIDE;
     }

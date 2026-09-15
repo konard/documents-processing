@@ -447,10 +447,14 @@ async function main() {
  * normally tested, and only a run that passes both reaches the remote.
  */
 function rewriteAndPublish(repo, { wanted, config, chosen, given }) {
-  if (git(repo, ['status', '--porcelain'])) {
+  // Untracked files are outside Git history and cannot be changed or
+  // published by this rewrite. Private local inputs commonly live beside the
+  // checkout, so only tracked changes should stop an otherwise safe run.
+  if (git(repo, ['status', '--porcelain', '--untracked-files=no'])) {
     console.error(
-      '\nThe working tree has changes. Commit or stash them first: a rewrite ' +
-        'refuses to run over them, and they would not be redacted anyway.'
+      '\nThe working tree has tracked changes. Commit or stash them first: a ' +
+        'rewrite refuses to run over them, and they would not be redacted ' +
+        'anyway.'
     );
     process.exit(1);
   }

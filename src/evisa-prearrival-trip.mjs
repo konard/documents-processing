@@ -16,7 +16,7 @@
 //     built from one dies at the next redraw.
 //
 //   * The border gate is permanently disabled and fills itself. Choosing the
-//     flight sets it: picking "[REDACTED] - SGN" put "SGN -  Tan Son Nhat
+//     flight sets it: picking "VN1234 - SGN" put "SGN -  Tan Son Nhat
 //     International Airport" in it. Nothing can type into that field, so the
 //     flight is what this driver sets and the gate is read back afterwards.
 //
@@ -196,7 +196,7 @@ function escapeForSearch(value) {
  *
  * The gate is disabled on this form and takes its value from the flight, so
  * the flight is the only way in. The site prints its flights with the airport
- * after them — "[REDACTED] - SGN" — so the number alone is what is matched on,
+ * after them — "VN1234 - SGN" — so the number alone is what is matched on,
  * and the gate is read back to say what the site made of it.
  */
 export async function chooseFlight(page, flight, { log } = {}) {
@@ -209,7 +209,7 @@ export async function chooseFlight(page, flight, { log } = {}) {
   // that were in the box when the request went out. Read while one of those
   // is still in flight it holds the answer to a shorter number, or the bare
   // "Other" it shows with nothing to offer — measured on the live site,
-  // "AI238" left only "Other" on screen a moment before "[REDACTED]" brought the
+  // "VN123" left only "Other" on screen a moment before "VN1234" brought the
   // flight back. So the wait is for the flight itself, not for a list.
   const option = page
     .locator('[role=option]')

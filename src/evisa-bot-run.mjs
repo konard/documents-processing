@@ -135,8 +135,14 @@ import {
   sendDuplicateDeclarationResult,
   sendDeclarationResult,
 } from './evisa-arrival-result.mjs';
+import { configureFieldDefaults } from './evisa-schema.mjs';
 
 loadEnv();
+configureFieldDefaults({
+  addressInVietnam: process.env.EVISA_BOT_DEFAULT_ADDRESS,
+  provinceInVietnam: process.env.EVISA_BOT_DEFAULT_PROVINCE,
+  wardInVietnam: process.env.EVISA_BOT_DEFAULT_WARD,
+});
 
 const token = process.env.EVISA_BOT_TOKEN;
 if (!token) {

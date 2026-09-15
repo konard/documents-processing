@@ -18,11 +18,11 @@ const EVISA = `
                            ELECTRONIC VISA
                              Số: 10000000/EV
                              Mã: E260908XXX0000000000
-THỊ THỰC CÓ GIÁ TRỊ TỪ NGÀY [REDACTED]         ĐẾN NGÀY [REDACTED]
+THỊ THỰC CÓ GIÁ TRỊ TỪ NGÀY 17/09/2026         ĐẾN NGÀY 15/12/2026
 Good for entry valid from                      until
 HỌ TÊN: TRAVELLER SAMPLE
 NGÀY THÁNG NĂM SINH: 01/02/1990
-SỐ HỘ CHIẾU: 712345678                         THỜI HẠN ĐẾN: [REDACTED]
+SỐ HỘ CHIẾU: 712345678                         THỜI HẠN ĐẾN: 31/12/2030
 Passport number                                Date of expiry
 MỤC ĐÍCH NHẬP CẢNH: Tourist
 `;
@@ -34,10 +34,10 @@ const TICKET = `
     ELECTRONIC TICKET ITINERARY / RECEIPT
     From                          To                         Flight    Departure
     GOA MOPA AIRPORT              DELHI INDIRA GANDHI INTL   XX9999   00:35
-                                  Terminal: 1                         16Sep2026
+                                  Terminal: 1                         17Sep2026
     DELHI INDIRA GANDHI INTL HO CHI MINH CITY TAN SON NHAT XX1111
     Terminal: 3              INTL
-    16Sep2026
+    17Sep2026
 `;
 
 describe('telling the two documents apart', () => {
@@ -70,8 +70,8 @@ describe('reading a granted e-visa', () => {
 
   it('takes the window the visa is good for', () => {
     const found = readEvisa(EVISA);
-    expect(found.visaIssueDate).toBe('[REDACTED]');
-    expect(found.visaExpiryDate).toBe('[REDACTED]');
+    expect(found.visaIssueDate).toBe('17/09/2026');
+    expect(found.visaExpiryDate).toBe('15/12/2026');
   });
 
   it('takes the traveller as the visa prints them', () => {
@@ -79,14 +79,14 @@ describe('reading a granted e-visa', () => {
     expect(found.fullName).toBe('TRAVELLER SAMPLE');
     expect(found.dateOfBirth).toBe('01/02/1990');
     expect(found.passportNumber).toBe('712345678');
-    expect(found.passportExpiryDate).toBe('[REDACTED]');
+    expect(found.passportExpiryDate).toBe('31/12/2030');
     expect(found.purpose).toBe('Tourist');
   });
 });
 
 describe('reading a flight out of a ticket', () => {
   it('reads a date in the order the declaration wants', () => {
-    expect(readTicketDate('16Sep2026')).toBe('[REDACTED]');
+    expect(readTicketDate('17Sep2026')).toBe('17/09/2026');
     expect(readTicketDate('1Jan2027')).toBe('01/01/2027');
   });
 
@@ -108,7 +108,7 @@ describe('reading a flight out of a ticket', () => {
     const found = readTicket(TICKET);
     expect(found.flightNumber).toBe('XX1111');
     expect(found.vehicleNumber).toBe('XX1111');
-    expect(found.arrivalDate).toBe('[REDACTED]');
+    expect(found.arrivalDate).toBe('17/09/2026');
   });
 
   it('takes where the journey began, not where the last leg did', () => {

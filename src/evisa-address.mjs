@@ -252,4 +252,4 @@ export function parseVietnamAddress(address, { wardOptions = [] } = {}) {
  * has to put something down.
  */
 export const DEFAULT_ADDRESS =
-  '[REDACTED]';
+  '123/45 Sample Street, Tan Binh District, Tan Binh, Ho Chi Minh City, Vietnam';

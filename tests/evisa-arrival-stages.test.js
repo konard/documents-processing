@@ -14,12 +14,12 @@ function tripValues(overrides = {}) {
     departedFrom: 'India',
     purpose: 'Travel',
     modeOfTravel: 'Air',
-    vehicleNumber: '[REDACTED]',
+    vehicleNumber: 'VN1234',
     borderGate: 'SGN - Tan Son Nhat International Airport',
     accommodationType: 'Hotel',
     province: 'Ho Chi Minh City',
     ward: 'Tan Binh Ward',
-    accommodationAddress: '[REDACTED]',
+    accommodationAddress: '123/45 Sample Street, Tan Binh, Ho Chi Minh',
     ...overrides,
   };
 }

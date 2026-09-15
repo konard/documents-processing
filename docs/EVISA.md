@@ -141,14 +141,14 @@ ward/commune — while an address from a booking or a map arrives as one line. G
 it whole and it is split:
 
 ```
-[REDACTED], Tan Binh District, Tan Binh, Хошимин, Вьетнам
+123/45 Sample Street, Tan Binh District, Tan Binh, Хошимин, Вьетнам
 ```
 
-| Field                          | Value                                    |
-| ------------------------------ | ---------------------------------------- |
-| Residential address in Vietnam | `[REDACTED]` |
-| Province/city                  | `HO CHI MINH City`                       |
-| Ward / commune                 | `PHUONG TAN BINH`                        |
+| Field                          | Value                                         |
+| ------------------------------ | --------------------------------------------- |
+| Residential address in Vietnam | `123/45 Sample Street, Tan Binh, Ho Chi Minh` |
+| Province/city                  | `HO CHI MINH City`                            |
+| Ward / commune                 | `PHUONG TAN BINH`                             |
 
 The address box holds the **whole** address, in the order the field's own
 tooltip gives — premises, ward, city, as in its example
@@ -175,11 +175,13 @@ since an officer reading it is better served by the applicant's own wording.
 The ward list is read from the page, since it depends on the province selected
 and changes when boundaries are redrawn.
 
-An applicant who states no address gets `[REDACTED]`,
-because all three fields are required and someone who has not booked yet still
-has to enter one. Naming another city leaves the ward empty for validation to
-ask about, since a ward belongs to one city and the default's would place them
-somewhere they never said. Every value stays editable in the browser.
+The public library uses `123/45 Sample Street, Tan Binh, Ho Chi Minh` as a safe
+example. A deployment can keep its real fallback outside Git by setting
+`EVISA_BOT_DEFAULT_ADDRESS`, `EVISA_BOT_DEFAULT_PROVINCE`, and
+`EVISA_BOT_DEFAULT_WARD` in `.env`. Naming another city leaves the ward empty
+for validation to ask about, since a ward belongs to one city and the default's
+would place them somewhere they never said. Every value stays editable in the
+browser.
 
 ## Home addresses
 

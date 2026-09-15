@@ -90,9 +90,11 @@ describe('taking the values out of a piece of text', () => {
   });
 
   it('treats a value with regex characters as the literal it is', () => {
-    // An address such as "[REDACTED]" holds a slash, and a phone a
+    // An address such as "123/45 Sample Street" holds a slash, and a phone a
     // "+"; taken as a pattern they would match the wrong things or throw.
-    const { text } = redactText('at [REDACTED] now', ['[REDACTED]']);
+    const { text } = redactText('at 123/45 Sample Street now', [
+      '123/45 Sample Street',
+    ]);
     expect(text).toBe(`at ${REDACTED} now`);
     expect(redactText('a+b', ['a+b']).text).toBe(REDACTED);
   });
@@ -193,6 +195,15 @@ describe('checking a repository after a rewrite', () => {
     expect(tool.includes('function takeBackup')).toBe(true);
     expect(tool.includes("'clone', '--mirror'")).toBe(true);
     expect(tool.includes('repo.git')).toBe(true);
+  });
+
+  it('allows private untracked inputs but refuses tracked changes', () => {
+    const tool = readSource('src/redact-history.mjs');
+    const at = tool.indexOf('function rewriteAndPublish');
+    const body = tool.slice(at, tool.indexOf('\n}\n', at));
+    expect(
+      body.includes("'status', '--porcelain', '--untracked-files=no'")
+    ).toBe(true);
   });
 
   it('proves the rewrite before publishing it', () => {

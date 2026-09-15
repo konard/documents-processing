@@ -379,23 +379,23 @@ const HYPHEN_NOTED = ['surname', 'givenName', 'emergencyName'];
  */
 const ARRIVAL_EXAMPLES = {
   en: {
-    dateOfBirth: '[REDACTED]',
-    passportExpiryDate: '[REDACTED]',
+    dateOfBirth: '01/02/1990',
+    passportExpiryDate: '31/12/2030',
     email: 'you@example.com',
     phone: '+7 912 345 67 89, with the country code',
-    visaExpiryDate: '[REDACTED]',
-    departureDate: '[REDACTED]',
+    visaExpiryDate: '15/12/2026',
+    departureDate: '01/10/2026',
     borderGate: 'e.g. Tan Son Nhat',
     accommodationType: 'hotel, apartment, a friend´s home',
     accommodationAddress: 'as the booking spells it',
   },
   ru: {
-    dateOfBirth: '[REDACTED]',
-    passportExpiryDate: '[REDACTED]',
+    dateOfBirth: '01/02/1990',
+    passportExpiryDate: '31/12/2030',
     email: 'you@example.com',
     phone: '+7 912 345 67 89, обязательно с кодом страны',
-    visaExpiryDate: '[REDACTED]',
-    departureDate: '[REDACTED]',
+    visaExpiryDate: '15/12/2026',
+    departureDate: '01/10/2026',
     borderGate: 'например Tan Son Nhat',
     accommodationType: 'отель, квартира, у друзей',
     accommodationAddress: 'как написано в брони',
@@ -1032,8 +1032,8 @@ function relationshipIn(text) {
 /**
  * The date written in a line, as the form wants it, or null.
  *
- * A month written in words is unambiguous, so "16 сентября 2026" and
- * "[REDACTED]" both give [REDACTED].
+ * A month written in words is unambiguous, so "17 сентября 2026" and
+ * "17.09.2026" both give 17/09/2026.
  */
 export function dateInLine(line) {
   const match = String(line ?? '').match(WRITTEN_DATE);

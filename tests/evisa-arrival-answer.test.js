@@ -49,18 +49,18 @@ describe('one readable answer for each arrival page', () => {
         {
           fullName: 'TRAVELLER JORDAN',
           gender: 'Male',
-          dateOfBirth: '[REDACTED]',
+          dateOfBirth: '01/02/1990',
           nationality: 'Russian Federation',
           passportType: 'P - Popular Passport',
           passportNumber: '712345678',
-          passportExpiryDate: '[REDACTED]',
+          passportExpiryDate: '31/12/2030',
           visaType: 'Electronic Visa (E-Visa)',
           visaNumber: '712345678',
-          visaIssueDate: '[REDACTED]',
-          visaExpiryDate: '[REDACTED]',
+          visaIssueDate: '17/09/2026',
+          visaExpiryDate: '15/12/2026',
           visaIssuedPlace:
             'Vietnam Immigration Department - Ministry of Public Security',
-          arrivalDate: '[REDACTED]',
+          arrivalDate: '17/09/2026',
           email: 'traveller@example.com',
           phone: '+12025550123',
         },
@@ -84,13 +84,13 @@ describe('one readable answer for each arrival page', () => {
       capture(1, {
         departedFrom: 'India',
         modeOfTravel: 'Air',
-        vehicleNumber: '[REDACTED]',
+        vehicleNumber: 'VN1234',
         borderGate: 'SGN -  Tan Son Nhat International Airport',
         purpose: 'Travel',
         accommodationType: 'Hotel',
         province: 'Ho Chi Minh City',
         ward: 'Tan Binh Ward',
-        accommodationAddress: '[REDACTED]',
+        accommodationAddress: '123/45 Sample Street, Tan Binh, Ho Chi Minh',
       })
     );
 
@@ -101,7 +101,7 @@ describe('one readable answer for each arrival page', () => {
     );
     expect(answer.caption).not.toContain('SGN -  Tan Son Nhat');
     expect(answer.caption).toContain('проживание: Hotel');
-    expect(answer.caption).toContain('[REDACTED]');
+    expect(answer.caption).toContain('123/45 Sample Street');
     expect(answer.caption).not.toContain('где остановитесь');
     expect(answer.caption).not.toContain('дата вылета из Вьетнама');
     expect(answer.caption).not.toContain('Страница 1 заполнена');
@@ -130,7 +130,7 @@ describe('one readable answer for each arrival page', () => {
           accommodationType: 'Hotel',
           province: 'Ho Chi Minh City',
           ward: 'Tan Binh Ward',
-          accommodationAddress: '[REDACTED]',
+          accommodationAddress: '123/45 Sample Street',
         },
         {
           failed: ['departedFrom: locator.waitFor: Timeout 10000ms exceeded.'],
@@ -153,13 +153,13 @@ describe('one readable answer for each arrival page', () => {
       capture(1, {
         departedFrom: 'India',
         modeOfTravel: 'Air',
-        vehicleNumber: '[REDACTED]',
+        vehicleNumber: 'VN1234',
         borderGate: 'SGN - Tan Son Nhat International Airport',
         purpose: 'Travel',
         accommodationType: 'Hotel',
         province: 'Ho Chi Minh City',
         ward: 'Tan Binh Ward',
-        accommodationAddress: '[REDACTED]',
+        accommodationAddress: '123/45 Sample Street',
       }),
       { ready: false }
     );

@@ -27,7 +27,7 @@ describe('the form as its own parts', () => {
 
   it('groups values into parts, in printed order', () => {
     const parts = groupBySection({
-      entryDate: '[REDACTED]',
+      entryDate: '17/09/2026',
       surname: 'TRAVELLER',
       passportNumber: '712345678',
     });

@@ -294,10 +294,31 @@ export const FIELD_DEFAULTS = {
   // anywhere yet still has to enter one. They stay editable in the browser.
   // The whole address, in the order the site's own example gives, since that
   // box asks for the complete temporary address and not just the street.
-  addressInVietnam: '[REDACTED]',
+  addressInVietnam: '123/45 Sample Street, Tan Binh, Ho Chi Minh',
   provinceInVietnam: 'HO CHI MINH City',
   wardInVietnam: 'PHUONG TAN BINH',
 };
+
+/**
+ * Applies private deployment defaults after `.env` has been loaded.
+ *
+ * A traveller's usual address belongs in local configuration, never in this
+ * public module. Blank settings deliberately leave the safe public examples
+ * alone, which keeps library callers and tests deterministic.
+ */
+export function configureFieldDefaults(overrides = {}) {
+  for (const key of [
+    'addressInVietnam',
+    'provinceInVietnam',
+    'wardInVietnam',
+  ]) {
+    const value = String(overrides[key] ?? '').trim();
+    if (value) {
+      FIELD_DEFAULTS[key] = value;
+    }
+  }
+  return FIELD_DEFAULTS;
+}
 
 /** Passport-type options, as worded in the form's dropdown. */
 export const PASSPORT_TYPES = [

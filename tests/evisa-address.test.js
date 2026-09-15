@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'test-anywhere';
 import { parseVietnamAddress, DEFAULT_ADDRESS } from '../src/evisa-address.mjs';
 import { normalizeApplicant, preferEnglishHalf } from '../src/evisa-data.mjs';
-import { FIELDS } from '../src/evisa-schema.mjs';
+import {
+  FIELDS,
+  FIELD_DEFAULTS,
+  configureFieldDefaults,
+} from '../src/evisa-schema.mjs';
 
 // The wards the form offers for Ho Chi Minh City, as read from the live page.
 // The real list runs to 167; these are the ones the cases below reach for.
@@ -13,16 +17,34 @@ const WARDS = [
   'PHUONG SAI GON',
 ];
 
+describe('private deployment address defaults', () => {
+  it('accepts nonblank local overrides and leaves omitted values alone', () => {
+    const original = { ...FIELD_DEFAULTS };
+    try {
+      configureFieldDefaults({
+        addressInVietnam: '45 Private Example Road',
+        provinceInVietnam: 'DA NANG City',
+        wardInVietnam: '  ',
+      });
+      expect(FIELD_DEFAULTS.addressInVietnam).toBe('45 Private Example Road');
+      expect(FIELD_DEFAULTS.provinceInVietnam).toBe('DA NANG City');
+      expect(FIELD_DEFAULTS.wardInVietnam).toBe(original.wardInVietnam);
+    } finally {
+      Object.assign(FIELD_DEFAULTS, original);
+    }
+  });
+});
+
 describe('parseVietnamAddress', () => {
   it('splits a pasted address into the three fields the form asks for', () => {
     const parsed = parseVietnamAddress(
-      '[REDACTED], Tan Binh District, Tan Binh, Хошимин, Вьетнам',
+      '123/45 Sample Street, Tan Binh District, Tan Binh, Хошимин, Вьетнам',
       { wardOptions: WARDS }
     );
     // The address box asks for the whole address, so it holds the ward and the
     // city too; the dropdowns beside it repeat those two.
     expect(parsed.addressInVietnam).toBe(
-      '[REDACTED]'
+      '123/45 Sample Street, Tan Binh, Ho Chi Minh'
     );
     expect(parsed.provinceInVietnam).toBe('HO CHI MINH City');
     expect(parsed.wardInVietnam).toBe('PHUONG TAN BINH');
@@ -48,11 +70,14 @@ describe('parseVietnamAddress', () => {
 
   it('puts the parts in the order the site asks for, whatever order they came in', () => {
     // A city named in the middle of an address still ends up last.
-    const parsed = parseVietnamAddress('Хошимин, Tan Binh, [REDACTED]', {
-      wardOptions: WARDS,
-    });
+    const parsed = parseVietnamAddress(
+      'Хошимин, Tan Binh, 123/45 Sample Street',
+      {
+        wardOptions: WARDS,
+      }
+    );
     expect(parsed.addressInVietnam).toBe(
-      '[REDACTED]'
+      '123/45 Sample Street, Tan Binh, Ho Chi Minh'
     );
   });
 
@@ -150,9 +175,9 @@ describe('parseVietnamAddress', () => {
   });
 
   it('keeps the house number whole', () => {
-    const parsed = parseVietnamAddress('[REDACTED], Saigon');
-    expect(parsed.premises).toEqual(['[REDACTED]']);
-    expect(parsed.addressInVietnam).toBe('[REDACTED], Ho Chi Minh');
+    const parsed = parseVietnamAddress('123/45 Sample Street, Saigon');
+    expect(parsed.premises).toEqual(['123/45 Sample Street']);
+    expect(parsed.addressInVietnam).toBe('123/45 Sample Street, Ho Chi Minh');
   });
 
   it('returns empty fields for an empty address', () => {
@@ -194,9 +219,11 @@ describe('an address on the applicant record', () => {
   it('is split into the three fields when given as one line', () => {
     const out = normalizeApplicant({
       addressInVietnam:
-        '[REDACTED], Tan Binh District, Tan Binh, Хошимин, Вьетнам',
+        '123/45 Sample Street, Tan Binh District, Tan Binh, Хошимин, Вьетнам',
     });
-    expect(out.addressInVietnam).toBe('[REDACTED]');
+    expect(out.addressInVietnam).toBe(
+      '123/45 Sample Street, Tan Binh, Ho Chi Minh'
+    );
     expect(out.provinceInVietnam).toBe('HO CHI MINH City');
     expect(out.wardInVietnam).toBe('PHUONG TAN BINH');
   });
@@ -204,11 +231,11 @@ describe('an address on the applicant record', () => {
   it('survives the bilingual split a passport field needs', () => {
     // A house number carries a slash, and an address may carry Cyrillic, which
     // together look exactly like the <Russian>/<English> pair a passport prints.
-    expect(preferEnglishHalf('[REDACTED], Хошимин')).toBe('406');
+    expect(preferEnglishHalf('123/45 Sample Street, Хошимин')).toBe('123');
     const out = normalizeApplicant({
-      addressInVietnam: '[REDACTED], Хошимин',
+      addressInVietnam: '123/45 Sample Street, Хошимин',
     });
-    expect(out.addressInVietnam).toBe('[REDACTED], Ho Chi Minh');
+    expect(out.addressInVietnam).toBe('123/45 Sample Street, Ho Chi Minh');
   });
 
   it('leaves the ward empty when the applicant named another city', () => {
@@ -233,7 +260,9 @@ describe('an address on the applicant record', () => {
     // All three are required, so an applicant who has not booked anywhere still
     // has to put something down.
     const out = normalizeApplicant({});
-    expect(out.addressInVietnam).toBe('[REDACTED]');
+    expect(out.addressInVietnam).toBe(
+      '123/45 Sample Street, Tan Binh, Ho Chi Minh'
+    );
     expect(out.provinceInVietnam).toBe('HO CHI MINH City');
     expect(out.wardInVietnam).toBe('PHUONG TAN BINH');
   });
@@ -243,7 +272,7 @@ describe('an address on the applicant record', () => {
       wardOptions: WARDS,
     });
     expect(parsed.addressInVietnam).toBe(
-      '[REDACTED]'
+      '123/45 Sample Street, Tan Binh, Ho Chi Minh'
     );
     expect(parsed.provinceInVietnam).toBe('HO CHI MINH City');
     expect(parsed.wardInVietnam).toBe('PHUONG TAN BINH');

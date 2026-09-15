@@ -265,7 +265,11 @@ export async function sectionsToPdf(sections, outputPath) {
   const { PDFDocument } = await import('pdf-lib');
   const pdf = await PDFDocument.create();
   for (const section of sections) {
-    const image = await pdf.embedJpg(fs.readFileSync(section.path));
+    // pdf-lib 1.17 reads the backing ArrayBuffer from byte zero and does not
+    // account for a Node Buffer's byteOffset. A standalone typed array keeps
+    // the JPEG signature at the start under every supported Node version.
+    const bytes = Uint8Array.from(fs.readFileSync(section.path));
+    const image = await pdf.embedJpg(bytes);
     const page = pdf.addPage([image.width, image.height]);
     page.drawImage(image, {
       x: 0,

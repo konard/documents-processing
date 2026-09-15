@@ -1127,9 +1127,16 @@ function passportToUpload(session, held) {
  * back. Nothing is asked for one field at a time.
  */
 export function declarationRefiller(deps) {
-  const { sessions, log, showStatus = () => () => {} } = deps;
+  const {
+    sessions,
+    log,
+    showStatus = () => () => {},
+    refillDeclaration = fillAndShow,
+    restartDeclaration = startDeclaration,
+  } = deps;
   return async function refill(ctx, chatId) {
-    const held = sessions.get(chatId).arrival;
+    const session = sessions.get(chatId);
+    const held = session.arrival;
     // A declaration standing on its review page is filled, not finished: a
     // correction sent now is a correction to what is on it, and the walk
     // starts again from the first page with the new value in hand.
@@ -1138,7 +1145,21 @@ export function declarationRefiller(deps) {
     }
     const busy = showStatus(ctx, 'typing');
     try {
-      await fillAndShow({ ...deps, ctx, chatId });
+      const current = await whichStep(held.page);
+      if (current.at >= 0) {
+        // A correction starts a clean declaration so any CAPTCHA is handled
+        // through the normal chat flow before the saved record is refilled.
+        log(
+          chatId,
+          `restarting the declaration to correct page ${current.at + 1}`
+        );
+        await closeDeclaration(session);
+        await restartDeclaration({ ...deps, ctx, chatId });
+      } else {
+        // Before nationality is chosen no declaration page exists yet. This
+        // is the initial document batch, so keep its already-solved CAPTCHA.
+        await refillDeclaration({ ...deps, ctx, chatId });
+      }
     } catch (error) {
       log(chatId, `the declaration did not take it: ${error.message}`);
     } finally {

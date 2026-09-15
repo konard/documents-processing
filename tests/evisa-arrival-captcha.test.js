@@ -2,6 +2,7 @@ import { describe, it, expect } from 'test-anywhere';
 import {
   solveCaptcha,
   fillAndShow,
+  declarationRefiller,
   ASK_AFTER_ROUNDS,
   CAPTCHA_TRIES,
   CONFIDENT_VOTES,
@@ -364,5 +365,38 @@ describe('what the chat is told after a fill', () => {
     });
     expect(replies.length).toBe(1);
     expect(/nationalit/i.test(replies[0])).toBe(false);
+  });
+});
+
+describe('correcting a declaration the site has already drawn', () => {
+  function correction(at) {
+    const calls = { closed: 0, refilled: 0, restarted: 0 };
+    const session = {
+      arrival: {
+        stage: at < 0 ? 'form' : 'review',
+        page: { evaluate: async () => ({ at, titles: [] }) },
+        browser: { close: async () => (calls.closed += 1) },
+      },
+    };
+    const refill = declarationRefiller({
+      sessions: { get: () => session },
+      log: () => {},
+      refillDeclaration: async () => (calls.refilled += 1),
+      restartDeclaration: async () => (calls.restarted += 1),
+    });
+    return { calls, refill, session };
+  }
+
+  it('starts cleanly so backward navigation cannot hide a new CAPTCHA', async () => {
+    const { calls, refill, session } = correction(2);
+    await refill({}, 1);
+    expect(calls).toEqual({ closed: 1, refilled: 0, restarted: 1 });
+    expect(session.arrival).toBe(null);
+  });
+
+  it('keeps the solved CAPTCHA while the initial documents arrive', async () => {
+    const { calls, refill } = correction(-1);
+    await refill({}, 1);
+    expect(calls).toEqual({ closed: 0, refilled: 1, restarted: 0 });
   });
 });

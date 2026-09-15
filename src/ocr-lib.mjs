@@ -35,6 +35,8 @@ import { execFileSync } from 'node:child_process';
 import { loadImage, createCanvas } from '@napi-rs/canvas';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
+export { parseMrzLine1, parseMrzLine2 } from './mrz-lib.mjs';
+
 // ===========================================================================
 // IMAGE I/O
 // ===========================================================================
@@ -109,6 +111,15 @@ function canvasAsImage(canvas) {
     width: canvas.width,
     height: canvas.height,
     _canvas: canvas,
+    // A loaded Image has no encoder, so anything wanting the pixels as a file
+    // had to know this was a canvas underneath and reach for the private
+    // field. Asking the wrapper spares every caller that, and a caller that
+    // did not know found out by way of "toBuffer is not a function": a PDF
+    // page then reached the chat unread, and every one was answered as an
+    // unrecognisable picture.
+    toBuffer(type = 'image/png') {
+      return canvas.toBuffer(type);
+    },
     // params mirror the canvas drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh)
     // signature exactly; grouping them into an object would obscure that.
     // eslint-disable-next-line max-params
@@ -402,13 +413,21 @@ export function upscale(canvas, s = 3) {
 // OCR
 // ===========================================================================
 
-function runTesseract(canvas, { whitelist, psm = 6, tsv = false } = {}) {
-  const tmp = path.join(
-    os.tmpdir(),
-    `ocr-${process.pid}-${Math.random().toString(36).slice(2)}`
-  );
+function runTesseract(
+  canvas,
+  { whitelist, psm = 6, tsv = false, lang = null } = {}
+) {
+  // A directory of its own, made exclusively, so nothing else can put a
+  // file under the name tesseract is about to read.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-'));
+  const tmp = path.join(tmpDir, 'page');
   fs.writeFileSync(`${tmp}.png`, canvas.toBuffer('image/png'));
   const args = [`${tmp}.png`, tsv ? tmp : '-', '--psm', String(psm)];
+  // A language model other than English, such as `rus+eng` for the printed
+  // side of a Russian passport; left unset, tesseract reads English.
+  if (lang) {
+    args.push('-l', lang);
+  }
   if (whitelist) {
     args.push('-c', `tessedit_char_whitelist=${whitelist}`);
   }
@@ -427,12 +446,10 @@ function runTesseract(canvas, { whitelist, psm = 6, tsv = false } = {}) {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } finally {
-    for (const e of ['.png', '.tsv']) {
-      try {
-        fs.unlinkSync(tmp + e);
-      } catch {
-        /* best-effort cleanup: temp file may already be gone */
-      }
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort cleanup: temp files may already be gone */
     }
   }
 }
@@ -628,13 +645,15 @@ export function parseSaneDate(text) {
   const day = +match[1],
     month = +match[2],
     year = +match[3];
+  if (year < 1980 || year > 2035) {
+    return null;
+  }
+  // A real calendar day: 31.04 or 30.02 is a misread, not a date.
+  const date = new Date(Date.UTC(year, month - 1, day));
   if (
-    day < 1 ||
-    day > 31 ||
-    month < 1 ||
-    month > 12 ||
-    year < 1980 ||
-    year > 2035
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
   ) {
     return null;
   }
@@ -741,109 +760,6 @@ export function readIssueDate(
 // ===========================================================================
 // MRZ (TD3)
 // ===========================================================================
-
-function mrzVal(ch) {
-  if (ch === '<') {
-    return 0;
-  }
-  if (ch >= '0' && ch <= '9') {
-    return ch.charCodeAt(0) - 48;
-  }
-  return ch.charCodeAt(0) - 55;
-}
-function mrzCheck(str) {
-  const w = [7, 3, 1];
-  let s = 0;
-  for (let i = 0; i < str.length; i++) {
-    s += mrzVal(str[i]) * w[i % 3];
-  }
-  return s % 10;
-}
-const yy = (y) => {
-  const n = +y;
-  return n <= 30 ? 2000 + n : 1900 + n;
-};
-
-// Force a substring to digits, fixing the common OCR letter->digit confusions
-// that occur in numeric MRZ fields (O->0, I/L->1, B->8, S->5, etc.).
-const L2D = {
-  O: '0',
-  Q: '0',
-  D: '0',
-  I: '1',
-  L: '1',
-  Z: '2',
-  B: '8',
-  S: '5',
-  G: '6',
-  T: '7',
-  A: '4',
-  '<': '0',
-};
-const toDigits = (s) =>
-  s
-    .split('')
-    .map((c) => (/\d/.test(c) ? c : (L2D[c] ?? c)))
-    .join('');
-
-export function parseMrzLine2(raw) {
-  const s = raw.replace(/[^A-Z0-9<]/g, '');
-  // Match the TD3 line-2 shape allowing letters in numeric fields (OCR may have
-  // misread digits as letters). The optional extra char after nationality
-  // absorbs a stray inserted glyph seen on some scans.
-  const shapes = [
-    /^([A-Z0-9<]{9})([\dA-Z])([A-Z<]{3})([\dA-Z]{6})([\dA-Z])([MFX<])([\dA-Z]{6})([\dA-Z])/,
-    /^([A-Z0-9<]{9})([\dA-Z])([A-Z<]{3})[\dA-Z]([\dA-Z]{6})([\dA-Z])([MFX<])([\dA-Z]{6})([\dA-Z])/,
-  ];
-  let g = null;
-  for (const re of shapes) {
-    g = s.match(re);
-    if (g) {
-      break;
-    }
-  }
-  if (!g) {
-    return null;
-  }
-
-  // Coerce the numeric fields to digits (fixing O->0, I->1, B->8, ...).
-  const passport = toDigits(g[1]);
-  const cP = toDigits(g[2]);
-  const nat = g[3];
-  const dob = toDigits(g[4]);
-  const cD = toDigits(g[5]);
-  const sex = g[6] === '<' ? '' : g[6];
-  const exp = toDigits(g[7]);
-  const cE = toDigits(g[8]);
-
-  return {
-    passportNumber: passport.replace(/</g, ''),
-    passportCheckOk: mrzCheck(passport) === +cP,
-    nationality: nat.replace(/</g, ''),
-    dob: `${String(yy(dob.slice(0, 2))).padStart(4, '0')}-${dob.slice(2, 4)}-${dob.slice(4, 6)}`,
-    dobCheckOk: mrzCheck(dob) === +cD,
-    sex,
-    expiry: `${yy(exp.slice(0, 2))}-${exp.slice(2, 4)}-${exp.slice(4, 6)}`,
-    expiryCheckOk: mrzCheck(exp) === +cE,
-  };
-}
-
-export function parseMrzLine1(raw) {
-  const s = raw.replace(/[^A-Z<]/g, '');
-  const m = s.match(/^P[A-Z<]?([A-Z]{3})([A-Z<]+)$/);
-  if (!m) {
-    return null;
-  }
-  const parts = m[2].replace(/<+$/, '').split(/<<+/);
-  const clean = (t) =>
-    (t || '')
-      .replace(/</g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 1)
-      .join(' ')
-      .trim();
-  return { issuer: m[1], surname: clean(parts[0]), given: clean(parts[1]) };
-}
 
 // convenience for tests: save any canvas to a file
 export function save(canvas, file) {

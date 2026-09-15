@@ -93,9 +93,12 @@ const query =
   });
 
 function splitList(value) {
+  // A flag given without a value arrives as `true`; that is an empty list.
+  if (typeof value !== 'string') {
+    return [];
+  }
   // Split on commas not inside quotes; strip surrounding quotes.
-  return value
-    .match(/("[^"]*"|[^,]+)/g)
+  return (value.match(/("[^"]*"|[^,]+)/g) ?? [])
     .map((token) => token.trim().replace(/^["']|["']$/g, ''))
     .filter(Boolean);
 }

@@ -73,14 +73,16 @@ if (!INPUT) {
 }
 // If no explicit output, mark the compressed copy with a -COMPRESSED suffix so
 // the untouched original is never overwritten.
+// The second argument is the size cap only when it is nothing but a number;
+// an output file named "2024-visa.pdf" is a file name.
+const isNumber = (value) => /^\d+(?:\.\d+)?$/.test(value ?? '');
 const OUTPUT =
-  process.argv[3] && !/^\d/.test(process.argv[3])
+  process.argv[3] && !isNumber(process.argv[3])
     ? process.argv[3]
     : `${INPUT.replace(/\.pdf$/i, '')}-COMPRESSED.pdf`;
 const MAX_BYTES =
   (parseFloat(
-    process.argv[4] ||
-      (/^\d/.test(process.argv[3] || '') ? process.argv[3] : '')
+    process.argv[4] || (isNumber(process.argv[3]) ? process.argv[3] : '')
   ) || 1.0) *
   1024 *
   1024;

@@ -1,7 +1,7 @@
 /**
  * Tests for deriving package identity from package.json.
- * Reproduces issue #42: release scripts must not use the template placeholder
- * package name after a repository changes package.json.
+ * Release scripts must not use the template placeholder package name when
+ * a repository has its own package.json.
  */
 
 import { describe, it, expect } from 'test-anywhere';

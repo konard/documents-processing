@@ -131,7 +131,7 @@ async function checkWaybackMachine(url) {
 /**
  * Format a timestamp from Wayback Machine (YYYYMMDDHHmmss) to readable date
  * @param {string} timestamp - e.g. "20231015143022"
- * @returns {string} - e.g. "2023-10-15"
+ * @returns {string} - the date part as YYYY-MM-DD
  */
 function formatTimestamp(timestamp) {
   if (!timestamp || timestamp.length < 8) {

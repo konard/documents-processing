@@ -1,6 +1,6 @@
 /**
  * Tests for --tag-prefix support in create-github-release.mjs and format-github-release.mjs
- * Reproduces issue #38: tag names should be configurable for multi-language repos
+ * Tag names should be configurable for multi-language repos
  */
 
 import { describe, it, expect } from 'test-anywhere';

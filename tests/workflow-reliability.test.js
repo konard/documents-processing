@@ -255,6 +255,38 @@ describe('workflow reliability policy', () => {
   });
 });
 
+describe('browser tests in the Linux runtime matrix', () => {
+  it('tests Bun first and Node.js second with Chromium installed', () => {
+    const workflow = readWorkflow('.github/workflows/release.yml');
+    const testJob = getJobBlock(workflow, 'test');
+
+    expect(testJob).toContain('name: Test (${{ matrix.runtime }} on Linux)');
+    expect(testJob).toContain('runs-on: ubuntu-latest');
+    expect(testJob).toContain('runtime: [bun, node]');
+    expect(testJob).not.toContain('matrix.os');
+    expect(testJob).not.toContain('macos-latest');
+    expect(testJob).not.toContain('windows-latest');
+    expectOrdered(testJob, [
+      '- name: Install dependencies (Node.js)',
+      '- name: Install Chromium (Node.js)',
+      '- name: Run tests (Node.js)',
+    ]);
+    expectOrdered(testJob, [
+      '- name: Install dependencies (Bun)',
+      '- name: Install Chromium (Bun)',
+      '- name: Run tests (Bun)',
+    ]);
+    expect(testJob).toContain(
+      'run: npx playwright install --with-deps chromium'
+    );
+    expect(testJob).toContain(
+      'run: bunx playwright install --with-deps chromium'
+    );
+    expect(testJob).not.toContain("matrix.runtime == 'deno'");
+    expect(testJob).not.toContain('deno test');
+  });
+});
+
 describe('release workflow change gates', () => {
   it('skips the slow test matrix for pull requests with no code changes', () => {
     const workflow = readWorkflow('.github/workflows/release.yml');

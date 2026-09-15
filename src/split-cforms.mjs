@@ -101,7 +101,10 @@ for (const p of pages) {
   out.addPage(copied);
 
   const fileName = `${p.base}${OUT_SUFFIX}`;
-  fs.writeFileSync(path.join(OUT_DIR, fileName), await out.save());
+  fs.writeFileSync(
+    path.join(OUT_DIR, fileName),
+    await out.save({ useObjectStreams: false })
+  );
   written++;
   console.log(
     `✓ ${fileName}  (${p.surname} ${p.given}, source page ${p.index + 1})`

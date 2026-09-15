@@ -48,6 +48,10 @@ import {
   takeCaptchaResumeStage,
 } from './evisa-arrival-captcha-stage.mjs';
 import { confirmDeclarationReview } from './evisa-arrival-review.mjs';
+import {
+  arrivalDateOverride,
+  declarationFor,
+} from './evisa-arrival-declaration.mjs';
 
 export {
   arrivalAnswerFor,
@@ -56,6 +60,7 @@ export {
 export { declarationFiler } from './evisa-arrival-filing.mjs';
 export { declarationEmailCodeTaker } from './evisa-arrival-email-stage.mjs';
 export { confirmDeclarationReview } from './evisa-arrival-review.mjs';
+export { arrivalDateOverride, declarationFor };
 
 /**
  * The arrival gate the ticket lands at, as the declaration names it.
@@ -75,51 +80,6 @@ export function gateFromTicket(ticket = {}) {
     return 'Da Nang Int Airport (Da Nang)';
   }
   return null;
-}
-
-/**
- * An arrival date to use in place of the traveller's own, for a rehearsal.
- *
- * `EVISA_ARRIVAL_DATE_OVERRIDE=14/09/2026` makes the bot fill the form for a
- * day the site is willing to offer, so every other field can be watched going
- * in against the real record. A flight three days out cannot be declared yet,
- * and waiting until it can is a poor moment to discover a field the site
- * refuses.
- *
- * It is a rehearsal and nothing more. The declaration is never sent — the
- * last press belongs to the traveller either way — so the date on the screen
- * is a date nobody files. It must be taken out before the real filing, and
- * the bot says so in the log every time it is used.
- */
-export function arrivalDateOverride(env = process.env) {
-  const said = String(env.EVISA_ARRIVAL_DATE_OVERRIDE ?? '').trim();
-  return /^\d{2}\/\d{2}\/\d{4}$/.test(said) ? said : null;
-}
-
-/**
- * Everything known about the traveller, in the names the declaration uses.
- *
- * The application record, the granted visa and the ticket each supply part of
- * it, and what none of them holds is what the chat is asked for.
- */
-export function declarationFor(session = {}, { log, chatId } = {}) {
-  const data = session.data ?? {};
-  const applicant = { ...data, fullName: fullNameOf(data) };
-  const { values, missing } = buildDeclaration(applicant);
-  const rehearsal = arrivalDateOverride();
-  if (rehearsal) {
-    // Said every time, and loudly: a rehearsal that is mistaken for the real
-    // filing is worse than no rehearsal, because the traveller believes their
-    // declaration is in.
-    log?.(
-      chatId,
-      `REHEARSAL: arrival date forced to ${rehearsal} (the record says ` +
-        `${values.arrivalDate ?? 'nothing'}); this declaration is not filed`
-    );
-    values.arrivalDate = rehearsal;
-    applicant.arrivalDate = rehearsal;
-  }
-  return { applicant, values, missing, rehearsal };
 }
 
 /**
@@ -471,11 +431,15 @@ export async function fillAndShow({
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
   const held = session.arrival;
-  const { applicant, values, rehearsal } = declarationFor(session, {
-    log,
-    chatId,
-  });
+  const { applicant, values, rehearsal, nameCorrections } = declarationFor(
+    session,
+    {
+      log,
+      chatId,
+    }
+  );
   held.rehearsal = rehearsal;
+  held.nameCorrections = nameCorrections;
 
   // The nationality gates the whole form: the site draws no field until one
   // is chosen. Without it there is nothing to type into yet, so the prepared
@@ -623,6 +587,7 @@ export async function fillAndShow({
       : '',
     tooEarly,
     expired,
+    nameCorrections,
   });
   held.pageDelivered = await sendArrivalAnswer({
     ctx,
@@ -1065,6 +1030,7 @@ async function sendCheckpoint({
       describeFilled,
       ready,
       refused,
+      nameCorrections: capture.at === 0 ? held.nameCorrections : [],
       rehearsal: held.rehearsal
         ? strings.arrivalRehearsal(
             held.rehearsal,

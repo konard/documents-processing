@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import sharp from 'sharp';
 import {
   configuredDownloadsDirectory,
   DECLARATION_PDF_NAME,
@@ -45,12 +46,16 @@ describe('declaration result delivery', () => {
       keepBrowserDownloads(page, directory);
       await page.setContent(`
         <h1>Your submission is successful!</h1>
-        <section><canvas id="qr" width="220" height="220"></canvas>
+        <section><img id="qr" alt="QR Code" width="220" height="220"
+          style="border: 2px solid #ddd; border-radius: 12px; padding: 6px">
           <p>You can save this QR code to look up your declaration later</p></section>
         <button id="download">Download PDF Pre-Arrival Information</button>
         <script>
-          const canvas = document.querySelector('#qr');
+          const canvas = document.createElement('canvas');
+          canvas.width = 250;
+          canvas.height = 250;
           canvas.getContext('2d').fillRect(0, 0, 220, 220);
+          document.querySelector('#qr').src = canvas.toDataURL('image/png');
           document.querySelector('#download').addEventListener('click', () => {
             const pdf = new Blob(['%PDF-1.3\\n%%EOF'], { type: 'application/pdf' });
             const link = document.createElement('a');
@@ -92,15 +97,22 @@ describe('declaration result delivery', () => {
       expect(markup[0].chatId).toBe(7);
       expect(markup[0].moment).toBe('arrival-result');
       expect(markup[0].html).toContain('Your submission is successful!');
-      expect(replies).toEqual([MESSAGES.en.arrivalFiled]);
+      expect(replies).toEqual([]);
       expect(documents.length).toBe(1);
       expect(documents[0].file.filename).toBe(DECLARATION_PDF_NAME);
+      expect(documents[0].options.caption).toBe(
+        `${MESSAGES.en.arrivalFiled}\n\n${MESSAGES.en.arrivalResultPdf}`
+      );
       expect(fs.readFileSync(documents[0].file.source, 'utf8')).toContain(
         '%PDF-'
       );
       expect(photos.length).toBe(1);
       expect(photos[0].file.filename).toBe(DECLARATION_QR_NAME);
       expect(photos[0].file.source.subarray(1, 4).toString()).toBe('PNG');
+      const qrMetadata = await sharp(photos[0].file.source).metadata();
+      expect(qrMetadata.width).toBe(250);
+      expect(qrMetadata.height).toBe(250);
+      expect(photos[0].options.caption).toBe(MESSAGES.en.arrivalResultQr);
     } finally {
       await browser.close();
       fs.rmSync(directory, { recursive: true, force: true });

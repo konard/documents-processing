@@ -111,6 +111,14 @@ export const MESSAGES = {
       ]),
     arrivalPassportUnread:
       'The site could not reread the passport image; check the passport values.',
+    arrivalNameAdjusted: (corrections) =>
+      '⚠️ The site does not accept hyphens in names, so I replaced them ' +
+      `with spaces:\n${corrections
+        .map(
+          ({ key, from, to }) =>
+            `• ${key === 'surname' ? 'surname' : 'given names'}: ${from} → ${to}`
+        )
+        .join('\n')}`,
     arrivalPageRefused: (page, why) =>
       [
         `The site would not accept <b>${page}</b>.`,
@@ -124,7 +132,6 @@ export const MESSAGES = {
     arrivalPageIncomplete: () =>
       'Send the missing details, corrections, or optional details as text or ' +
       'a document, and I will refill it. The browser stays open.',
-    arrivalFiling: 'Filing the declaration now.',
     arrivalEmailCode:
       'The site sent a six-digit code to your email. Send that code here.',
     arrivalEmailCodeAgain:
@@ -521,6 +528,14 @@ export const MESSAGES = {
         compactLine('вылет из Вьетнама', values.departureDate),
       ]),
     arrivalPassportUnread: 'Сайт не перечитал паспорт; проверьте данные.',
+    arrivalNameAdjusted: (corrections) =>
+      '⚠️ Сайт не принимает дефисы в именах, поэтому они заменены ' +
+      `пробелами:\n${corrections
+        .map(
+          ({ key, from, to }) =>
+            `• ${key === 'surname' ? 'фамилия' : 'имя и отчество'}: ${from} → ${to}`
+        )
+        .join('\n')}`,
     arrivalPageRefused: (page, why) =>
       [
         `Сайт не принял страницу <b>${page}</b>.`,
@@ -534,7 +549,6 @@ export const MESSAGES = {
     arrivalPageIncomplete: () =>
       'Пришлите недостающее, исправления или необязательные сведения текстом ' +
       'либо документом — заполню снова. Браузер остаётся открытым.',
-    arrivalFiling: 'Подаю декларацию.',
     arrivalEmailCode:
       'Сайт отправил шестизначный код на вашу электронную почту. Пришлите ' +
       'этот код сюда.',

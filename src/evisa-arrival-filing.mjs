@@ -63,7 +63,6 @@ export function declarationFiler(deps) {
         });
         return false;
       }
-      await ctx.reply(strings.arrivalFiling).catch(() => {});
       const out = await fileDeclaration(held.page, {
         confirmed: true,
         log: (said) => log(chatId, said),

@@ -37,6 +37,7 @@ function answerFor(one, options = {}) {
     rehearsal: options.rehearsal ?? '',
     tooEarly: options.tooEarly ?? null,
     expired: options.expired ?? false,
+    nameCorrections: options.nameCorrections ?? [],
   });
 }
 
@@ -193,6 +194,28 @@ describe('one readable answer for each arrival page', () => {
     expect(unread.caption).toContain(MESSAGES.ru.arrivalPassportUnread);
     expect(failed.caption).not.toContain(MESSAGES.ru.arrivalPassportUnread);
     expect(failed.caption).toContain('фото паспорта');
+  });
+});
+
+describe('declaration-specific name corrections', () => {
+  it('warns on page 1 when unsupported name hyphens were replaced', () => {
+    const answer = answerFor(
+      capture(0, { fullName: '[REDACTED]' }),
+      {
+        nameCorrections: [
+          {
+            key: 'givenName',
+            from: '[REDACTED]',
+            to: '[REDACTED]',
+          },
+        ],
+      }
+    );
+
+    expect(answer.caption).toContain('[REDACTED]');
+    expect(answer.caption).toContain('[REDACTED]');
+    expect(answer.caption).toContain('Сайт не принимает дефисы');
+    expect(answer.caption.endsWith(MESSAGES.ru.arrivalPageReady)).toBe(true);
   });
 });
 

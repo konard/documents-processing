@@ -27,6 +27,7 @@ export function arrivalAnswerFor({
   rehearsal = '',
   tooEarly = null,
   expired = false,
+  nameCorrections = [],
 }) {
   const values = reportableValues(capture);
   const at = capture.at ?? 0;
@@ -57,6 +58,9 @@ export function arrivalAnswerFor({
     strings.arrivalPageOf(at + 1, 3, title),
     tooEarly || expired ? '' : summary,
     status.details,
+    at === 0 && nameCorrections.length
+      ? strings.arrivalNameAdjusted?.(escapedNameCorrections(nameCorrections))
+      : '',
     describeArrivalWarnings(capture, strings),
     describeDocumentIssues(session, strings),
     status.instruction,
@@ -68,6 +72,22 @@ export function arrivalAnswerFor({
     shot: capture.shot ?? null,
     instruction: status.instruction,
   };
+}
+
+/** Name edits required by the declaration, safe for a Telegram HTML caption. */
+function escapedNameCorrections(corrections = []) {
+  return corrections.map(({ key, from, to }) => ({
+    key,
+    from: escapeText(from),
+    to: escapeText(to),
+  }));
+}
+
+function escapeText(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 /** Non-blocking fill failures that belong beside the page where they arose. */

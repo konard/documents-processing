@@ -93,7 +93,7 @@ export async function downloadDeclarationPdf(
   }
 }
 
-/** Captures only the large result QR, excluding logos and step icons. */
+/** Extracts the original result QR, excluding its decorative browser card. */
 export async function captureDeclarationQr(page) {
   const found = await page.evaluate(() => {
     // This callback runs in the browser, where document is the page under test.
@@ -126,13 +126,30 @@ export async function captureDeclarationQr(page) {
       .sort((left, right) => right.score - left.score);
     const chosen = candidates[0]?.element;
     if (!chosen) {
-      return false;
+      return null;
+    }
+    const tag = chosen.tagName.toLowerCase();
+    if (tag === 'img') {
+      const source = chosen.getAttribute('src') ?? '';
+      if (/^data:image\/png;base64,/i.test(source)) {
+        return { dataUrl: source };
+      }
+    }
+    if (tag === 'canvas') {
+      return { dataUrl: chosen.toDataURL('image/png') };
     }
     chosen.setAttribute('data-evisa-result-qr', 'true');
-    return true;
+    return { screenshot: true };
   });
   if (!found) {
     throw new Error('the result page has no QR code image');
+  }
+  if (found.dataUrl) {
+    const encoded = /^data:image\/png;base64,(.+)$/is.exec(found.dataUrl)?.[1];
+    if (!encoded) {
+      throw new Error('the result QR code is not a readable PNG');
+    }
+    return Buffer.from(encoded, 'base64');
   }
   return page.locator('[data-evisa-result-qr="true"]').screenshot({
     type: 'png',
@@ -172,7 +189,7 @@ export async function collectDeclarationResult({
   return result;
 }
 
-/** Sends success, PDF and QR as three independent Telegram messages. */
+/** Sends success on an artifact, keeping PDF and QR independently usable. */
 export async function sendDeclarationResult({
   ctx,
   chatId,
@@ -190,28 +207,32 @@ export async function sendDeclarationResult({
     keepMarkup,
     log: (said) => log(chatId, said),
   });
-  await ctx.reply(strings.arrivalFiled).catch((error) => {
-    log(chatId, `filing success message could not be sent: ${error.message}`);
-  });
+  let announced = false;
   if (result.pdf) {
-    await ctx
-      .replyWithDocument(new InputFile(result.pdf.file, DECLARATION_PDF_NAME), {
-        caption: strings.arrivalResultPdf,
-      })
-      .catch((error) => {
-        result.failures.push({ artifact: 'PDF', why: error.message });
-        log(chatId, `result PDF could not be sent: ${error.message}`);
-      });
+    try {
+      await ctx.replyWithDocument(
+        new InputFile(result.pdf.file, DECLARATION_PDF_NAME),
+        { caption: `${strings.arrivalFiled}\n\n${strings.arrivalResultPdf}` }
+      );
+      announced = true;
+    } catch (error) {
+      result.failures.push({ artifact: 'PDF', why: error.message });
+      log(chatId, `result PDF could not be sent: ${error.message}`);
+    }
   }
   if (result.qr) {
-    await ctx
-      .replyWithPhoto(new InputFile(result.qr, DECLARATION_QR_NAME), {
-        caption: strings.arrivalResultQr,
-      })
-      .catch((error) => {
-        result.failures.push({ artifact: 'QR code', why: error.message });
-        log(chatId, `result QR code could not be sent: ${error.message}`);
+    try {
+      const caption = announced
+        ? strings.arrivalResultQr
+        : `${strings.arrivalFiled}\n\n${strings.arrivalResultQr}`;
+      await ctx.replyWithPhoto(new InputFile(result.qr, DECLARATION_QR_NAME), {
+        caption,
       });
+      announced = true;
+    } catch (error) {
+      result.failures.push({ artifact: 'QR code', why: error.message });
+      log(chatId, `result QR code could not be sent: ${error.message}`);
+    }
   }
   if (result.failures.length) {
     await ctx
@@ -221,6 +242,10 @@ export async function sendDeclarationResult({
         ])
       )
       .catch(() => {});
+  } else if (!announced) {
+    await ctx.reply(strings.arrivalFiled).catch((error) => {
+      log(chatId, `filing success message could not be sent: ${error.message}`);
+    });
   }
   if (result.temporary) {
     fs.rmSync(result.directory, { recursive: true, force: true });

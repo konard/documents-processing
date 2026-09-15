@@ -429,7 +429,7 @@ describe('final declaration confirmation', () => {
     expect(session.arrival.stage).toBe('captcha');
     expect(session.arrival.resumeStage).toBe('review');
     expect(captchas).toEqual([MESSAGES.ru.arrivalCaptchaContinue]);
-    expect(replies).toEqual([MESSAGES.ru.arrivalFiling]);
+    expect(replies).toEqual([]);
     expect(replies.join('\n')).not.toContain('недоста');
   });
 
@@ -451,10 +451,7 @@ describe('final declaration confirmation', () => {
       false
     );
     expect(session.arrival.stage).toBe('email-code');
-    expect(replies).toEqual([
-      MESSAGES.ru.arrivalFiling,
-      MESSAGES.ru.arrivalEmailCode,
-    ]);
+    expect(replies).toEqual([MESSAGES.ru.arrivalEmailCode]);
     expect(replies.join('\n')).not.toContain('site stayed');
   });
 

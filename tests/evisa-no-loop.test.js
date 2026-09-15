@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'test-anywhere';
-import { readFileSync } from 'node:fs';
+import { readSource } from './source-text.js';
 import { MENU } from '../src/evisa-start.mjs';
 import { whatToAsk } from '../src/evisa-lookup.mjs';
 import { MESSAGES } from '../src/evisa-messages.mjs';
 
-const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+const runner = readSource('src/evisa-bot-run.mjs');
 
 describe('nothing fills or sends the form on its own', () => {
   it('fills only when something arrived from the applicant', async () => {
@@ -116,7 +116,7 @@ describe('nothing fills or sends the form on its own', () => {
   it('sends nothing when a fill wrote what the last one wrote', () => {
     // A field the site refuses stays refused, so the same form is not sent
     // over and over; the applicant is told which field and asked.
-    const pageFiller = readFileSync('src/evisa-page-filler.mjs', 'utf8');
+    const pageFiller = readSource('src/evisa-page-filler.mjs');
     expect(pageFiller.includes('session.lastFill')).toBe(true);
     expect(runner.includes('tellWhatIsStuck')).toBe(true);
   });
@@ -150,7 +150,7 @@ describe('nothing fills or sends the form on its own', () => {
   it('reads documents at the same time, and fills after all of them', () => {
     // Forwarded documents land in the same second. Each is read at once, and
     // the fill waits for the quiet window with no reading left running.
-    const batch = readFileSync('src/evisa-batch.mjs', 'utf8');
+    const batch = readSource('src/evisa-batch.mjs');
     expect(batch.includes('state.reading.size')).toBe(true);
     // A reading registers with the batcher, so the window waits for it.
     expect(runner.includes('batch.reading(ctx.chat.id')).toBe(true);
@@ -162,8 +162,8 @@ describe('nothing fills or sends the form on its own', () => {
     // a sentence the applicant typed, handled where typed details are taken.
     const sent =
       runner +
-      readFileSync('src/evisa-details.mjs', 'utf8') +
-      readFileSync('src/evisa-document-receiver.mjs', 'utf8');
+      readSource('src/evisa-details.mjs') +
+      readSource('src/evisa-document-receiver.mjs');
     const cleared = sent.match(/session\.lastFill = null/g) ?? [];
     expect(cleared.length >= 2).toBe(true);
     const untold = sent.match(/session\.toldWhatIsStuck = false/g) ?? [];
@@ -269,7 +269,7 @@ describe('asking the bot to stop', () => {
     // Reached through the text handler, "/stop" arrived after the quiet
     // window had already been opened for it — so asking the bot to stop was
     // also asking it to wait twenty seconds and then fill.
-    const commands = readFileSync('src/evisa-commands.mjs', 'utf8');
+    const commands = readSource('src/evisa-commands.mjs');
     expect(commands.includes("for (const name of ['stop', 'cancel'])")).toBe(
       true
     );
@@ -281,7 +281,7 @@ describe('asking the bot to stop', () => {
   it('does not open the quiet window on its way past', () => {
     // A word that means stopping is not a reason to start filling, and
     // neither is a command: this handler sees those too.
-    const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    const runner = readSource('src/evisa-bot-run.mjs');
     const handler = runner.slice(runner.indexOf("bot.on('message:text'"));
     const body = handler.slice(0, handler.indexOf('\n});'));
     expect(body.includes('isCancellation(ctx.message.text)')).toBe(true);
@@ -296,8 +296,8 @@ describe('asking the bot to stop', () => {
 });
 
 describe('the commands the bot answers to', () => {
-  const commands = readFileSync('src/evisa-commands.mjs', 'utf8');
-  const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+  const commands = readSource('src/evisa-commands.mjs');
+  const runner = readSource('src/evisa-bot-run.mjs');
 
   it('names each one for the half of the work it does', () => {
     // "/visa" said nothing about whether it filled an application or
@@ -347,7 +347,7 @@ describe('the commands the bot answers to', () => {
   it('asks for a lookup´s code in its own words', () => {
     // The form's captcha says the application is about to be filed, which
     // is not what a lookup does.
-    const documents = readFileSync('src/evisa-documents.mjs', 'utf8');
+    const documents = readSource('src/evisa-documents.mjs');
     expect(documents.includes('strings.lookupCaptchaAsk')).toBe(true);
   });
 
@@ -369,7 +369,7 @@ describe('the commands the bot answers to', () => {
     // The page takes seconds to load and the applicant takes longer than
     // that to copy three things out of their email. Run together, the two
     // waits cost only the longer of them.
-    const lookup = readFileSync('src/evisa-lookup.mjs', 'utf8');
+    const lookup = readSource('src/evisa-lookup.mjs');
     const at = lookup.indexOf('async function startLookup');
     const body = lookup.slice(at, lookup.indexOf('\n  }\n', at));
     expect(body.includes('openBrowserEarly(chatId)')).toBe(true);
@@ -384,7 +384,7 @@ describe('the commands the bot answers to', () => {
     // Looking one up is rarely looking up only one. The chat stays in the
     // lookup, so another number starts the next without the command again;
     // what is cleared is the search the site answered.
-    const documents = readFileSync('src/evisa-documents.mjs', 'utf8');
+    const documents = readSource('src/evisa-documents.mjs');
     const at = documents.indexOf('application status: ');
     const before = documents.slice(Math.max(0, at - 400), at);
     expect(before.includes('session.lookingUp = null')).toBe(true);

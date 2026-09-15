@@ -17,6 +17,10 @@ import path from 'node:path';
 
 const DAY_MS = 86_400_000;
 
+/** POSIX access modes requested for the persisted application data. */
+export const PRIVATE_DIRECTORY_MODE = 0o700;
+export const PRIVATE_FILE_MODE = 0o600;
+
 /**
  * Builds the keeper the session store writes through.
  *
@@ -62,12 +66,12 @@ export function keepCollectedValues({
       if (!valuesAllowed()) {
         return Promise.resolve();
       }
-      fs.mkdirSync(where, { recursive: true, mode: 0o700 });
+      fs.mkdirSync(where, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
       const said = JSON.stringify({ at: new Date().toISOString(), data });
       // Written beside the file and moved over it, so a bot killed mid-write
       // leaves the previous values whole.
       const temporary = `${fileFor(chatId)}.writing`;
-      fs.writeFileSync(temporary, said, { mode: 0o600 });
+      fs.writeFileSync(temporary, said, { mode: PRIVATE_FILE_MODE });
       fs.renameSync(temporary, fileFor(chatId));
       return Promise.resolve();
     },

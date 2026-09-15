@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'test-anywhere';
-import { readFileSync } from 'node:fs';
+import { readSource } from './source-text.js';
 import { isCommand } from '../src/evisa-lookup.mjs';
 import {
   MODES,
@@ -8,7 +8,7 @@ import {
   captchaIsForLookup,
 } from '../src/evisa-mode.mjs';
 
-const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+const runner = readSource('src/evisa-bot-run.mjs');
 
 /** A message as Telegram sends it, with the command marked at the start. */
 const commandMessage = (text) => ({
@@ -67,7 +67,7 @@ describe('a lookup opens no application', () => {
   it('opens the browser with no page loaded for a lookup', () => {
     // A lookup needs a browser, not a form. Opening the form for one left an
     // empty application in the chat's page, and it was photographed.
-    const documents = readFileSync('src/evisa-documents.mjs', 'utf8');
+    const documents = readSource('src/evisa-documents.mjs');
     expect(documents.includes('pageFor(chatId, { blank: !held })')).toBe(true);
   });
 
@@ -193,11 +193,11 @@ describe('a lookup never fills in a form', () => {
   it('says which job every entry point puts the chat into', () => {
     // The whole point of the split: each command names its own mode, so
     // nothing has to be inferred from whichever flags happen to be set.
-    const commands = readFileSync('src/evisa-commands.mjs', 'utf8');
-    const lookup = readFileSync('src/evisa-lookup.mjs', 'utf8');
+    const commands = readSource('src/evisa-commands.mjs');
+    const lookup = readSource('src/evisa-lookup.mjs');
     // The arrival card is filed on its own site; its command lives with the
     // declaration it draws.
-    const prearrival = readFileSync('src/evisa-prearrival.mjs', 'utf8');
+    const prearrival = readSource('src/evisa-prearrival.mjs');
     expect(lookup.includes('MODES.lookingUp')).toBe(true);
     expect(commands.includes('MODES.filling')).toBe(true);
     expect(prearrival.includes('MODES.arriving')).toBe(true);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'test-anywhere';
-import { readFileSync } from 'node:fs';
+import { readSource } from './source-text.js';
 import {
   spellingsOf,
   valuesToRedact,
@@ -169,7 +169,7 @@ describe('checking a repository after a rewrite', () => {
     // for putting it in, so a finished rewrite named every commit it had
     // just mended and read as having done nothing at all. What matters is
     // whether any tree still contains the value.
-    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const tool = readSource('src/redact-history.mjs');
     const at = tool.indexOf('function commitsHolding');
     const body = tool.slice(at, tool.indexOf('\n}\n', at));
     expect(body.includes("'grep'")).toBe(true);
@@ -179,7 +179,7 @@ describe('checking a repository after a rewrite', () => {
   it('leaves the undo refs out of the search', () => {
     // filter-branch keeps the history as it was under refs/original so a
     // rewrite can be undone. Searching those reports the leak for ever.
-    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const tool = readSource('src/redact-history.mjs');
     const at = tool.indexOf('function commitsHolding');
     const body = tool.slice(at, tool.indexOf('\n}\n', at));
     expect(body.includes("'--branches', '--remotes'")).toBe(true);
@@ -189,7 +189,7 @@ describe('checking a repository after a rewrite', () => {
   it('takes the backup itself, so a run cannot start without one', () => {
     // The ids all change and every clone breaks, so there is one chance to
     // have kept the history as it was. The script takes it.
-    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const tool = readSource('src/redact-history.mjs');
     expect(tool.includes('function takeBackup')).toBe(true);
     expect(tool.includes("'clone', '--mirror'")).toBe(true);
     expect(tool.includes('repo.git')).toBe(true);
@@ -199,7 +199,7 @@ describe('checking a repository after a rewrite', () => {
     // The push is the irreversible half, so nothing reaches the remote on a
     // promise: the history is searched again and the tests are run, and
     // either failing stops the run with nothing pushed.
-    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const tool = readSource('src/redact-history.mjs');
     const at = tool.indexOf('function rewriteAndPublish');
     const body = tool.slice(at, tool.indexOf('\n}\n', at));
     const verified = body.indexOf('commitsHolding(repo, wanted, chosen)');
@@ -217,7 +217,7 @@ describe('checking a repository after a rewrite', () => {
     // test left asserting on [REDACTED] has stopped saying anything. So the
     // tree is reported first, for a person to replace by hand with something
     // of the same shape that belongs to nobody.
-    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const tool = readSource('src/redact-history.mjs');
     const at = tool.indexOf('export function treeHolding');
     const body = tool.slice(at, tool.indexOf('\n}\n', at));
     expect(body.includes("'ls-files'")).toBe(true);
@@ -231,7 +231,7 @@ describe('checking a repository after a rewrite', () => {
   it('runs the repository´s own tests, not a check of its own', () => {
     // A check written here would drift from what the repository actually
     // requires. What it runs is what anybody runs.
-    const tool = readFileSync('src/redact-history.mjs', 'utf8');
+    const tool = readSource('src/redact-history.mjs');
     expect(tool.includes("execFileSync('npm', ['test']")).toBe(true);
   });
 });

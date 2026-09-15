@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'test-anywhere';
-import { readFileSync } from 'node:fs';
+import { readSource } from './source-text.js';
 import {
   matchWard,
   parseVietnamAddress,
 } from '../src/evisa-vietnam-address.mjs';
 import { FIELD_SECTIONS, groupBySection } from '../src/evisa-sections.mjs';
 
-const fill = readFileSync('src/evisa-fill.mjs', 'utf8');
+const fill = readSource('src/evisa-fill.mjs');
 
 // The wards the live form offers for KHANH HOA, read off the page. Viet Nam
 // merged its wards, so LOC THO — which a booking still names — is not among
@@ -101,14 +101,14 @@ describe('what the list under the form says', () => {
     // the ward that replaced it. The picture showed NHA TRANG WARD and the
     // list under it said LOC THO, which reads as the bot having ignored the
     // form it had just filled.
-    const fill = readFileSync('src/evisa-fill.mjs', 'utf8');
+    const fill = readSource('src/evisa-fill.mjs');
     const form = fill.slice(fill.indexOf('export async function fillForm'));
     const body = form.slice(0, form.indexOf('\n}\n'));
     // The fill reads the form back off the page, so what the applicant is
     // told is the form itself and not what the fill meant to write.
     expect(body.includes('placed: await readFilledFields(page)')).toBe(true);
 
-    const session = readFileSync('src/evisa-session.mjs', 'utf8');
+    const session = readSource('src/evisa-session.mjs');
     const bySection = session.slice(
       session.indexOf('export async function fillBySection')
     );
@@ -117,7 +117,7 @@ describe('what the list under the form says', () => {
       bySection.includes('Object.assign(result.placed, from.placed ?? {})')
     ).toBe(true);
 
-    const run = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    const run = readSource('src/evisa-bot-run.mjs');
     // And the list is written from them.
     expect(run.includes('{ ...applicant, ...result.placed }')).toBe(true);
   });

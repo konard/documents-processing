@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'test-anywhere';
-import { readFileSync } from 'node:fs';
+import { readSource } from './source-text.js';
 import { sectionName } from '../src/evisa-bot.mjs';
 import * as sectionsModule from '../src/evisa-sections.mjs';
 
-const session = readFileSync('src/evisa-session.mjs', 'utf8');
+const session = readSource('src/evisa-session.mjs');
 
 // The headings exactly as the live form prints them, taken off the page: the
 // images heading in sentence case, and section eight with a typographic
@@ -157,7 +157,7 @@ describe('a part is captured as itself', () => {
 });
 
 describe('what the chat is sent', () => {
-  const sections = readFileSync('src/evisa-sections.mjs', 'utf8');
+  const sections = readSource('src/evisa-sections.mjs');
 
   it('puts a part´s name above its picture, in one message', () => {
     // The API draws a caption under a photo unless it is told otherwise, and
@@ -250,7 +250,7 @@ describe('a page with a dialog over it', () => {
     // The registration dialog opens over the review page. Cutting that page
     // into its parts then gives a white box with a corner of the dialog in
     // it, and the parts under it are ones the applicant has already seen.
-    const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+    const runner = readSource('src/evisa-bot-run.mjs');
     const press = runner.slice(runner.indexOf('function pressNextAndShow'));
     const body = press.slice(0, press.indexOf('\n}\n'));
     const guard = body.indexOf('if (!step.dialog)');
@@ -260,7 +260,7 @@ describe('a page with a dialog over it', () => {
 });
 
 describe('how a page reaches the chat', () => {
-  const runner = readFileSync('src/evisa-bot-run.mjs', 'utf8');
+  const runner = readSource('src/evisa-bot-run.mjs');
 
   it('sends a dialog as a picture, and a whole page as a file', () => {
     // A dialog is one screen: drawn in place, the applicant reads it where

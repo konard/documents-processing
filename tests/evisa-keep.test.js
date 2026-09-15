@@ -8,7 +8,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect } from 'test-anywhere';
-import { keepCollectedValues } from '../src/evisa-keep.mjs';
+import {
+  keepCollectedValues,
+  PRIVATE_DIRECTORY_MODE,
+  PRIVATE_FILE_MODE,
+} from '../src/evisa-keep.mjs';
 
 /**
  * A directory of its own for each test, removed after it.
@@ -98,8 +102,16 @@ describe('the values kept between runs', () => {
       const keep = openKeeper(dir);
       await keep.write(7, { surname: 'TRAVELLER' });
       const file = path.join(dir, 'collected', 'chat-7.json');
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-      expect(fs.statSync(path.dirname(file)).mode & 0o777).toBe(0o700);
+      expect(PRIVATE_FILE_MODE).toBe(0o600);
+      expect(PRIVATE_DIRECTORY_MODE).toBe(0o700);
+      // Windows controls access through ACLs and does not preserve POSIX mode
+      // bits. Unix platforms must expose the requested owner-only modes.
+      if (process.platform !== 'win32') {
+        expect(fs.statSync(file).mode & 0o777).toBe(PRIVATE_FILE_MODE);
+        expect(fs.statSync(path.dirname(file)).mode & 0o777).toBe(
+          PRIVATE_DIRECTORY_MODE
+        );
+      }
     });
   });
 

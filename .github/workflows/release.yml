@@ -298,6 +298,10 @@ jobs:
         if: matrix.runtime == 'node'
         run: npm install
 
+      - name: Install Chromium (Node.js)
+        if: matrix.runtime == 'node'
+        run: npx playwright install --with-deps chromium
+
       - name: Run tests (Node.js)
         if: matrix.runtime == 'node'
         run: npm test
@@ -312,6 +316,10 @@ jobs:
         if: matrix.runtime == 'bun'
         run: bun install
 
+      - name: Install Chromium (Bun)
+        if: matrix.runtime == 'bun'
+        run: bunx playwright install --with-deps chromium
+
       - name: Run tests (Bun)
         if: matrix.runtime == 'bun'
         # --timeout caps an individual test at 30s, matching Node's
@@ -324,12 +332,19 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Install dependencies (Deno)
+        if: matrix.runtime == 'deno'
+        run: deno install
+
+      - name: Install Chromium (Deno)
+        if: matrix.runtime == 'deno'
+        run: deno run -A npm:playwright@^1.62.1 install --with-deps chromium
+
       - name: Run tests (Deno)
         if: matrix.runtime == 'deno'
-        # Native modules (sharp, canvas) read the environment and load
-        # libraries, and the image tests write to the temp directory, so
-        # those permissions are granted alongside reading.
-        run: deno test --allow-read --allow-write --allow-env --allow-sys --allow-ffi
+        # The suite launches Chromium and git subprocesses in addition to
+        # loading native image modules and writing temporary fixtures.
+        run: deno test --allow-all
 
   # === DOCUMENTATION VALIDATION ===
   # Validate documentation files when docs change (hive-mind principle #12)

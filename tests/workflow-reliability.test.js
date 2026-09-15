@@ -255,6 +255,39 @@ describe('workflow reliability policy', () => {
   });
 });
 
+describe('browser tests in the runtime matrix', () => {
+  it('installs Chromium before browser tests in every runtime', () => {
+    const workflow = readWorkflow('.github/workflows/release.yml');
+    const testJob = getJobBlock(workflow, 'test');
+
+    expectOrdered(testJob, [
+      '- name: Install dependencies (Node.js)',
+      '- name: Install Chromium (Node.js)',
+      '- name: Run tests (Node.js)',
+    ]);
+    expectOrdered(testJob, [
+      '- name: Install dependencies (Bun)',
+      '- name: Install Chromium (Bun)',
+      '- name: Run tests (Bun)',
+    ]);
+    expectOrdered(testJob, [
+      '- name: Install dependencies (Deno)',
+      '- name: Install Chromium (Deno)',
+      '- name: Run tests (Deno)',
+    ]);
+    expect(testJob).toContain(
+      'run: npx playwright install --with-deps chromium'
+    );
+    expect(testJob).toContain(
+      'run: bunx playwright install --with-deps chromium'
+    );
+    expect(testJob).toContain(
+      'run: deno run -A npm:playwright@^1.62.1 install --with-deps chromium'
+    );
+    expect(testJob).toContain('run: deno test --allow-all');
+  });
+});
+
 describe('release workflow change gates', () => {
   it('skips the slow test matrix for pull requests with no code changes', () => {
     const workflow = readWorkflow('.github/workflows/release.yml');

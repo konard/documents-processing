@@ -264,19 +264,28 @@ export async function sendOutcome({
   // second loop beside the fill's overwrites it every three seconds, and
   // when this one stops the chat is left blank until the other's next tick.
   // The fill's own status covers the upload, which is part of the fill.
-  const documentSent = await Promise.race([
-    ctx
-      .replyWithDocument(new InputFile(result.screenshot, fileName))
-      .then(() => true)
-      .catch((error) => {
-        log(chatId, `the page did not send: ${error.message}`);
-        return false;
+  let late = null;
+  let documentSent;
+  try {
+    documentSent = await Promise.race([
+      ctx
+        .replyWithDocument(new InputFile(result.screenshot, fileName))
+        .then(() => true)
+        .catch((error) => {
+          log(chatId, `the page did not send: ${error.message}`);
+          return false;
+        }),
+      new Promise((resolve) => {
+        late = setTimeout(() => resolve(false), 120_000);
+        late.unref?.();
       }),
-    new Promise((resolve) => {
-      const late = setTimeout(() => resolve(false), 120_000);
-      late.unref?.();
-    }),
-  ]);
+    ]);
+  } finally {
+    // Sending normally must retire the fallback deadline. `unref` stops a
+    // timer keeping Node alive; it does not stop it leaking into another
+    // request or another runtime's resource checks.
+    clearTimeout(late);
+  }
   if (!said) {
     return documentSent;
   }

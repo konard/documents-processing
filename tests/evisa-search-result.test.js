@@ -1,18 +1,17 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readResult, describeSearchPage } from '../src/evisa-download.mjs';
 
-/** One page for the whole file: starting a browser is the slow part. */
-let browser = null;
-let page = null;
-
-async function showing(html) {
-  if (!page) {
-    const { chromium } = await import('playwright');
-    browser = await chromium.launch({ headless: true });
-    page = await browser.newPage();
+/** Runs an assertion against one isolated page and closes its browser. */
+async function showing(html, read) {
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html);
+    return await read(page);
+  } finally {
+    await browser.close();
   }
-  await page.setContent(html);
-  return page;
 }
 
 /** The result as the site lays it out: label and value in their own cells. */
@@ -26,8 +25,7 @@ const IN_COLUMNS = `
 
 describe('reading what the search found', () => {
   it('reads the result the site lays out in columns', async () => {
-    const shown = await showing(IN_COLUMNS);
-    const result = await readResult(shown);
+    const result = await showing(IN_COLUMNS, readResult);
     expect(result.status).toBe('Processing');
     expect(result.fullName).toBe('TRAVELLER JOHN');
     expect(result.applicationNumber).toBe('E260911XXX00000000000');
@@ -35,64 +33,66 @@ describe('reading what the search found', () => {
   });
 
   it('reads it out of a table just as well', async () => {
-    const shown = await showing(`
-      <table>
-        <tr><td>Full name:</td><td>TRAVELLER JOHN</td></tr>
-        <tr><td>App no.:</td><td>E260911XXX00000000000</td></tr>
-        <tr><td>Application status:</td><td>Granted</td></tr>
-      </table>
-    `);
-    const result = await readResult(shown);
+    const result = await showing(
+      `
+        <table>
+          <tr><td>Full name:</td><td>TRAVELLER JOHN</td></tr>
+          <tr><td>App no.:</td><td>E260911XXX00000000000</td></tr>
+          <tr><td>Application status:</td><td>Granted</td></tr>
+        </table>
+      `,
+      readResult
+    );
     expect(result.status).toBe('Granted');
     expect(result.fullName).toBe('TRAVELLER JOHN');
   });
 
   it('reads it out of the description lists the site also uses', async () => {
-    const shown = await showing(`
-      <div class="ant-descriptions-item">
-        <span class="ant-descriptions-item-label">Application status</span>
-        <span class="ant-descriptions-item-content">Processing</span>
-      </div>
-    `);
-    expect((await readResult(shown)).status).toBe('Processing');
+    const result = await showing(
+      `
+        <div class="ant-descriptions-item">
+          <span class="ant-descriptions-item-label">Application status</span>
+          <span class="ant-descriptions-item-content">Processing</span>
+        </div>
+      `,
+      readResult
+    );
+    expect(result.status).toBe('Processing');
   });
 
   it('does not read the page´s own heading as a result', async () => {
     // "Check application status" is the banner above the search form, on the
     // page before any search is run. Matched on how a label began, it looked
     // like a result and the applicant was told an empty one had been found.
-    const shown = await showing(`
-      <h1>Check application status</h1>
-      <p>Look up application status and electronic visa</p>
-    `);
-    expect(await readResult(shown)).toBe(null);
+    const result = await showing(
+      `
+        <h1>Check application status</h1>
+        <p>Look up application status and electronic visa</p>
+      `,
+      readResult
+    );
+    expect(result).toBe(null);
   });
 
   it('gives nothing for a page with no result on it', async () => {
-    const shown = await showing('<div>Enter the security code</div>');
-    expect(await readResult(shown)).toBe(null);
+    const result = await showing(
+      '<div>Enter the security code</div>',
+      readResult
+    );
+    expect(result).toBe(null);
   });
 
   it('never reads a button as somebody´s name', async () => {
     // The buttons sit under the result, so a name looked for loosely found
     // "Save form" and the applicant was shown that as the applicant's name.
-    const shown = await showing(IN_COLUMNS);
-    const result = await readResult(shown);
+    const result = await showing(IN_COLUMNS, readResult);
     expect(result.fullName.includes('Save')).toBe(false);
   });
 
   it('says what the page is showing, for the log when nothing was read', async () => {
-    const shown = await showing(IN_COLUMNS);
-    const said = await describeSearchPage(shown);
+    const said = await showing(IN_COLUMNS, describeSearchPage);
     // The buttons are the sign that an application was found at all.
     expect(said.buttons).toEqual(['Save form', 'Download Receipt']);
     expect(said.labels.some((label) => label.includes('status'))).toBe(true);
-  });
-
-  it('closes the browser it opened', async () => {
-    await browser?.close();
-    browser = null;
-    page = null;
-    expect(true).toBe(true);
   });
 });

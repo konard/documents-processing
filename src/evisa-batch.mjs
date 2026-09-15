@@ -103,10 +103,10 @@ export function createBatcher({
       // runs is checked against this, so a correction reaches the same fill
       // when it still can.
       state.fillingSince = now();
+      let late = null;
       try {
         // A browser that stops answering must not leave the chat waiting for
         // ever: a fill has a deadline, and the runner goes on past it.
-        let late = null;
         await Promise.race([
           fill(state.ctx, chatId),
           new Promise((resolve) => {
@@ -117,10 +117,13 @@ export function createBatcher({
             late.unref?.();
           }),
         ]);
-        clearTimeout(late);
       } catch (error) {
         log(chatId, `filling failed: ${error.message}`);
       } finally {
+        // A failed fill wins the race by rejecting. Its deadline is no longer
+        // useful either, and leaving it behind keeps test runners and long-
+        // lived bot processes holding thousands of dead timers.
+        clearTimeout(late);
         state.filling = false;
       }
       // Nothing the applicant sent went unfilled, so there is nothing to

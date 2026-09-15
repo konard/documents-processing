@@ -47,6 +47,30 @@ export function showStatus(
   const chatId = ctx.chat?.id;
   const startedAt = Date.now();
   let landedAt = startedAt;
+  // Every deadline has a resolver and a handle, so stopping wakes the loop
+  // immediately and retires the active cadence timer.
+  const pendingWaits = new Set();
+  const waitFor = (ms, value) => {
+    let timer = null;
+    let settled = false;
+    let settlePromise;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      pendingWaits.delete(finish);
+      settlePromise(value);
+    };
+    const promise = new Promise((resolve) => {
+      settlePromise = resolve;
+      timer = setTimeout(finish, ms);
+      timer.unref?.();
+    });
+    pendingWaits.add(finish);
+    return { promise, finish };
+  };
   const send = async () => {
     const at = Date.now();
     try {
@@ -62,13 +86,13 @@ export function showStatus(
       // after the wait is up would otherwise reject with nobody holding it.
       const sending = ctx.replyWithChatAction(action);
       sending.catch(() => {});
-      const landed = await Promise.race([
-        sending.then(() => true),
-        new Promise((resolve) => {
-          const late = setTimeout(() => resolve(false), waitMs);
-          late.unref?.();
-        }),
-      ]);
+      const late = waitFor(waitMs, false);
+      let landed;
+      try {
+        landed = await Promise.race([sending.then(() => true), late.promise]);
+      } finally {
+        late.finish();
+      }
       const now = Date.now();
       slowest = Math.max(slowest, now - at);
       if (!landed) {
@@ -92,15 +116,18 @@ export function showStatus(
       // send took". Sleeping the full gap after each send lets the send's own
       // time accumulate, and a minute of work drifts far enough behind that
       // the count comes up short of the clock.
+      if (stopped) {
+        break;
+      }
       due += everyMs;
-      await new Promise((resolve) => {
-        const next = setTimeout(resolve, Math.max(0, due - Date.now()));
-        next.unref?.();
-      });
+      await waitFor(Math.max(0, due - Date.now())).promise;
     }
   })();
   return () => {
     stopped = true;
+    for (const finish of [...pendingWaits]) {
+      finish();
+    }
     // Said once at the end, so a status that stopped short of the work can be
     // seen in the log beside the work it was meant to cover.
     const now = Date.now();

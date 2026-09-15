@@ -31,6 +31,21 @@ export function onShutdown({
 }) {
   let closingDown = null;
 
+  /** Resolves when the work settles or `ms` elapses, and clears its deadline. */
+  const bounded = async (work, ms) => {
+    let late = null;
+    try {
+      await Promise.race([
+        work,
+        new Promise((resolve) => {
+          late = setTimeout(resolve, ms);
+        }),
+      ]);
+    } finally {
+      clearTimeout(late);
+    }
+  };
+
   const shutDown = (why) => {
     if (closingDown) {
       return closingDown;
@@ -44,16 +59,10 @@ export function onShutdown({
         log(chatId, 'shutting down; the chat is told its browser closes');
         return say(chatId, strings.restarting).catch(() => {});
       });
-      await Promise.race([
-        Promise.all(warned),
-        new Promise((resolve) => setTimeout(resolve, told)),
-      ]);
+      await bounded(Promise.all(warned), told);
       // Only now: the applicant has been told, so the window going is expected.
       const closing = Promise.all([...browsers.keys()].map(endChat));
-      await Promise.race([
-        closing,
-        new Promise((resolve) => setTimeout(resolve, closed)),
-      ]);
+      await bounded(closing, closed);
       await stopBot().catch(() => {});
       exit();
     })();

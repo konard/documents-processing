@@ -11,7 +11,9 @@ function chat({ delay = 0 } = {}) {
       replyWithChatAction: async (action) => {
         sent.push(action);
         if (delay) {
-          await new Promise((done) => setTimeout(done, delay));
+          // A stuck Telegram request is the condition under test. Leaving an
+          // artificial five-second timer behind only contaminates later tests.
+          await new Promise(() => {});
         }
       },
     },

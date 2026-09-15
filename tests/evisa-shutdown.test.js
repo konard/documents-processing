@@ -19,13 +19,15 @@ function aRun({ sayTakes = 0, closeTakes = 0 } = {}) {
     clearStatus: (chatId) => done.push(`status out ${chatId}`),
     endChat: async (chatId) => {
       if (closeTakes) {
-        await new Promise((ready) => setTimeout(ready, closeTakes));
+        // A request that never returns models the browser hang without
+        // planting a ten-second timer in whichever test happens to run next.
+        await new Promise(() => {});
       }
       done.push(`browser closed ${chatId}`);
     },
     say: async (chatId, text) => {
       if (sayTakes) {
-        await new Promise((ready) => setTimeout(ready, sayTakes));
+        await new Promise(() => {});
       }
       done.push(`told ${chatId}: ${text}`);
     },

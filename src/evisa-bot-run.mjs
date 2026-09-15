@@ -130,6 +130,10 @@ import { reserveDocumentCommit } from './evisa-document-order.mjs';
 import { keepCollectedValues } from './evisa-keep.mjs';
 import { createDocumentReceiver } from './evisa-document-receiver.mjs';
 import { createPageFiller, formIsStale } from './evisa-page-filler.mjs';
+import {
+  configuredDownloadsDirectory,
+  sendDeclarationResult,
+} from './evisa-arrival-result.mjs';
 
 loadEnv();
 
@@ -223,6 +227,9 @@ const HEADED = process.env.EVISA_BOT_HEADED === '1';
  */
 const DEBUG_PORT = Number(process.env.EVISA_BOT_CDP_PORT ?? 0) || 0;
 
+/** Persistent browser downloads, configurable and visible to the operator. */
+const DOWNLOADS_DIR = configuredDownloadsDirectory();
+
 /**
  * How long to let a page settle before cutting a part out of it, in
  * milliseconds, with `EVISA_BOT_SETTLE_MS`.
@@ -308,6 +315,7 @@ async function pageFor(chatId, { blank = false } = {}) {
   const { browser, page } = await openForm({
     headless: !HEADED,
     debugPort,
+    downloadsPath: DOWNLOADS_DIR,
     blank,
   });
   logBrowserEvents(chatId, page);
@@ -1081,6 +1089,15 @@ const arrivalDeps = {
   },
   headless: !HEADED,
   debugPort: DEBUG_PORT ? DEBUG_PORT + 1 : 0,
+  downloadsPath: DOWNLOADS_DIR,
+  sendFiledResult: (args) =>
+    sendDeclarationResult({
+      ...args,
+      InputFile,
+      downloadsDirectory: DOWNLOADS_DIR,
+      keepMarkup,
+      log,
+    }),
 };
 
 const beginArrival = declarationOpener(arrivalDeps);

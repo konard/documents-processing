@@ -28,6 +28,7 @@
 
 import { giveBackTheFront, whatIsInFront } from './evisa-window.mjs';
 import { saidBriefly } from './evisa-messages.mjs';
+import { keepBrowserDownloads } from './evisa-arrival-result.mjs';
 
 /** Where a declaration is made. */
 export const PREARRIVAL_FORM_URL =
@@ -408,6 +409,7 @@ export async function chooseFrom(
 export async function openDeclaration({
   headless = false,
   debugPort = 0,
+  downloadsPath = null,
   viewport,
 } = {}) {
   const { chromium } = await import('playwright');
@@ -418,11 +420,16 @@ export async function openDeclaration({
   if (debugPort) {
     args.push(`--remote-debugging-port=${debugPort}`);
   }
-  const browser = await chromium.launch({ headless, args });
+  const browser = await chromium.launch({
+    headless,
+    args,
+    ...(downloadsPath ? { downloadsPath } : {}),
+  });
   const context = await browser.newContext(
     viewport ? { viewport } : { viewport: null }
   );
   const page = await context.newPage();
+  keepBrowserDownloads(page, downloadsPath);
   // The site expires a declaration after a while and says so in a native
   // alert. Nothing dismisses one of those on a driven page, so the browser
   // stops answering entirely and the fill hangs with no error to report.

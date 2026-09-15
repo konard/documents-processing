@@ -133,9 +133,12 @@ export const MESSAGES = {
     arrivalEmailVerificationUnknown:
       'Email verification failed: the site did not show a definite result. ' +
       'Check the open browser before trying again.',
-    arrivalFiled:
-      'The declaration is filed. The site is showing its result — check it ' +
-      'and keep whatever reference it gives you.',
+    arrivalFiled: 'The declaration was filed successfully.',
+    arrivalResultPdf: 'Filed pre-arrival declaration (PDF).',
+    arrivalResultQr: 'QR code for the filed pre-arrival declaration.',
+    arrivalResultIncomplete: (artifacts) =>
+      `The declaration was filed, but I could not retrieve: ${artifacts.join(', ')}. ` +
+      'The result remains open in the browser for a short time.',
     arrivalFilingUnknown:
       'I could not verify the filing result. Check the open browser before ' +
       'trying again; I will not press Submit again automatically.',
@@ -537,9 +540,12 @@ export const MESSAGES = {
     arrivalEmailVerificationUnknown:
       'Не удалось завершить проверку электронной почты: сайт не показал ' +
       'однозначный результат. Проверьте открытый браузер перед новой попыткой.',
-    arrivalFiled:
-      'Декларация подана. Сайт показывает результат — проверьте его и ' +
-      'сохраните номер, если он есть.',
+    arrivalFiled: 'Декларация успешно подана.',
+    arrivalResultPdf: 'Поданная предварительная декларация (PDF).',
+    arrivalResultQr: 'QR-код поданной предварительной декларации.',
+    arrivalResultIncomplete: (artifacts) =>
+      `Декларация подана, но не удалось получить: ${artifacts.join(', ')}. ` +
+      'Результат ещё ненадолго остаётся открытым в браузере.',
     arrivalFilingUnknown:
       'Я не смог проверить результат подачи. Проверьте открытый браузер ' +
       'перед новой попыткой; автоматически нажимать Submit ещё раз не буду.',

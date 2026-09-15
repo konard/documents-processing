@@ -20,6 +20,8 @@ export function declarationFiler(deps) {
     askCaptcha = () => Promise.resolve(false),
     captchaOnPage = captchaIsUp,
     holdCaptcha = holdDeclarationCaptcha,
+    sendFiledResult = ({ ctx: filingContext, strings: filingStrings }) =>
+      filingContext.reply(filingStrings.arrivalFiled),
   } = deps;
   return async function file(ctx, chatId) {
     const session = sessions.get(chatId);
@@ -81,7 +83,10 @@ export function declarationFiler(deps) {
       }
       if (out.filed) {
         held.stage = 'filed';
-        await ctx.reply(strings.arrivalFiled).catch(() => {});
+        await sendFiledResult({ ctx, chatId, page: held.page, strings }).catch(
+          (error) =>
+            log(chatId, `filed result delivery failed: ${error.message}`)
+        );
         return true;
       }
       held.stage = 'review';

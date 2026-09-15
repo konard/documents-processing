@@ -145,11 +145,12 @@ export async function startDeclaration({
   tries = CAPTCHA_TRIES,
   headless = true,
   debugPort = 0,
+  downloadsPath = null,
 }) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
   log(chatId, 'opening the pre-arrival declaration');
-  const opened = await openDeclaration({ headless, debugPort });
+  const opened = await openDeclaration({ headless, debugPort, downloadsPath });
   session.arrival = { ...opened, stage: 'captcha' };
   // No dialog gating the page means the form itself is already in front of
   // us, so it is filled. Left at the captcha stage the chat would hold a

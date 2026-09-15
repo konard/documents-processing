@@ -25,6 +25,7 @@ import {
   takeTheFrontBack,
   whatIsInFront,
 } from './evisa-window.mjs';
+import { keepBrowserDownloads } from './evisa-arrival-result.mjs';
 
 /**
  * Opens a browser on the application form, past the dialog that gates it.
@@ -36,6 +37,7 @@ export async function openForm({
   headless = false,
   viewport,
   debugPort = 0,
+  downloadsPath = null,
   blank = false,
 } = {}) {
   const { chromium } = await import('playwright');
@@ -58,6 +60,7 @@ export async function openForm({
     // Start the window large enough to show the form without scrolling
     // horizontally; the page itself then follows whatever size the window is.
     args,
+    ...(downloadsPath ? { downloadsPath } : {}),
   });
   // A visible window gets no fixed viewport, so resizing it resizes the page.
   // Pinning one would leave the layout stuck at its original size, which is
@@ -69,6 +72,7 @@ export async function openForm({
     viewport: headless ? (viewport ?? { width: 1500, height: 1000 }) : null,
     deviceScaleFactor: headless ? 2 : undefined,
   });
+  keepBrowserDownloads(page, downloadsPath);
   if (!headless) {
     // The flag above is not enough on a Mac, where launching an application
     // makes it the active one whatever its windows do. The window is left

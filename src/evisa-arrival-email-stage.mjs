@@ -23,6 +23,8 @@ export function declarationEmailCodeTaker(deps) {
     verifyEmail = verifyDeclarationEmail,
     askCaptcha = () => Promise.resolve(false),
     holdCaptcha = holdDeclarationCaptcha,
+    sendFiledResult = ({ ctx: filingContext, strings: filingStrings }) =>
+      filingContext.reply(filingStrings.arrivalFiled),
   } = deps;
   return async function tookEmailCode(ctx, chatId) {
     const session = sessions.get(chatId);
@@ -55,7 +57,10 @@ export function declarationEmailCodeTaker(deps) {
       if (result.filed) {
         held.stage = 'filed';
         log(chatId, 'the email code was accepted; declaration filed');
-        await ctx.reply(strings.arrivalFiled).catch(() => {});
+        await sendFiledResult({ ctx, chatId, page: held.page, strings }).catch(
+          (error) =>
+            log(chatId, `filed result delivery failed: ${error.message}`)
+        );
         return true;
       }
       if (result.emailCode) {

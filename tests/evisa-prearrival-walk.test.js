@@ -253,6 +253,25 @@ describe('walking the declaration to its review', () => {
   });
 });
 
+describe('a failed passport upload', () => {
+  it('is required before the walk continues', async () => {
+    const { site, page } = fakeSite();
+    const out = await walkTheDeclaration({
+      page,
+      fillPassenger: async () => ({
+        filled: ['passportNumber'],
+        missing: [],
+        failed: ['passportImage: file chooser rejected the upload'],
+      }),
+      fillTrip: async () => {
+        throw new Error('the trip page must not be filled');
+      },
+    });
+    expect(out.reached).toBe(0);
+    expect(site.pressed).toEqual([]);
+  });
+});
+
 describe('filing the declaration', () => {
   it('files nothing without the traveller saying so', async () => {
     // The whole guard. This is the only path in the bot that sends anything
@@ -397,7 +416,7 @@ describe('capturing pages without interrupting the batch', () => {
     // the walk hung there until it was killed.
     const showing = run.slice(
       run.indexOf('async function captureThePage'),
-      run.indexOf('/** Telegram')
+      run.indexOf('function whatIsStillWanted')
     );
     expect(showing.includes('readDeclaration')).toBe(true);
     // Guarded by the page it is on, whichever way that is spelled.
@@ -412,7 +431,7 @@ describe('capturing pages without interrupting the batch', () => {
   it('sends no progress reply while a page is being captured', () => {
     const showing = run.slice(
       run.indexOf('async function captureThePage'),
-      run.indexOf('/** Telegram')
+      run.indexOf('function whatIsStillWanted')
     );
     expect(showing.includes('ctx.reply')).toBe(false);
     expect(showing.includes('replyWithPhoto')).toBe(false);

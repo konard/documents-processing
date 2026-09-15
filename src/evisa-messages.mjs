@@ -38,10 +38,25 @@ export const MESSAGES = {
     arrivalShotName: 'declaration.png',
     arrivalPageName: (name) => name,
     arrivalPageOf: (at, of, title) => `<b>Page ${at} of ${of}: ${title}</b>`,
-    arrivalReviewShot:
-      '<b>Page 3 of 3: Review &amp; Submit</b>\n\n' +
-      'Check it. Not sent: confirmation is unticked and Submit unpressed. ' +
-      'Send <b>submit</b> to file it, or send corrections.',
+    arrivalPageReady:
+      'Check this page here and in the open browser. If correct, send ' +
+      '<b>send</b> to continue; otherwise send corrections.',
+    arrivalReviewReady:
+      'Check the whole declaration here and in the open browser. Nothing ' +
+      'has been sent: confirmation is unticked and Submit is unpressed. If ' +
+      'everything is correct, send <b>send</b> (or <b>submit</b>); otherwise ' +
+      'send corrections.',
+    arrivalReviewSafetyUnknown:
+      'Nothing has been sent and Submit is unpressed, but I could not verify ' +
+      'that the confirmation box is unticked. Check it in the open browser. ' +
+      'If the whole declaration is correct, send <b>send</b> (or ' +
+      '<b>submit</b>); otherwise send corrections.',
+    arrivalCannotConfirmNow:
+      'There is no filled declaration page waiting for confirmation yet. ' +
+      'Check the open browser or send the missing details.',
+    arrivalNotAdvanced:
+      'The declaration remains on this page. Nothing was submitted; the ' +
+      'browser stays open. Check it there or send corrections.',
     arrivalPassengerCheck: (values) =>
       compactSummary('<b>Page 1 filled:</b>', [
         compactLine(
@@ -110,6 +125,9 @@ export const MESSAGES = {
     arrivalFiled:
       'The declaration is filed. The site is showing its result — check it ' +
       'and keep whatever reference it gives you.',
+    arrivalFilingUnknown:
+      'I could not verify the filing result. Check the open browser before ' +
+      'trying again; I will not press Submit again automatically.',
     arrivalNotFiled: (why) =>
       `I did not file it: ${why}. Nothing has been sent.`,
     arrivalNothingToFile:
@@ -407,10 +425,25 @@ export const MESSAGES = {
       })[name] ?? name,
     arrivalPageOf: (at, of, title) =>
       `<b>Страница ${at} из ${of}: ${title}</b>`,
-    arrivalReviewShot:
-      '<b>Страница 3 из 3: Проверка и отправка</b>\n\n' +
-      'Проверьте форму. Не отправлено: галочка не поставлена, Submit не нажат. ' +
-      'Для подачи напишите <b>submit</b>; для исправления — данные.',
+    arrivalPageReady:
+      'Проверьте эту страницу здесь и в открытом браузере. Если всё верно, ' +
+      'напишите <b>отправляй</b>; для исправления пришлите данные.',
+    arrivalReviewReady:
+      'Проверьте всю декларацию здесь и в открытом браузере. Ничего не ' +
+      'отправлено: галочка не поставлена, Submit не нажат. Если всё верно, ' +
+      'напишите <b>отправляй</b> (или <b>submit</b>); для исправления ' +
+      'пришлите данные.',
+    arrivalReviewSafetyUnknown:
+      'Ничего не отправлено и Submit не нажат, но я не смог проверить, что ' +
+      'галочка подтверждения снята. Проверьте её в открытом браузере. Если ' +
+      'вся декларация верна, напишите <b>отправляй</b> (или <b>submit</b>); ' +
+      'для исправления пришлите данные.',
+    arrivalCannotConfirmNow:
+      'Сейчас нет заполненной страницы декларации, ожидающей подтверждения. ' +
+      'Проверьте открытый браузер или пришлите недостающие данные.',
+    arrivalNotAdvanced:
+      'Декларация остаётся на этой странице. Ничего не отправлено; браузер ' +
+      'остаётся открытым. Проверьте её там или пришлите исправления.',
     arrivalPassengerCheck: (values) =>
       compactSummary('<b>Страница 1 заполнена:</b>', [
         compactLine(
@@ -476,6 +509,9 @@ export const MESSAGES = {
     arrivalFiled:
       'Декларация подана. Сайт показывает результат — проверьте его и ' +
       'сохраните номер, если он есть.',
+    arrivalFilingUnknown:
+      'Я не смог проверить результат подачи. Проверьте открытый браузер ' +
+      'перед новой попыткой; автоматически нажимать Submit ещё раз не буду.',
     arrivalNotFiled: (why) => `Я её не подал: ${why}. Ничего не отправлено.`,
     arrivalNothingToFile:
       'Нет декларации, ждущей на странице проверки. Отправьте /arrival, ' +

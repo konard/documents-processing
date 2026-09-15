@@ -9,8 +9,8 @@
 //
 // This is to the declaration what fillBySection is to the visa application,
 // and it keeps the same order: each page is filled and settled before the
-// next begins. The caller captures those states and answers the batch once,
-// with the review page or the page the site refused. The visa form is one
+// next begins. The caller can capture each state or the page the site refused.
+// The visa form is one
 // long page with headings; this is four pages with buttons between them, so a
 // page here has to be left as well as filled — and the site can refuse that.
 //
@@ -237,7 +237,10 @@ export async function walkTheDeclaration({
 /** Required information the driver could not put on a page. */
 function pageNeedsWork(result = {}) {
   const blockingFailures = (result.failed ?? []).filter(
-    (failure) => String(failure).split(':')[0].trim() !== 'passportImage'
+    (failure) =>
+      !/^passportImage:\s*the site read nothing from it$/i.test(
+        String(failure).trim()
+      )
   );
   return Boolean(result.missing?.length || blockingFailures.length);
 }

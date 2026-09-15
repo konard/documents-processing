@@ -20,12 +20,14 @@ duplicate warnings and other loops now stop with an actionable explanation.
 
 Filled forms are read back from the live page, settled before capture, and
 shown as readable sections plus a full-page file. Pre-arrival declarations
-likewise return one combined image containing every visited page, with both
-passenger and trip summaries. The site's selected Hotel and filled address are
-accepted, optional departure and workplace fields are not reported missing,
-and focus is removed before screenshots. Corrections restart cleanly when the
-site requires a new CAPTCHA. Nothing is submitted without the traveller's
-explicit confirmation.
+return one readable image for each page as soon as that page is filled. The
+visible browser waits on the same page until the traveller confirms it, then
+advances exactly one page; Review likewise waits for a separate final filing
+confirmation. The site's selected Hotel and filled address are accepted,
+optional departure and workplace fields are not reported missing, and focus is
+removed before screenshots. Corrections restart cleanly when the site requires
+a new CAPTCHA. Nothing is submitted without the traveller's explicit final
+confirmation.
 
 The bot can retrieve filed application documents, remember registration data,
 watch for payment completion, and draft the pre-arrival declaration using the

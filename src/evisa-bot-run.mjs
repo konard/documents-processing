@@ -88,9 +88,11 @@ import {
   declarationOpener,
   declarationCaptchaTaker,
   declarationRefiller,
+  declarationAdvancer,
   declarationFiler,
   closeDeclaration,
   arrivalDateOverride,
+  arrivalConfirmationAction,
 } from './evisa-arrival-run.mjs';
 import { anyCaptchaTaker } from './evisa-captcha-routing.mjs';
 import {
@@ -963,13 +965,29 @@ function confirm(ctx, chatId) {
     log(chatId, 'confirmation received; skipping the rest of the countdown');
     return;
   }
-  // A declaration standing filled on its review page is what a confirmation
-  // is about: the traveller has the whole thing in front of them and has said
-  // to file it. This is the only path in the bot that sends anything to the
-  // immigration department, and it starts here, with their word.
-  if (session.arrival?.stage === 'review') {
+  const arrivalAction = arrivalConfirmationAction(session.arrival);
+  if (arrivalAction === 'advance') {
+    log(
+      chatId,
+      `confirmation received; advancing from declaration ${session.arrival.stage}`
+    );
+    advanceArrival(ctx, chatId).catch(failing('advancing the declaration'));
+    return;
+  }
+  // Review is the only arrival checkpoint where a confirmation can file.
+  if (arrivalAction === 'file') {
     log(chatId, 'confirmation received; filing the declaration');
     fileArrival(ctx, chatId).catch(failing('filing the declaration'));
+    return;
+  }
+  // While any other declaration stage exists, its confirmation belongs to
+  // that declaration and must never fall through to the e-visa form below.
+  if (arrivalAction === 'hold') {
+    log(
+      chatId,
+      `confirmation received at declaration ${session.arrival.stage}; no action`
+    );
+    ctx.reply(strings.arrivalCannotConfirmNow).catch(failing('the reply'));
     return;
   }
   const stage = session.stage ?? 'form';
@@ -1063,6 +1081,7 @@ const arrivalDeps = {
 const beginArrival = declarationOpener(arrivalDeps);
 const tookArrivalCaptcha = declarationCaptchaTaker(arrivalDeps);
 const refillArrival = declarationRefiller(arrivalDeps);
+const advanceArrival = declarationAdvancer(arrivalDeps);
 // The one path that files. It runs only from a confirmation sent by the
 // traveller with the filled declaration already in front of them.
 const fileArrival = declarationFiler(arrivalDeps);

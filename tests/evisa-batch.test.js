@@ -136,7 +136,7 @@ describe('one fill for everything an applicant sends', () => {
     expect(seen).toEqual(['last']);
   });
 
-  it('answers one four-document arrival batch with one message', async () => {
+  it('starts one page fill for one four-document arrival batch', async () => {
     const session = { language: 'en', data: {} };
     const sent = [];
     const ctx = {
@@ -156,8 +156,8 @@ describe('one fill for everything an applicant sends', () => {
           ctx: latest,
           chatId: 1,
           answer: {
-            caption: MESSAGES.en.arrivalReviewShot,
-            shot: Buffer.from('review'),
+            caption: MESSAGES.en.arrivalPageReady,
+            shot: Buffer.from('passenger'),
           },
           session,
           strings: MESSAGES.en,

@@ -373,7 +373,14 @@ describe('correcting a declaration the site has already drawn', () => {
     const calls = { closed: 0, refilled: 0, restarted: 0 };
     const session = {
       arrival: {
-        stage: at < 0 ? 'form' : 'review',
+        stage:
+          at < 0
+            ? 'form'
+            : at === 0
+              ? 'passenger'
+              : at === 1
+                ? 'trip'
+                : 'review',
         page: { evaluate: async () => ({ at, titles: [] }) },
         browser: { close: async () => (calls.closed += 1) },
       },
@@ -398,5 +405,17 @@ describe('correcting a declaration the site has already drawn', () => {
     const { calls, refill } = correction(-1);
     await refill({}, 1);
     expect(calls).toEqual({ closed: 0, refilled: 1, restarted: 0 });
+  });
+
+  it('refills a correction directly while page 1 is still open', async () => {
+    const { calls, refill } = correction(0);
+    await refill({}, 1);
+    expect(calls).toEqual({ closed: 0, refilled: 1, restarted: 0 });
+  });
+
+  it('restarts a correction made after page 1', async () => {
+    const { calls, refill } = correction(1);
+    await refill({}, 1);
+    expect(calls).toEqual({ closed: 1, refilled: 0, restarted: 1 });
   });
 });

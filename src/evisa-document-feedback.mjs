@@ -2,9 +2,9 @@
 //
 // Problems found while a forwarded batch is being read.
 //
-// A batch can contain four or five Telegram messages, but it has one answer:
-// the filled form. File-level advice accumulates here and accompanies that
-// answer as one compact, deduplicated account.
+// A batch can contain four or five Telegram messages, but its file-level
+// advice belongs together. It accumulates here until the next form checkpoint
+// carries it as one compact, deduplicated account.
 
 /** Records one occurrence without putting words in the chat yet. */
 export function noteDocumentIssue(session, issue) {
@@ -24,7 +24,7 @@ export function describeDocumentIssues(session, strings) {
     : '';
 }
 
-/** Clears feedback after—and only after—the consolidated answer was sent. */
+/** Clears feedback after—and only after—the checkpoint carrying it was sent. */
 export function clearDocumentIssues(session) {
   delete session.documentIssues;
 }

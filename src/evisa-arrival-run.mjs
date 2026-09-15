@@ -25,27 +25,35 @@ import {
   readCaptchaImage,
   refreshCaptchaImage,
   readCaptchaText,
+  FORM_FIELDS,
 } from './evisa-prearrival-form.mjs';
 import {
   fillTrip,
   provinceAsNamedHere,
   readTrip,
+  TRIP_FIELDS,
   wardAsNamedHere,
 } from './evisa-prearrival-trip.mjs';
 import {
-  walkTheDeclaration,
   fileTheDeclaration,
   returnToPassenger,
+  STEPS,
+  turnTo,
   whichStep,
 } from './evisa-prearrival-pages.mjs';
 import { buildDeclaration, fullNameOf } from './evisa-prearrival.mjs';
 import { parseVietnamAddress } from './evisa-vietnam-address.mjs';
 import { FIELD_DEFAULTS } from './evisa-schema.mjs';
+import { describeDocumentIssues } from './evisa-document-feedback.mjs';
 import {
-  describeDocumentIssues,
-  restoreDocumentIssues,
-  takeDocumentIssues,
-} from './evisa-document-feedback.mjs';
+  arrivalAnswerFor,
+  sendArrivalAnswer,
+} from './evisa-arrival-answer.mjs';
+
+export {
+  arrivalAnswerFor,
+  sendArrivalAnswer,
+} from './evisa-arrival-answer.mjs';
 
 /**
  * The arrival gate the ticket lands at, as the declaration names it.
@@ -429,9 +437,11 @@ export async function tookDeclarationCaptcha({
 /**
  * Fills the declaration and shows the traveller what stands on it.
  *
- * Nothing is pressed at the end: the filled page is the answer, and sending
- * it is the traveller's own act.
+ * Nothing is pressed at the end: page 1 is photographed and left open until
+ * the traveller confirms that this checkpoint may advance.
  */
+// The branches mirror distinct states of the live government page.
+// eslint-disable-next-line complexity
 export async function fillAndShow({
   ctx,
   chatId,
@@ -452,6 +462,7 @@ export async function fillAndShow({
     log,
     chatId,
   });
+  held.rehearsal = rehearsal;
 
   // The nationality gates the whole form: the site draws no field until one
   // is chosen. Without it there is nothing to type into yet, so the prepared
@@ -521,69 +532,62 @@ export async function fillAndShow({
   held.stage = 'form';
 
   const passportImage = passportToUpload(session, held);
-
-  // All pages are read and photographed as they are finished, but the chat
-  // gets one answer after the walk. A forwarded batch is one request, and
-  // three progress pictures plus a final notice made that request look like
-  // four unrelated outcomes.
-  const captured = [];
-  const walk = await walkTheDeclaration({
-    page: held.page,
-    log: (said) => log(chatId, said),
+  // One confirmation advances one page. Fill and show the passenger page
+  // now, then leave the browser standing on it until the traveller has
+  // checked both this picture and the live form and says to continue.
+  const first = await fillDeclaration(
+    held.page,
     // The built declaration wins over the raw record. It holds the values
-    // that are the same for every e-visa traveller — the visa type, the
-    // issuing department — which the record has no field for at all, so a
-    // record laid over the top puts those back to nothing.
-    fillPassenger: () =>
-      fillDeclaration(
-        held.page,
-        { ...applicant, ...values },
-        { passportImage }
-      ),
-    fillTrip: () =>
-      fillTrip(held.page, tripFrom(applicant, values), {
-        log: (said) => log(chatId, said),
-      }),
-    onPage: async ({ at, title, filled, missing, failed, ...rest }) => {
-      captured.push(
-        await captureThePage({
-          chatId,
-          page: held.page,
-          at,
-          title,
-          result: { filled, missing, failed, ...rest },
-          log,
-          InputFile,
-        })
-      );
-    },
-  });
-
-  const first = walk.pages[0] ?? { filled: [], missing: [], failed: [] };
-  const { tooEarly, expired } = await settleArrivalWalk({
-    walk,
-    first,
-    page: held.page,
-    applicant,
-    held,
-    session,
+    // that are the same for every e-visa traveller — the visa type and the
+    // issuing department — which the raw record has no field for.
+    { ...applicant, ...values },
+    { passportImage }
+  );
+  if (passportImage && first.filled?.includes('passportImage')) {
+    held.uploaded = { ...held.uploaded, passportPage: true };
+  }
+  log(chatId, `page 1/3 ${STEPS[0]}: ${pageResult(first)}`);
+  const captured = await captureThePage({
     chatId,
+    page: held.page,
+    at: 0,
+    title: STEPS[0],
+    result: first,
     log,
+    InputFile,
   });
+  let tooEarly = null;
+  if (first.arrival?.tooEarly) {
+    const offered = await offeredArrivalDates(held.page);
+    log(
+      chatId,
+      `too early to declare: wanted ${applicant.arrivalDate}, offered ${offered.join(', ')}`
+    );
+    tooEarly = { wanted: applicant.arrivalDate, offered };
+  }
+  const expired = Boolean(first.expired);
+  const ready = !tooEarly && !expired && !pageNeedsWork(first);
+  // Even an incomplete passenger page is a real checkpoint: the traveller
+  // can correct it directly in the visible browser and confirm again. Only a
+  // date the site cannot take, or an expired page, is not advanceable.
+  held.stage = !tooEarly && !expired ? 'passenger' : 'form';
+  if (expired) {
+    log(chatId, `the declaration expired: ${first.expired}`);
+    await closeDeclaration(session);
+  }
   const answer = arrivalAnswerFor({
-    walk,
-    captured,
-    applicant,
+    capture: captured,
     session,
     strings,
     describeFilled,
+    ready,
     rehearsal: rehearsal
       ? strings.arrivalRehearsal(rehearsal, session.data?.entryDate)
       : '',
     tooEarly,
     expired,
   });
-  await sendArrivalAnswer({
+  held.pageDelivered = await sendArrivalAnswer({
     ctx,
     chatId,
     answer,
@@ -592,44 +596,487 @@ export async function fillAndShow({
     InputFile,
     log,
   });
-  return { ...first, walk };
+  return { ...first, capture: captured };
 }
 
-/** Records how the page walk ended and leaves the session at that stage. */
-export async function settleArrivalWalk({
-  walk,
-  first,
-  page,
-  applicant,
-  held,
-  session,
+/** A compact, value-free page result for the audit log. */
+function pageResult(result = {}) {
+  const names = (items = []) =>
+    items.map((item) => String(item).split(':')[0].trim()).join(', ');
+  return (
+    `${result.filled?.length ?? 0} filled [${names(result.filled)}], ` +
+    `${result.missing?.length ?? 0} missing [${names(result.missing)}], ` +
+    `${result.failed?.length ?? 0} failed [${names(result.failed)}]`
+  );
+}
+
+/** Required information that still prevents the current page from turning. */
+function pageNeedsWork(result = {}) {
+  const blockingFailures = (result.failed ?? []).filter(
+    (failure) =>
+      !/^passportImage:\s*the site read nothing from it$/i.test(
+        String(failure).trim()
+      )
+  );
+  return Boolean(
+    result.missing?.length || blockingFailures.length || result.refused?.length
+  );
+}
+
+/** What a confirmation means while a declaration browser exists. */
+export function arrivalConfirmationAction(arrival) {
+  if (!arrival) {
+    return null;
+  }
+  if (arrival.stage === 'passenger' || arrival.stage === 'trip') {
+    return 'advance';
+  }
+  if (arrival.stage === 'review') {
+    return 'file';
+  }
+  // A declaration owns confirmations throughout its lifetime. In particular,
+  // a captcha, incomplete page, or in-flight advance must never fall through
+  // and operate the separate e-visa application workflow.
+  return 'hold';
+}
+
+/**
+ * Advances exactly one checked declaration page and sends exactly one image.
+ *
+ * The browser remains visible and on the page sent to Telegram. A second
+ * confirmation advances from there; only a third confirmation, from Review,
+ * is handled by `declarationFiler` and can submit anything.
+ */
+export function declarationAdvancer(deps) {
+  const {
+    sessions,
+    log,
+    MESSAGES,
+    describeFilled,
+    InputFile = null,
+    showStatus = () => () => {},
+    stepOf = whichStep,
+    turnPage = turnTo,
+    fillTripPage = fillTrip,
+    readPassengerPage = readPassengerCheckpoint,
+    readTripPage = readTripCheckpoint,
+    capturePage = captureThePage,
+    secureReview = leaveReviewUnconfirmed,
+    sendPage = sendArrivalAnswer,
+  } = deps;
+  return async function advance(ctx, chatId) {
+    const session = sessions.get(chatId);
+    const held = session.arrival;
+    if (!held || !['passenger', 'trip'].includes(held.stage)) {
+      return false;
+    }
+    const from = held.stage;
+    const strings = MESSAGES[session.language];
+    const busy = showStatus(ctx, 'typing');
+    held.stage = 'advancing';
+    try {
+      const current = await stepOf(held.page);
+      if (from === 'passenger') {
+        return await advancePassenger({
+          deps: {
+            ctx,
+            chatId,
+            session,
+            held,
+            strings,
+            log,
+            describeFilled,
+            InputFile,
+            step: current,
+            turnPage,
+            fillTripPage,
+            readPassengerPage,
+            capturePage,
+            sendPage,
+          },
+        });
+      }
+      return await advanceTrip({
+        deps: {
+          ctx,
+          chatId,
+          session,
+          held,
+          strings,
+          log,
+          describeFilled,
+          InputFile,
+          step: current,
+          turnPage,
+          readTripPage,
+          capturePage,
+          secureReview,
+          sendPage,
+        },
+      });
+    } catch (error) {
+      held.stage = from;
+      log(chatId, `the declaration could not advance: ${error.message}`);
+      await ctx.reply(strings.arrivalNotAdvanced).catch(() => {});
+      return false;
+    } finally {
+      busy();
+    }
+  };
+}
+
+/** Passenger confirmation: turn once, fill trip, show it, and stop. */
+async function advancePassenger({ deps }) {
+  const {
+    ctx,
+    chatId,
+    session,
+    held,
+    strings,
+    log,
+    describeFilled,
+    InputFile,
+    step,
+    turnPage,
+    fillTripPage,
+    readPassengerPage,
+    capturePage,
+    sendPage,
+  } = deps;
+  if (step.at === 0) {
+    const live = await readPassengerPage(held.page, held);
+    if (pageNeedsWork(live.result) || held.pageDelivered === false) {
+      held.stage = 'passenger';
+      const capture = await capturePage({
+        chatId,
+        page: held.page,
+        at: 0,
+        title: STEPS[0],
+        result: live.result,
+        log,
+        InputFile,
+      });
+      await sendCheckpoint({
+        ctx,
+        chatId,
+        session,
+        held,
+        strings,
+        describeFilled,
+        InputFile,
+        log,
+        capture,
+        ready: !pageNeedsWork(live.result),
+        sendPage,
+      });
+      return false;
+    }
+    const moved = await turnPage(held.page, STEPS[1]);
+    if (!moved.turned) {
+      held.stage = 'passenger';
+      const capture = await capturePage({
+        chatId,
+        page: held.page,
+        at: 0,
+        title: STEPS[0],
+        result: live.result,
+        log,
+        InputFile,
+      });
+      await sendCheckpoint({
+        ctx,
+        chatId,
+        session,
+        held,
+        strings,
+        describeFilled,
+        InputFile,
+        log,
+        capture,
+        ready: false,
+        refused: moved.refused,
+        sendPage,
+      });
+      return false;
+    }
+  } else if (step.at !== 1) {
+    throw new Error(`expected page 1 or 2, found step ${step.at + 1}`);
+  }
+
+  const { applicant, values } = declarationFor(session, { log, chatId });
+  const result = await fillTripPage(held.page, tripFrom(applicant, values), {
+    log: (said) => log(chatId, said),
+  });
+  log(chatId, `page 2/3 ${STEPS[1]}: ${pageResult(result)}`);
+  const capture = await capturePage({
+    chatId,
+    page: held.page,
+    at: 1,
+    title: STEPS[1],
+    result,
+    log,
+    InputFile,
+  });
+  held.stage = 'trip';
+  const sent = await sendCheckpoint({
+    ctx,
+    chatId,
+    session,
+    held,
+    strings,
+    describeFilled,
+    InputFile,
+    log,
+    capture,
+    ready: !pageNeedsWork(result),
+    sendPage,
+  });
+  // A logical checkpoint requires successful delivery of its visible page.
+  if (!sent) {
+    held.stage = 'passenger';
+  }
+  return sent;
+}
+
+/** Trip confirmation: turn once, show Review, and leave Submit untouched. */
+async function advanceTrip({ deps }) {
+  const {
+    ctx,
+    chatId,
+    session,
+    held,
+    strings,
+    log,
+    describeFilled,
+    InputFile,
+    step,
+    turnPage,
+    readTripPage,
+    capturePage,
+    secureReview,
+    sendPage,
+  } = deps;
+  if (step.at === 1) {
+    const live = await readTripPage(held.page);
+    if (pageNeedsWork(live.result) || held.pageDelivered === false) {
+      held.stage = 'trip';
+      const capture = await capturePage({
+        chatId,
+        page: held.page,
+        at: 1,
+        title: STEPS[1],
+        result: live.result,
+        log,
+        InputFile,
+      });
+      await sendCheckpoint({
+        ctx,
+        chatId,
+        session,
+        held,
+        strings,
+        describeFilled,
+        InputFile,
+        log,
+        capture,
+        ready: !pageNeedsWork(live.result),
+        sendPage,
+      });
+      return false;
+    }
+    const moved = await turnPage(held.page, STEPS[2]);
+    if (!moved.turned) {
+      held.stage = 'trip';
+      const capture = await capturePage({
+        chatId,
+        page: held.page,
+        at: 1,
+        title: STEPS[1],
+        result: live.result,
+        log,
+        InputFile,
+      });
+      await sendCheckpoint({
+        ctx,
+        chatId,
+        session,
+        held,
+        strings,
+        describeFilled,
+        InputFile,
+        log,
+        capture,
+        ready: false,
+        refused: moved.refused,
+        sendPage,
+      });
+      return false;
+    }
+  } else if (step.at !== 2) {
+    throw new Error(`expected page 2 or 3, found step ${step.at + 1}`);
+  }
+
+  const reviewSafe = await secureReview(held.page);
+  log(
+    chatId,
+    `page 3/3 ${STEPS[2]}: confirmation ${reviewSafe ? 'unchecked' : 'could not be verified unchecked'}; Submit untouched`
+  );
+  const capture = await capturePage({
+    chatId,
+    page: held.page,
+    at: 2,
+    title: STEPS[2],
+    result: { filled: [], missing: [], failed: [] },
+    log,
+    InputFile,
+  });
+  capture.reviewSafe = reviewSafe;
+  held.stage = 'review';
+  const sent = await sendCheckpoint({
+    ctx,
+    chatId,
+    session,
+    held,
+    strings,
+    describeFilled,
+    InputFile,
+    log,
+    capture,
+    ready: true,
+    sendPage,
+  });
+  if (!sent) {
+    held.stage = 'trip';
+  }
+  return sent;
+}
+
+/** Sends one stage with its instruction as the last caption block. */
+async function sendCheckpoint({
+  ctx,
   chatId,
+  session,
+  held,
+  strings,
+  describeFilled,
+  InputFile,
   log,
+  capture,
+  ready,
+  refused = [],
+  sendPage,
 }) {
-  let tooEarly = null;
-  if (first.arrival?.tooEarly) {
-    const offered = await offeredArrivalDates(page);
-    log(
-      chatId,
-      `too early to declare: wanted ${applicant.arrivalDate}, offered ${offered.join(', ')}`
-    );
-    tooEarly = { wanted: applicant.arrivalDate, offered };
+  const sent = await sendPage({
+    ctx,
+    chatId,
+    answer: arrivalAnswerFor({
+      capture,
+      session,
+      strings,
+      describeFilled,
+      ready,
+      refused,
+      rehearsal: held.rehearsal
+        ? strings.arrivalRehearsal(
+            held.rehearsal,
+            session.data?.entryDate ?? session.data?.arrivalDate
+          )
+        : '',
+    }),
+    session,
+    strings,
+    InputFile,
+    log,
+  });
+  held.pageDelivered = Boolean(sent);
+  return sent;
+}
+
+/** Required passenger values as they stand after possible manual edits. */
+async function readPassengerCheckpoint(page, held = {}) {
+  const values = await readDeclaration(page);
+  const required = FORM_FIELDS.map(({ key }) => key);
+  if (!values.gender) {
+    required.push('sex');
   }
-  const expired = Boolean(first.expired);
-  if (expired) {
-    log(chatId, `the declaration expired: ${first.expired}`);
-    await closeDeclaration(session);
+  if (!values.arrivalDate) {
+    required.push('arrivalDate');
   }
-  if (walk.reached < 2) {
-    held.stage = 'form';
-    log(
-      chatId,
-      `the declaration stopped on ${walk.stopped}: ${walk.refused?.join('; ') || 'no reason given'}`
-    );
-  } else if (!tooEarly && !expired) {
-    held.stage = 'review';
+  const notes = await page
+    .getByRole('checkbox')
+    .first()
+    .isChecked()
+    .catch(() => false);
+  if (notes) {
+    values.readTheNotes = true;
+  } else {
+    required.push('readTheNotes');
   }
-  return { tooEarly, expired };
+  const passport =
+    held.uploaded?.passportPage ||
+    (await page
+      .locator('input[name="passportImage"]')
+      .first()
+      .evaluate((input) => Boolean(input.files?.length))
+      .catch(() => false));
+  if (passport) {
+    values.passportImage = true;
+  } else {
+    required.push('passportImage');
+  }
+  const missing = [...new Set(required)].filter((key) => {
+    if (key === 'sex') {
+      return !values.gender;
+    }
+    return !values[key];
+  });
+  return {
+    values,
+    result: {
+      filled: Object.keys(values),
+      missing,
+      failed: [],
+    },
+  };
+}
+
+/** Required trip values as they stand after possible manual edits. */
+async function readTripCheckpoint(page) {
+  const values = await readTrip(page);
+  return tripCheckpointFromValues(values);
+}
+
+/** Completeness of the visible trip page; optional fields stay optional. */
+export function tripCheckpointFromValues(values = {}) {
+  const required = TRIP_FIELDS.filter(({ required }) => required !== false).map(
+    ({ key }) => key
+  );
+  // The gate is filled by a valid flight and cannot be typed by the user. If
+  // it is absent, the actionable answer is to choose the flight again.
+  const missing = required.filter((key) => !values[key]);
+  if (!values.borderGate && !missing.includes('vehicleNumber')) {
+    missing.push('vehicleNumber');
+  }
+  return {
+    values,
+    result: {
+      filled: Object.keys(values),
+      missing,
+      failed: [],
+    },
+  };
+}
+
+/** Makes the Review checkpoint truthful: checkbox off, Submit untouched. */
+async function leaveReviewUnconfirmed(page) {
+  const box = page.getByRole('checkbox').first();
+  if (!(await box.isVisible().catch(() => false))) {
+    return false;
+  }
+  if (await box.isChecked().catch(() => false)) {
+    await box.uncheck({ force: true, timeout: 10000 }).catch(() => {});
+  }
+  return !(await box.isChecked().catch(() => true));
 }
 
 /**
@@ -764,7 +1211,7 @@ function countryFlownFrom(...records) {
   return said;
 }
 
-/** Reads and photographs one page for the consolidated answer. */
+/** Reads and photographs one page for its own checkpoint answer. */
 async function captureThePage({
   chatId,
   page,
@@ -792,290 +1239,6 @@ async function captureThePage({
         ? await readTrip(page).catch(() => ({}))
         : {};
   return { at, title, result, onThePage, shot };
-}
-
-/** Telegram's limit on the words under a picture. */
-const CAPTION_LIMIT = 1024;
-
-/**
- * Chooses the one page and the one account that answer the entire batch.
- *
- * A successful walk returns the review. A blocked walk returns the page that
- * needs work and only its actionable field names—the raw Playwright trace and
- * the site's generic English validation sentence belong in the log.
- */
-export function arrivalAnswerFor({
-  walk,
-  captured,
-  session,
-  strings,
-  describeFilled,
-  rehearsal = '',
-  tooEarly = null,
-  expired = false,
-}) {
-  const last = captured.at(-1) ?? {};
-  const passenger = reportableValues(captured.find(({ at }) => at === 0) ?? {});
-  const trip = reportableValues(captured.find(({ at }) => at === 1) ?? {});
-  const main = mainArrivalAnswer({
-    walk,
-    last,
-    passenger,
-    trip,
-    session,
-    strings,
-    describeFilled,
-    tooEarly,
-    expired,
-  });
-  const caption = [
-    rehearsal,
-    main,
-    describeArrivalWarnings(walk, strings),
-    describeDocumentIssues(session, strings),
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-  const shots = captured.map(({ shot }) => shot).filter(Boolean);
-  return { caption, shot: last.shot ?? shots.at(-1) ?? null, shots };
-}
-
-/** Non-blocking fill failures that still belong in the one final answer. */
-function describeArrivalWarnings(walk, strings) {
-  const failed = (walk.pages ?? []).flatMap((page) => page.failed ?? []);
-  return failed.some(
-    (failure) => String(failure).split(':')[0].trim() === 'passportImage'
-  )
-    ? strings.arrivalPassportUnread
-    : '';
-}
-
-/** The state-specific part of the consolidated answer. */
-function mainArrivalAnswer({
-  walk,
-  last,
-  passenger,
-  trip,
-  session,
-  strings,
-  describeFilled,
-  tooEarly,
-  expired,
-}) {
-  if (tooEarly) {
-    return strings.arrivalTooEarly(tooEarly.wanted, tooEarly.offered);
-  }
-  if (expired) {
-    return strings.arrivalExpired;
-  }
-  if (walk.reached < 2) {
-    return blockedArrivalAnswer({
-      walk,
-      last,
-      passenger,
-      trip,
-      session,
-      strings,
-      describeFilled,
-    });
-  }
-  return [
-    strings.arrivalReviewShot,
-    strings.arrivalPassengerCheck?.(escapedValues(passenger)),
-    strings.arrivalTripCheck?.(escapedValues(trip)),
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-/** A stopped page, reduced to the fields the traveller can act on. */
-function blockedArrivalAnswer({
-  walk,
-  last,
-  passenger,
-  trip,
-  session,
-  strings,
-  describeFilled,
-}) {
-  const result = last.result ??
-    walk.pages.at(-1) ?? {
-      filled: [],
-      missing: [],
-      failed: [],
-    };
-  const pageTitle =
-    strings.arrivalPageName?.(last.title ?? walk.stopped) ??
-    last.title ??
-    walk.stopped;
-  const stopped = strings.arrivalPageName?.(walk.stopped) ?? walk.stopped;
-  return [
-    strings.arrivalPageOf((last.at ?? walk.reached) + 1, 3, pageTitle),
-    strings.arrivalPassengerCheck?.(escapedValues(passenger)),
-    last.at === 1 ? strings.arrivalTripCheck?.(escapedValues(trip)) : '',
-    describeFilled({}, result, session.language, {
-      showValues: false,
-      forceNeedsWork: true,
-      showStatus: false,
-    }),
-    walk.refused?.length
-      ? strings.arrivalPageRefused(stopped, [])
-      : strings.arrivalPageIncomplete(stopped),
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-/** Sends the chosen answer once and retires its accumulated warnings. */
-export async function sendArrivalAnswer({
-  ctx,
-  chatId,
-  answer,
-  session,
-  strings,
-  InputFile,
-  log,
-  combineScreenshots = combineArrivalScreenshots,
-}) {
-  // `arrivalAnswerFor` has already described exactly this snapshot. Detach
-  // it synchronously, before Telegram is awaited; later document warnings
-  // then start a new collection and survive this send.
-  const issueSnapshot = takeDocumentIssues(session);
-  try {
-    const shots = (answer.shots?.length ? answer.shots : [answer.shot]).filter(
-      Boolean
-    );
-    let shot = shots.at(-1) ?? null;
-    if (InputFile && shots.length > 1) {
-      try {
-        shot = await combineScreenshots(shots);
-        log(chatId, `combined ${shots.length} declaration page screenshots`);
-      } catch (error) {
-        log(
-          chatId,
-          `could not combine declaration screenshots; using the last page: ${error.message}`
-        );
-      }
-    }
-    if (shot && InputFile) {
-      const fits = answer.caption.length <= CAPTION_LIMIT;
-      const caption = fits
-        ? answer.caption
-        : `${plainCaption(answer.caption).slice(0, CAPTION_LIMIT - 1)}…`;
-      if (!fits) {
-        log(
-          chatId,
-          `the consolidated arrival caption is ${answer.caption.length} characters; shortened under its screenshot`
-        );
-      }
-      await ctx.replyWithPhoto(new InputFile(shot, strings.arrivalShotName), {
-        caption,
-        ...(fits ? { parse_mode: 'HTML' } : {}),
-        show_caption_above_media: true,
-      });
-    } else {
-      await ctx.reply(answer.caption, { parse_mode: 'HTML' });
-    }
-    return true;
-  } catch (error) {
-    restoreDocumentIssues(session, issueSnapshot);
-    log(chatId, `the declaration answer did not send: ${error.message}`);
-    return false;
-  }
-}
-
-/** All visited declaration pages in one Telegram photo, in visit order. */
-export async function combineArrivalScreenshots(
-  shots,
-  { gap = 24, maxDimensionSum = 9800 } = {}
-) {
-  const pages = (shots ?? []).filter(Boolean);
-  if (!pages.length) {
-    return null;
-  }
-  if (pages.length === 1) {
-    return pages[0];
-  }
-  const { default: sharp } = await import('sharp');
-  const metadata = await Promise.all(
-    pages.map((page) => sharp(page, { failOn: 'none' }).metadata())
-  );
-  const width = Math.max(...metadata.map(({ width }) => width ?? 0));
-  const heights = metadata.map(({ height }) => height ?? 0);
-  if (!width || heights.some((height) => !height)) {
-    throw new Error('one or more screenshots have no dimensions');
-  }
-  const height =
-    heights.reduce((total, pageHeight) => total + pageHeight, 0) +
-    gap * (pages.length - 1);
-  let top = 0;
-  const composite = pages.map((input, index) => {
-    const layer = { input, left: 0, top };
-    top += heights[index] + gap;
-    return layer;
-  });
-  const combined = await sharp({
-    create: {
-      width,
-      height,
-      channels: 3,
-      background: '#ffffff',
-    },
-  })
-    .composite(composite)
-    .png()
-    .toBuffer();
-  // Telegram caps width + height at 10,000 pixels. A three-page browser
-  // capture can cross that boundary even though every page is valid, so keep
-  // a small delivery margin and shrink only when necessary.
-  if (width + height > maxDimensionSum) {
-    const scale = maxDimensionSum / (width + height);
-    return sharp(combined)
-      .resize({ width: Math.floor(width * scale) })
-      .png()
-      .toBuffer();
-  }
-  return combined;
-}
-
-/** Markup-free fallback for a pathological Telegram caption. */
-function plainCaption(caption) {
-  return String(caption)
-    .replace(/<[^>]*>/g, '')
-    .replaceAll('&amp;', '&')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>');
-}
-
-/** Values interpolated into Telegram HTML without becoming markup. */
-function escapedValues(values) {
-  const escaped = {};
-  for (const [key, value] of Object.entries(values ?? {})) {
-    if (value) {
-      escaped[key] = String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-    }
-  }
-  return escaped;
-}
-
-/** Page values except defaults standing in fields the record still lacks. */
-function reportableValues(capture = {}) {
-  const missing = new Set(capture.result?.missing ?? []);
-  for (const failure of capture.result?.failed ?? []) {
-    missing.add(String(failure).split(':')[0].trim());
-  }
-  const values = Object.fromEntries(
-    Object.entries(capture.onThePage ?? {}).filter(([key]) => !missing.has(key))
-  );
-  for (const key of ['passportImage', 'readTheNotes']) {
-    if (capture.result?.filled?.includes(key)) {
-      values[key] = true;
-    }
-  }
-  return values;
 }
 
 /**
@@ -1113,9 +1276,6 @@ function passportToUpload(session, held) {
     return null;
   }
   const image = session.uploads?.passportPage ?? null;
-  if (image) {
-    held.uploaded = { ...held.uploaded, passportPage: true };
-  }
   return image;
 }
 
@@ -1140,13 +1300,16 @@ export function declarationRefiller(deps) {
     // A declaration standing on its review page is filled, not finished: a
     // correction sent now is a correction to what is on it, and the walk
     // starts again from the first page with the new value in hand.
-    if (!held || (held.stage !== 'form' && held.stage !== 'review')) {
+    if (
+      !held ||
+      !['form', 'passenger', 'trip', 'review'].includes(held.stage)
+    ) {
       return;
     }
     const busy = showStatus(ctx, 'typing');
     try {
       const current = await whichStep(held.page);
-      if (current.at >= 0) {
+      if (current.at > 0) {
         // A correction starts a clean declaration so any CAPTCHA is handled
         // through the normal chat flow before the saved record is refilled.
         log(
@@ -1156,8 +1319,8 @@ export function declarationRefiller(deps) {
         await closeDeclaration(session);
         await restartDeclaration({ ...deps, ctx, chatId });
       } else {
-        // Before nationality is chosen no declaration page exists yet. This
-        // is the initial document batch, so keep its already-solved CAPTCHA.
+        // Before nationality is chosen, or while page 1 itself is still open,
+        // the correction can be applied without discarding the solved CAPTCHA.
         await refillDeclaration({ ...deps, ctx, chatId });
       }
     } catch (error) {
@@ -1181,20 +1344,31 @@ export function declarationRefiller(deps) {
  * made of it. A filing nobody is told about is one nobody can act on.
  */
 export function declarationFiler(deps) {
-  const { sessions, log, MESSAGES, showStatus = () => () => {} } = deps;
+  const {
+    sessions,
+    log,
+    MESSAGES,
+    showStatus = () => () => {},
+    fileDeclaration = fileTheDeclaration,
+  } = deps;
   return async function file(ctx, chatId) {
     const session = sessions.get(chatId);
     const strings = MESSAGES[session.language];
     const held = session.arrival;
     if (!held || held.stage !== 'review') {
       log(chatId, 'asked to file, but no declaration is on its review page');
-      await ctx.reply(strings.arrivalNothingToFile).catch(() => {});
+      await ctx
+        .reply(
+          held ? strings.arrivalCannotConfirmNow : strings.arrivalNothingToFile
+        )
+        .catch(() => {});
       return false;
     }
+    held.stage = 'filing';
     const busy = showStatus(ctx, 'typing');
     try {
       await ctx.reply(strings.arrivalFiling).catch(() => {});
-      const out = await fileTheDeclaration(held.page, {
+      const out = await fileDeclaration(held.page, {
         confirmed: true,
         log: (said) => log(chatId, said),
       });
@@ -1203,6 +1377,7 @@ export function declarationFiler(deps) {
         await ctx.reply(strings.arrivalFiled).catch(() => {});
         return true;
       }
+      held.stage = 'review';
       await ctx
         .reply(
           strings.arrivalNotFiled(
@@ -1212,8 +1387,9 @@ export function declarationFiler(deps) {
         .catch(() => {});
       return false;
     } catch (error) {
+      held.stage = 'filing-unknown';
       log(chatId, `the declaration did not file: ${error.message}`);
-      await ctx.reply(strings.arrivalNotFiled(error.message)).catch(() => {});
+      await ctx.reply(strings.arrivalFilingUnknown).catch(() => {});
       return false;
     } finally {
       busy();
@@ -1267,8 +1443,8 @@ export function declarationCaptchaTaker(deps) {
     if (!sessions.get(chatId).arrival || !looksLikeCaptcha(ctx.message.text)) {
       return false;
     }
-    // A code that is accepted is followed by the whole fill, which is the
-    // long part. The chat should see that something is happening.
+    // A code that is accepted is followed by the passenger-page fill, which
+    // is the long part. The chat should see that something is happening.
     const busy = showStatus(ctx, 'typing');
     try {
       return await tookDeclarationCaptcha({

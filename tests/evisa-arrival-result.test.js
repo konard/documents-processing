@@ -8,11 +8,14 @@ import {
   configuredDownloadsDirectory,
   DECLARATION_PDF_NAME,
   DECLARATION_QR_NAME,
-  keepBrowserDownloads,
   readDeclarationResult,
   sendDuplicateDeclarationResult,
   sendDeclarationResult,
 } from '../src/evisa-arrival-result.mjs';
+import {
+  attachBrowserFeatures,
+  stopBrowserFeatures,
+} from '../src/evisa-browser-features.mjs';
 import { MESSAGES } from '../src/evisa-messages.mjs';
 
 describe('declaration result delivery', () => {
@@ -35,15 +38,12 @@ describe('declaration result delivery', () => {
     const directory = fs.mkdtempSync(
       path.join(os.tmpdir(), 'evisa-result-test-')
     );
-    const browser = await chromium.launch({
-      headless: true,
-      downloadsPath: directory,
-    });
+    const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
       });
-      keepBrowserDownloads(page, directory);
+      await attachBrowserFeatures(page, { downloadsDirectory: directory });
       await page.setContent(`
         <h1>Your submission is successful!</h1>
         <section><img id="qr" alt="QR Code" width="220" height="220"
@@ -114,6 +114,9 @@ describe('declaration result delivery', () => {
       expect(qrMetadata.height).toBe(250);
       expect(photos[0].options.caption).toBe(MESSAGES.en.arrivalResultQr);
     } finally {
+      for (const page of browser.contexts().flatMap((one) => one.pages())) {
+        await stopBrowserFeatures(page);
+      }
       await browser.close();
       fs.rmSync(directory, { recursive: true, force: true });
     }

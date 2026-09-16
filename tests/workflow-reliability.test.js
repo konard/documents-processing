@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'test-anywhere';
 import { readFileSync } from 'node:fs';
 
+const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+
 function readWorkflow(filePath) {
   return readFileSync(filePath, 'utf8').replaceAll('\r\n', '\n');
 }
@@ -191,10 +193,11 @@ describe('workflow reliability policy', () => {
       /image:\s*mcr\.microsoft\.com\/playwright:v([0-9.]+)-noble/
     )?.[1];
     const packageVersion = previewRegenJob.match(/playwright@([0-9.]+)/)?.[1];
+    const expectedVersion = packageJson.dependencies.playwright;
 
     expect(previewRegenJob).toContain('container:');
-    expect(imageVersion).toBe('1.59.1');
-    expect(packageVersion).toBe(imageVersion);
+    expect(imageVersion).toBe(expectedVersion);
+    expect(packageVersion).toBe(expectedVersion);
     expect(previewRegenJob).toContain("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'");
     expect(previewRegenJob).not.toContain('npx playwright install');
     expect(previewRegenJob).not.toContain('~/.cache/ms-playwright');

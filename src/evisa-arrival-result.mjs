@@ -8,12 +8,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  checkpointBrowser,
+  ensureManagedDownloads,
+} from './evisa-browser-features.mjs';
 
 export const DECLARATION_PDF_NAME = 'Vietnam-Pre-Arrival-Declaration.pdf';
 export const DECLARATION_QR_NAME = 'Vietnam-Pre-Arrival-QR.png';
-
-const savedDownloads = new WeakMap();
-const plannedNames = new WeakMap();
 
 /** Reads the site's terminal result without treating every step 4 as success. */
 export async function readDeclarationResult(page) {
@@ -55,21 +56,6 @@ export function configuredDownloadsDirectory(
   return resolve(configured);
 }
 
-/** Saves even manually initiated Playwright downloads outside its temp tree. */
-export function keepBrowserDownloads(page, directory, { log = () => {} } = {}) {
-  if (!directory) {
-    return;
-  }
-  fs.mkdirSync(directory, { recursive: true });
-  page.on('download', (download) => {
-    const wanted = plannedNames.get(page) ?? download.suggestedFilename();
-    plannedNames.delete(page);
-    saveDownload(download, directory, wanted)
-      .then(({ file }) => log(`download saved as ${file}`))
-      .catch((error) => log(`download could not be saved: ${error.message}`));
-  });
-}
-
 /** Clicks the result-page PDF button and returns its validated, named file. */
 export async function downloadDeclarationPdf(
   page,
@@ -80,17 +66,23 @@ export async function downloadDeclarationPdf(
     .getByRole('button', { name: /Download PDF Pre-Arrival Information/i })
     .first();
   await button.waitFor({ state: 'visible', timeout });
-  plannedNames.set(page, DECLARATION_PDF_NAME);
-  try {
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout }),
-      button.click({ timeout }),
-    ]);
-    return await saveDownload(download, directory, DECLARATION_PDF_NAME);
-  } catch (error) {
-    plannedNames.delete(page);
-    throw error;
-  }
+  const downloads = await ensureManagedDownloads(page, directory);
+  const artifact = await downloads.capture({
+    action: () => button.click({ timeout }),
+    filename: DECLARATION_PDF_NAME,
+    timeout,
+    validate: ({ path: candidate }) => {
+      const file = fs.openSync(candidate, 'r');
+      try {
+        const head = Buffer.alloc(5);
+        fs.readSync(file, head, 0, head.length, 0);
+        return head.equals(Buffer.from('%PDF-'));
+      } finally {
+        fs.closeSync(file);
+      }
+    },
+  });
+  return { file: artifact.path, bytes: fs.readFileSync(artifact.path) };
 }
 
 /** Extracts the original result QR, excluding its decorative browser card. */
@@ -164,6 +156,10 @@ export async function collectDeclarationResult({
   keepMarkup = async () => {},
   log = () => {},
 }) {
+  await checkpointBrowser(page, 'prearrival-result', {
+    actor: 'site',
+    reason: 'result',
+  });
   await keepMarkup(chatId, page, 'arrival-result');
   const temporary = !downloadsDirectory;
   const directory =
@@ -264,6 +260,10 @@ export async function sendDuplicateDeclarationResult({
   keepMarkup,
   log = () => {},
 }) {
+  await checkpointBrowser(page, 'prearrival-duplicate', {
+    actor: 'site',
+    reason: 'duplicate',
+  });
   await keepMarkup(chatId, page, 'arrival-result-duplicate');
   const caption = strings.arrivalDuplicate(passportNumber);
   try {
@@ -280,47 +280,4 @@ export async function sendDuplicateDeclarationResult({
     );
     await ctx.reply(caption).catch(() => {});
   }
-}
-
-function saveDownload(download, directory, preferredName) {
-  if (savedDownloads.has(download)) {
-    return savedDownloads.get(download);
-  }
-  const saving = (async () => {
-    let name = safeFileName(preferredName || 'download');
-    if (!path.extname(name)) {
-      name += '.pdf';
-    }
-    const file = availableFile(directory, name);
-    await download.saveAs(file);
-    const bytes = fs.readFileSync(file);
-    if (!bytes.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
-      fs.rmSync(file, { force: true });
-      throw new Error('the downloaded file is not a PDF');
-    }
-    const original = await download.path().catch(() => null);
-    if (original && path.resolve(original) !== path.resolve(file)) {
-      fs.rmSync(original, { force: true });
-    }
-    return { file, bytes };
-  })();
-  savedDownloads.set(download, saving);
-  return saving;
-}
-
-function safeFileName(value) {
-  return [...String(value)]
-    .map((character) => (character.charCodeAt(0) < 32 ? '-' : character))
-    .join('')
-    .replace(/[\\/:*?"<>|]/g, '-');
-}
-
-function availableFile(directory, name) {
-  const extension = path.extname(name);
-  const stem = path.basename(name, extension);
-  let candidate = path.join(directory, name);
-  for (let copy = 2; fs.existsSync(candidate); copy += 1) {
-    candidate = path.join(directory, `${stem} (${copy})${extension}`);
-  }
-  return candidate;
 }

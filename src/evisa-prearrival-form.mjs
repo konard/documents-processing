@@ -28,7 +28,10 @@
 
 import { giveBackTheFront, whatIsInFront } from './evisa-window.mjs';
 import { saidBriefly } from './evisa-messages.mjs';
-import { keepBrowserDownloads } from './evisa-arrival-result.mjs';
+import {
+  attachBrowserFeatures,
+  checkpointBrowser,
+} from './evisa-browser-features.mjs';
 
 /** Where a declaration is made. */
 export const PREARRIVAL_FORM_URL =
@@ -410,6 +413,7 @@ export async function openDeclaration({
   headless = false,
   debugPort = 0,
   downloadsPath = null,
+  traceOutput = null,
   viewport,
 } = {}) {
   const { chromium } = await import('playwright');
@@ -429,7 +433,10 @@ export async function openDeclaration({
     viewport ? { viewport } : { viewport: null }
   );
   const page = await context.newPage();
-  keepBrowserDownloads(page, downloadsPath);
+  const features = await attachBrowserFeatures(page, {
+    downloadsDirectory: downloadsPath,
+    traceOutput,
+  });
   // The site expires a declaration after a while and says so in a native
   // alert. Nothing dismisses one of those on a driven page, so the browser
   // stops answering entirely and the fill hangs with no error to report.
@@ -445,10 +452,14 @@ export async function openDeclaration({
     .locator('[role=dialog]:has-text("CAPTCHA")')
     .waitFor({ state: 'visible', timeout: 30000 })
     .catch(() => {});
+  await checkpointBrowser(page, 'prearrival-opened', {
+    actor: 'site',
+    reason: 'initial',
+  });
   if (!headless) {
     await giveBackTheFront(wasInFront);
   }
-  return { browser, context, page };
+  return { browser, context, page, ...features };
 }
 
 /** Whether the captcha dialog is up, which is how the site opens. */

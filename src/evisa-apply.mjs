@@ -32,6 +32,7 @@ import {
   mergeSources,
 } from './evisa-data.mjs';
 import { openForm, prepareDocument, fillAndCapture } from './evisa-session.mjs';
+import { stopBrowserFeatures } from './evisa-browser-features.mjs';
 import { lookupAddress, renderVerifiedAddress } from './evisa-geocode.mjs';
 
 /**
@@ -290,6 +291,7 @@ async function main() {
     }
   } finally {
     if (!options.keepOpen) {
+      await stopBrowserFeatures(page);
       await browser.close();
     }
   }

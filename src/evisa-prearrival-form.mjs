@@ -414,7 +414,6 @@ export async function openDeclaration({
   debugPort = 0,
   downloadsPath = null,
   traceOutput = null,
-  onTraceCheckpoint = null,
   viewport,
 } = {}) {
   const { chromium } = await import('playwright');
@@ -437,7 +436,6 @@ export async function openDeclaration({
   const features = await attachBrowserFeatures(page, {
     downloadsDirectory: downloadsPath,
     traceOutput,
-    onCheckpoint: onTraceCheckpoint,
   });
   // The site expires a declaration after a while and says so in a native
   // alert. Nothing dismisses one of those on a driven page, so the browser

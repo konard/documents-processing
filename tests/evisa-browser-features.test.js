@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { readTrace } from 'browser-commander';
+import { Parser } from 'links-notation';
 import {
   attachBrowserFeatures,
   checkpointBrowser,
@@ -50,15 +51,12 @@ describe('Browser Commander integration', () => {
         calls.commander = options;
         return commander;
       },
-      downloadManagerFactory: async (options) => {
-        calls.downloads = options;
-        return downloads;
-      },
       viewerWriter: async (tracePath) => {
         calls.viewer = tracePath;
       },
-      onCheckpoint: async (checkpoint) => {
-        calls.mirrored = checkpoint;
+      downloadManagerFactory: async (options) => {
+        calls.downloads = options;
+        return downloads;
       },
     });
 
@@ -73,6 +71,9 @@ describe('Browser Commander integration', () => {
     });
     expect(calls.trace.output).toBe('/tmp/run.bc-trace');
     expect(calls.trace.mode).toBe('continuous');
+    expect(calls.trace.initialCheckpoint).toBe('browser-attached');
+    expect(calls.trace.links.output).toBe('/tmp/run.lino');
+    expect(calls.trace.links.include).toContain('control-diffs');
     expect(calls.trace.screenshots).toBe('checkpoints');
     expect(calls.trace.dom.mutations).toBe(true);
     expect(calls.trace.privacy.redactSelectors).toContain(
@@ -91,10 +92,6 @@ describe('Browser Commander integration', () => {
         options: { actor: 'automation', reason: 'checkpoint' },
       },
     ]);
-    expect(calls.mirrored.name).toBe('form-opened');
-    expect(calls.mirrored.tracePath).toBe('/tmp/run.bc-trace');
-    expect(calls.mirrored.entry.index).toBe(1);
-
     await stopBrowserFeatures(page);
     expect(calls.traceStopped).toBe(true);
     expect(calls.viewer).toBe('/tmp/run.bc-trace');
@@ -142,7 +139,6 @@ describe('Browser Commander recording', () => {
       );
       const output = path.join(directory, 'run.bc-trace');
       await attachBrowserFeatures(page, { traceOutput: output });
-      await checkpointBrowser(page, 'initial');
       await page.fill('#name', 'Ada');
       await page.fill('#mail-code', '654321');
       await page.fill('#captcha-answer', 'A1B2C3');
@@ -157,7 +153,7 @@ describe('Browser Commander recording', () => {
 
       const recorded = await readTrace(output);
       expect(recorded.checkpoints.map(({ name }) => name)).toEqual([
-        'initial',
+        'browser-attached',
         'filled',
       ]);
       expect((await recorded.state(1)).controls[0].value).toBe('');
@@ -168,6 +164,12 @@ describe('Browser Commander recording', () => {
       expect(secondState.includes('A1B2C3')).toBe(false);
       expect(secondHtml.includes('654321')).toBe(false);
       expect(secondHtml.includes('A1B2C3')).toBe(false);
+      const links = fs.readFileSync(path.join(directory, 'run.lino'), 'utf8');
+      expect(links.includes('(checkpoint:')).toBe(true);
+      expect(links.includes('(control-diff:')).toBe(true);
+      expect(links.includes('654321')).toBe(false);
+      expect(links.includes('A1B2C3')).toBe(false);
+      expect(new Parser().parse(links).length > 0).toBe(true);
       const semantic = await readPageState(page);
       expect(semantic['mail-code']).toBe('(withheld)');
       expect(semantic['captcha-answer']).toBe('(withheld)');

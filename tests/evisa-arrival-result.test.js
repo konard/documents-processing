@@ -38,10 +38,7 @@ describe('declaration result delivery', () => {
     const directory = fs.mkdtempSync(
       path.join(os.tmpdir(), 'evisa-result-test-')
     );
-    const browser = await chromium.launch({
-      headless: true,
-      downloadsPath: directory,
-    });
+    const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },

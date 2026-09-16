@@ -326,7 +326,6 @@ async function pageFor(chatId, { blank = false } = {}) {
     debugPort,
     downloadsPath: DOWNLOADS_DIR,
     traceOutput: valuesAllowed() ? trace.browserPathFor(chatId, 'visa') : null,
-    onTraceCheckpoint: valuesAllowed() ? trace.browserObserver(chatId) : null,
     blank,
   });
   logBrowserEvents(chatId, page);

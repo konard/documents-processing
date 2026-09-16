@@ -161,7 +161,6 @@ async function startDeclarationWith({
     debugPort,
     downloadsPath,
     traceOutput: trace?.browserPathFor(chatId, 'prearrival') ?? null,
-    onTraceCheckpoint: trace?.browserObserver(chatId) ?? null,
   });
   session.arrival = { ...opened, stage: 'captcha' };
   // No dialog gating the page means the form itself is already in front of

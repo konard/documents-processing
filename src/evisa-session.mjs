@@ -66,7 +66,6 @@ export async function openForm({
   debugPort = 0,
   downloadsPath = null,
   traceOutput = null,
-  onTraceCheckpoint = null,
   blank = false,
 } = {}) {
   const { chromium } = await import('playwright');
@@ -91,7 +90,6 @@ export async function openForm({
   const features = await attachBrowserFeatures(page, {
     downloadsDirectory: downloadsPath,
     traceOutput,
-    onCheckpoint: onTraceCheckpoint,
   });
   if (!headless) {
     // The flag above is not enough on a Mac, where launching an application

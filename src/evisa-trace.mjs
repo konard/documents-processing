@@ -199,8 +199,6 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
     }
   };
 
-  const browserStates = new WeakMap();
-
   const api = {
     /**
      * A unique Browser Commander bundle beside the concise Links Notation
@@ -217,41 +215,6 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
         'browser',
         `chat-${chatId}-${safeJourney}-${now}.bc-trace`
       );
-    },
-
-    /**
-     * Mirror portable checkpoints into the Links Notation record. The bundle
-     * contains the complete page artifacts; this stream contains their
-     * semantic field delta, actor and bundle-relative member references.
-     */
-    browserObserver(chatId) {
-      if (!enabled) {
-        return async () => {};
-      }
-      return async ({ page, name, actor, reason, tracePath, entry = {} }) => {
-        const state = await readPageState(page);
-        const before = browserStates.get(page);
-        if (before) {
-          api.changes(chatId, changesBetween(before, state), actor);
-        } else {
-          api.state(chatId, state, name);
-        }
-        browserStates.set(page, state);
-
-        put(chatId, () => [
-          record(`browser ${value(name)}`, [
-            ['at', new Date().toISOString()],
-            ['index', entry.index],
-            ['actor', actor],
-            ['reason', reason],
-            [
-              'trace',
-              tracePath ? path.relative(directory, tracePath) : undefined,
-            ],
-            ...Object.entries(entry.members ?? {}),
-          ]),
-        ]);
-      };
     },
 
     /**
@@ -348,8 +311,9 @@ export function sweepTracesIn(storeDirectory, days) {
  * Returns the page as it now stands, which is the ground the next fill's
  * comparison is made against.
  */
-export async function recordFill(trace, chatId, page, { result }) {
+export async function recordFill(trace, chatId, page, { before, result }) {
   const now = await readPageState(page);
+  trace.changes(chatId, changesBetween(before ?? {}, now), 'bot');
   trace.step(chatId, 'form', {
     moment: 'filled',
     detail: { filled: result.filled.length, failed: result.failures.length },
@@ -371,8 +335,11 @@ export async function recordFill(trace, chatId, page, { result }) {
  */
 export async function recordArrival(trace, chatId, page, last) {
   const found = await readPageState(page);
-  if (!last) {
+  if (last) {
+    trace.changes(chatId, changesBetween(last, found), 'applicant');
+  } else {
     trace.step(chatId, 'form', { moment: 'opened' });
+    trace.state(chatId, found, 'start');
   }
   await checkpointBrowser(page, 'visa-before-fill', {
     actor: last ? 'user' : 'site',
@@ -400,6 +367,7 @@ export async function recordStep(trace, chatId, page, step, label) {
     actor: 'site',
     reason: step.moved ? 'navigation' : 'refused',
   });
+  trace.state(chatId, await readPageState(page), step.stage);
 }
 
 /**
@@ -439,7 +407,10 @@ export function sweepTraces(directory, days) {
     for (const entry of fs.readdirSync(browserDirectory, {
       withFileTypes: true,
     })) {
-      if (!entry.isDirectory() || !/^chat-.*\.bc-trace$/.test(entry.name)) {
+      const bundle =
+        entry.isDirectory() && /^chat-.*\.bc-trace$/.test(entry.name);
+      const links = entry.isFile() && /^chat-.*\.lino$/.test(entry.name);
+      if (!bundle && !links) {
         continue;
       }
       const full = path.join(browserDirectory, entry.name);

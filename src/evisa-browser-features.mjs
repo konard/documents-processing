@@ -12,7 +12,7 @@ import {
 } from 'browser-commander';
 
 /** Browser Commander version written into every trace manifest. */
-export const BROWSER_COMMANDER_VERSION = '0.18.0';
+export const BROWSER_COMMANDER_VERSION = '0.19.0';
 
 /** Features attached to a live Playwright page. */
 const attached = new WeakMap();
@@ -29,8 +29,7 @@ function newState(
   page,
   commanderFactory,
   viewerWriter,
-  downloadManagerFactory,
-  onCheckpoint
+  downloadManagerFactory
 ) {
   const commander = commanderFactory({
     page,
@@ -47,7 +46,6 @@ function newState(
     viewerWriter,
     downloadManagerFactory,
     page,
-    onCheckpoint,
   };
   attached.set(page, state);
   page.once?.('close', () => {
@@ -63,18 +61,11 @@ function stateFor(
   page,
   commanderFactory = makeBrowserCommander,
   viewerWriter = writeTraceViewer,
-  downloadManagerFactory = createDownloadManager,
-  onCheckpoint = null
+  downloadManagerFactory = createDownloadManager
 ) {
   return (
     attached.get(page) ??
-    newState(
-      page,
-      commanderFactory,
-      viewerWriter,
-      downloadManagerFactory,
-      onCheckpoint
-    )
+    newState(page, commanderFactory, viewerWriter, downloadManagerFactory)
   );
 }
 
@@ -82,9 +73,8 @@ async function configureDownloads(state, directory) {
   await state.downloads?.dispose?.();
   state.downloads = await state.downloadManagerFactory({
     engine: 'playwright',
-    // Supplying the context without a browser handle selects Browser
-    // Commander's Playwright event source. It observes every page in this
-    // context and avoids publishing a CDP staging path before it exists.
+    // This context sees automated and human-started downloads in the app.
+    // The 0.19 CDP source still targets the wrong Chromium context (#97).
     context: state.page.context(),
     directory,
     persist: true,
@@ -92,6 +82,12 @@ async function configureDownloads(state, directory) {
   });
   state.commander.downloads = state.downloads;
   return state.downloads;
+}
+
+function linksPath(traceOutput) {
+  return traceOutput.endsWith('.bc-trace')
+    ? `${traceOutput.slice(0, -'.bc-trace'.length)}.lino`
+    : `${traceOutput}.lino`;
 }
 
 /**
@@ -108,19 +104,14 @@ export async function attachBrowserFeatures(
     commanderFactory = makeBrowserCommander,
     viewerWriter = writeTraceViewer,
     downloadManagerFactory = createDownloadManager,
-    onCheckpoint = null,
   } = {}
 ) {
   const state = stateFor(
     page,
     commanderFactory,
     viewerWriter,
-    downloadManagerFactory,
-    onCheckpoint
+    downloadManagerFactory
   );
-  if (onCheckpoint) {
-    state.onCheckpoint = onCheckpoint;
-  }
 
   if (downloadsDirectory && !state.downloads) {
     await configureDownloads(state, downloadsDirectory);
@@ -130,6 +121,11 @@ export async function attachBrowserFeatures(
     state.trace = await state.commander.startTrace({
       output: traceOutput,
       mode: TRACE_MODE.CONTINUOUS,
+      initialCheckpoint: 'browser-attached',
+      links: {
+        output: linksPath(traceOutput),
+        include: ['trace', 'timeline', 'checkpoints', 'control-diffs'],
+      },
       screenshots: 'checkpoints',
       dom: {
         html: true,
@@ -170,14 +166,6 @@ export async function checkpointBrowser(
     return null;
   }
   const entry = await state.trace.checkpoint(name, { actor, reason });
-  await state.onCheckpoint?.({
-    page,
-    name,
-    actor,
-    reason,
-    entry,
-    tracePath: state.trace.path,
-  });
   return entry;
 }
 

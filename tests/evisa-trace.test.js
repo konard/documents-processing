@@ -110,50 +110,6 @@ describe('the record of a run', () => {
 });
 
 describe('portable browser records', () => {
-  it('mirrors browser checkpoints and semantic changes into Links Notation', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-trace-test-'));
-    try {
-      const trace = openTrace(dir, { notation });
-      let state = { passenger: 'before' };
-      const page = { evaluate: async () => state };
-      const observe = trace.browserObserver(12);
-      await observe({
-        page,
-        name: 'prearrival-opened',
-        actor: 'site',
-        reason: 'initial',
-        tracePath: trace.browserPathFor(12, 'prearrival', 1),
-        entry: {
-          index: 1,
-          members: { html: 'checkpoints/0001.html' },
-        },
-      });
-      state = { passenger: 'after' };
-      await observe({
-        page,
-        name: 'prearrival-passenger',
-        actor: 'automation',
-        reason: 'confirmation',
-        tracePath: trace.browserPathFor(12, 'prearrival', 1),
-        entry: {
-          index: 2,
-          members: { state: 'checkpoints/0002.state.json' },
-        },
-      });
-
-      const text = trace.read(12);
-      expect(text.includes('state prearrival-opened')).toBe(true);
-      expect(text.includes('field passenger')).toBe(true);
-      expect(text.includes('  was before')).toBe(true);
-      expect(text.includes('  now after')).toBe(true);
-      expect(text.includes('browser prearrival-passenger')).toBe(true);
-      expect(text.includes('checkpoints/0002.state.json')).toBe(true);
-      expect(readTrace(text, notation).length > 0).toBe(true);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   it('writes nothing at all when values are being withheld', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-trace-off-'));
     try {
@@ -197,15 +153,22 @@ describe('portable browser records', () => {
     withTrace((trace, dir) => {
       const old = trace.browserPathFor(8, 'visa', 1);
       const fresh = trace.browserPathFor(8, 'visa', Date.now());
+      const oldLinks = old.replace(/\.bc-trace$/, '.lino');
+      const freshLinks = fresh.replace(/\.bc-trace$/, '.lino');
       fs.mkdirSync(old, { recursive: true });
       fs.mkdirSync(fresh, { recursive: true });
       fs.writeFileSync(path.join(old, 'manifest.json'), '{}');
       fs.writeFileSync(path.join(fresh, 'manifest.json'), '{}');
+      fs.writeFileSync(oldLinks, '(trace: old)\n');
+      fs.writeFileSync(freshLinks, '(trace: fresh)\n');
       const longAgo = Date.now() - 5 * 86400000;
       fs.utimesSync(old, longAgo / 1000, longAgo / 1000);
-      expect(sweepTraces(dir, 1)).toBe(1);
+      fs.utimesSync(oldLinks, longAgo / 1000, longAgo / 1000);
+      expect(sweepTraces(dir, 1)).toBe(2);
       expect(fs.existsSync(old)).toBe(false);
+      expect(fs.existsSync(oldLinks)).toBe(false);
       expect(fs.existsSync(fresh)).toBe(true);
+      expect(fs.existsSync(freshLinks)).toBe(true);
     });
   });
 

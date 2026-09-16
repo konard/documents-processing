@@ -25,7 +25,34 @@ import {
   takeTheFrontBack,
   whatIsInFront,
 } from './evisa-window.mjs';
-import { keepBrowserDownloads } from './evisa-arrival-result.mjs';
+import {
+  attachBrowserFeatures,
+  checkpointBrowser,
+} from './evisa-browser-features.mjs';
+
+function launchOptions({ headless, debugPort, downloadsPath }) {
+  const args = headless
+    ? []
+    : ['--window-size=1500,1000', '--no-startup-window-activation'];
+  if (debugPort) {
+    args.push(`--remote-debugging-port=${debugPort}`);
+  }
+  return {
+    headless,
+    args,
+    ...(downloadsPath ? { downloadsPath } : {}),
+  };
+}
+
+function pageOptions(headless, viewport) {
+  if (!headless) {
+    return { viewport: null };
+  }
+  return {
+    viewport: viewport ?? { width: 1500, height: 1000 },
+    deviceScaleFactor: 2,
+  };
+}
 
 /**
  * Opens a browser on the application form, past the dialog that gates it.
@@ -38,6 +65,8 @@ export async function openForm({
   viewport,
   debugPort = 0,
   downloadsPath = null,
+  traceOutput = null,
+  onTraceCheckpoint = null,
   blank = false,
 } = {}) {
   const { chromium } = await import('playwright');
@@ -47,32 +76,23 @@ export async function openForm({
   // A window that takes the screen the moment it opens interrupts whatever
   // the applicant was doing, and the form is not worth looking at until it is
   // filled. It opens behind, and `bringToFront` raises it when it is ready.
-  const args = headless
-    ? []
-    : ['--window-size=1500,1000', '--no-startup-window-activation'];
-  if (debugPort) {
-    // A debugger, chrome://inspect or a second Playwright, can then attach
-    // to this browser and see what it sees.
-    args.push(`--remote-debugging-port=${debugPort}`);
-  }
-  const browser = await chromium.launch({
-    headless,
-    // Start the window large enough to show the form without scrolling
-    // horizontally; the page itself then follows whatever size the window is.
-    args,
-    ...(downloadsPath ? { downloadsPath } : {}),
-  });
+  // A debugger, chrome://inspect or a second Playwright can attach when a
+  // port is requested; launchOptions also keeps visible windows wide enough.
+  const browser = await chromium.launch(
+    launchOptions({ headless, debugPort, downloadsPath })
+  );
   // A visible window gets no fixed viewport, so resizing it resizes the page.
   // Pinning one would leave the layout stuck at its original size, which is
   // what made the window unresponsive to being dragged wider.
   // A headless page is only ever seen through its capture, so it is rendered
   // at twice the pixel density: text on a page nine screens tall has to stay
   // legible when the applicant zooms into the file.
-  const page = await browser.newPage({
-    viewport: headless ? (viewport ?? { width: 1500, height: 1000 }) : null,
-    deviceScaleFactor: headless ? 2 : undefined,
+  const page = await browser.newPage(pageOptions(headless, viewport));
+  const features = await attachBrowserFeatures(page, {
+    downloadsDirectory: downloadsPath,
+    traceOutput,
+    onCheckpoint: onTraceCheckpoint,
   });
-  keepBrowserDownloads(page, downloadsPath);
   if (!headless) {
     // The flag above is not enough on a Mac, where launching an application
     // makes it the active one whatever its windows do. The window is left
@@ -84,10 +104,10 @@ export async function openForm({
     // A lookup wants a browser, not an application. Loading the form for it
     // costs a page nobody asked for, and leaves an empty one to be
     // photographed by anything that later looks at the chat's page.
-    return { browser, page };
+    return { browser, page, ...features };
   }
   await loadForm(page);
-  return { browser, page };
+  return { browser, page, ...features };
 }
 
 /**
@@ -100,6 +120,10 @@ export async function loadForm(page) {
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded' });
   await acceptNoteModal(page);
   await waitForForm(page);
+  await checkpointBrowser(page, 'visa-form-opened', {
+    actor: 'site',
+    reason: 'initial',
+  });
   return page;
 }
 

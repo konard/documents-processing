@@ -77,6 +77,7 @@ import {
 } from './evisa-sections.mjs';
 import { recordConversations, sweepTranscripts } from './evisa-transcript.mjs';
 import { traceFor, sweepTracesIn, recordStep } from './evisa-trace.mjs';
+import { stopBrowserFeatures } from './evisa-browser-features.mjs';
 import { createFillBatcher } from './evisa-batch.mjs';
 import { onShutdown } from './evisa-shutdown.mjs';
 import { startPolling, MENU } from './evisa-start.mjs';
@@ -306,6 +307,7 @@ async function pageFor(chatId, { blank = false } = {}) {
   if (held) {
     log(chatId, 'the browser had gone; opening another');
     held.closing = true;
+    await stopBrowserFeatures(held.page).catch(() => {});
     await held.browser.close().catch(() => {});
     browsers.delete(chatId);
     sessions.get(chatId).uploaded = {};
@@ -323,6 +325,8 @@ async function pageFor(chatId, { blank = false } = {}) {
     headless: !HEADED,
     debugPort,
     downloadsPath: DOWNLOADS_DIR,
+    traceOutput: valuesAllowed() ? trace.browserPathFor(chatId, 'visa') : null,
+    onTraceCheckpoint: valuesAllowed() ? trace.browserObserver(chatId) : null,
     blank,
   });
   logBrowserEvents(chatId, page);
@@ -359,6 +363,7 @@ async function endChat(chatId) {
   const held = browsers.get(chatId);
   if (held) {
     held.closing = true;
+    await stopBrowserFeatures(held.page).catch(() => {});
     await held.browser.close().catch(() => {});
     browsers.delete(chatId);
   }
@@ -1068,6 +1073,7 @@ registerVisaCommands(bot, {
 // than passed, being defined further down the file than this.
 const arrivalDeps = {
   sessions,
+  trace,
   log,
   looksLikeCaptcha,
   // "typing…" for as long as the declaration is being opened and filled: a

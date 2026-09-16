@@ -9,7 +9,7 @@
 #
 # The version here must match the `playwright` dependency in package.json: the
 # client refuses to drive a browser build it does not recognise.
-FROM mcr.microsoft.com/playwright:v1.62.1-noble
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
 ENV NODE_ENV=production
 

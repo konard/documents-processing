@@ -52,6 +52,11 @@ import {
   arrivalDateOverride,
   declarationFor,
 } from './evisa-arrival-declaration.mjs';
+import {
+  checkpointBrowser,
+  stopBrowserFeatures,
+} from './evisa-browser-features.mjs';
+import { tryOpeningCaptcha } from './evisa-arrival-opening.mjs';
 
 export {
   arrivalAnswerFor,
@@ -82,13 +87,55 @@ export function gateFromTicket(ticket = {}) {
   return null;
 }
 
+async function showOpenedDeclaration({
+  session,
+  opened,
+  ctx,
+  chatId,
+  sessions,
+  log,
+  MESSAGES,
+  describeFilled,
+  describeDeclaration,
+  InputFile,
+  askCaptcha,
+}) {
+  session.arrival.stage = 'form';
+  await fillAndShow({
+    ctx,
+    chatId,
+    sessions,
+    log,
+    MESSAGES,
+    describeFilled,
+    describeDeclaration,
+    InputFile,
+    askCaptcha,
+  });
+  return { asked: false, solved: true, page: opened.page };
+}
+
 /**
  * Opens the site and asks the chat to read the captcha that gates it.
  *
  * The browser is kept on the session, since the code that comes back has to
  * reach this very page: a second browser would show a different picture.
  */
-export async function startDeclaration({
+export async function startDeclaration(options) {
+  return await startDeclarationWith({
+    ...options,
+    describeDeclaration: options.describeDeclaration ?? null,
+    InputFile: options.InputFile ?? null,
+    ocr: options.ocr ?? null,
+    tries: options.tries ?? CAPTCHA_TRIES,
+    headless: options.headless ?? true,
+    debugPort: options.debugPort ?? 0,
+    downloadsPath: options.downloadsPath ?? null,
+    trace: options.trace ?? null,
+  });
+}
+
+async function startDeclarationWith({
   ctx,
   chatId,
   sessions,
@@ -96,29 +143,35 @@ export async function startDeclaration({
   askCaptcha,
   MESSAGES,
   describeFilled,
-  describeDeclaration = null,
-  // grammY's file wrapper, passed in so this module needs no bot library of
-  // its own. Without it the declaration goes as words, which is what the
-  // tests take.
-  InputFile = null,
-  ocr = null,
-  tries = CAPTCHA_TRIES,
-  headless = true,
-  debugPort = 0,
-  downloadsPath = null,
+  describeDeclaration,
+  // grammY's file wrapper; without it the declaration goes as words.
+  InputFile,
+  ocr,
+  tries,
+  headless,
+  debugPort,
+  downloadsPath,
+  trace,
 }) {
   const session = sessions.get(chatId);
   const strings = MESSAGES[session.language];
   log(chatId, 'opening the pre-arrival declaration');
-  const opened = await openDeclaration({ headless, debugPort, downloadsPath });
+  const opened = await openDeclaration({
+    headless,
+    debugPort,
+    downloadsPath,
+    traceOutput: trace?.browserPathFor(chatId, 'prearrival') ?? null,
+    onTraceCheckpoint: trace?.browserObserver(chatId) ?? null,
+  });
   session.arrival = { ...opened, stage: 'captcha' };
   // No dialog gating the page means the form itself is already in front of
   // us, so it is filled. Left at the captcha stage the chat would hold a
   // browser showing a ready form that nothing would ever type into.
   if (!(await captchaIsUp(opened.page))) {
     log(chatId, 'the declaration opened with no captcha on it');
-    session.arrival.stage = 'form';
-    await fillAndShow({
+    return await showOpenedDeclaration({
+      session,
+      opened,
       ctx,
       chatId,
       sessions,
@@ -129,81 +182,57 @@ export async function startDeclaration({
       InputFile,
       askCaptcha,
     });
-    return { asked: false, solved: true, page: opened.page };
   }
 
   // The bot has one go at reading it, and only submits that reading if the
   // engines agree on it. Anything else goes to the traveller, who reads these
   // better than any of them and whose attempt is not a bot hammering a
   // government site's defences.
-  let asked = false;
-  // The site's own captcha service failing, which is neither a picture the
-  // bot misread nor anything the traveller can put right by trying harder.
-  let stalled = false;
-  if (ocr) {
-    const solved = await solveCaptcha({
-      page: opened.page,
+  const attempt = await tryOpeningCaptcha({
+    page: opened.page,
+    ctx,
+    chatId,
+    strings,
+    log,
+    askCaptcha,
+    ocr,
+    tries,
+    solveCaptcha,
+    askAfterRounds: ASK_AFTER_ROUNDS,
+  });
+  if (attempt.solved) {
+    return await showOpenedDeclaration({
+      session,
+      opened,
+      ctx,
       chatId,
+      sessions,
       log,
-      ocr,
-      tries,
-      onStalled: () => {
-        stalled = true;
-      },
-      // The picture goes to the traveller, and the bot stops there. Whatever
-      // is on the page at this moment is what is sent — the picture it read,
-      // if it submitted nothing, or the one the site drew in answer to a
-      // refusal — and nothing touches the page afterwards, so the code that
-      // comes back is answered against the very picture they read it from.
-      onRound: async (round) => {
-        if (asked || round < ASK_AFTER_ROUNDS) {
-          return false;
-        }
-        asked = await askCaptcha(
-          ctx,
-          chatId,
-          strings.arrivalCaptcha,
-          opened.page
-        );
-        log(
-          chatId,
-          `captcha ${round}: ${asked ? 'asked the chat; the page keeps this picture' : 'no picture to send'}`
-        );
-        return asked;
-      },
+      MESSAGES,
+      describeFilled,
+      describeDeclaration,
+      InputFile,
+      askCaptcha,
     });
-    if (solved) {
-      session.arrival.stage = 'form';
-      await fillAndShow({
-        ctx,
-        chatId,
-        sessions,
-        log,
-        MESSAGES,
-        describeFilled,
-        describeDeclaration,
-        InputFile,
-        askCaptcha,
-      });
-      return { asked: false, solved: true, page: opened.page };
-    }
-    // The picture is already with the traveller, and the page is holding it
-    // for them. Sending another would replace the one they are reading.
-    if (asked) {
-      return { asked, page: opened.page };
-    }
-    // Nothing to send and nothing to read: the site is not issuing codes.
-    // Said plainly, because a page reading "CAPTCHA is unavailable" with no
-    // word from the bot looks like the bot is the thing that broke. The
-    // browser goes with it: it is holding a dialog nobody can get past.
-    if (stalled) {
-      await closeDeclaration(session);
-      await sendSiteStalled({ ctx, chatId, session, strings, InputFile, log });
-      return { asked: false, stalled: true };
-    }
+  }
+  // The picture is already with the traveller, and the page is holding it
+  // for them. Sending another would replace the one they are reading.
+  if (attempt.asked) {
+    return { asked: true, page: opened.page };
+  }
+  // Nothing to send and nothing to read: the site is not issuing codes.
+  if (attempt.stalled) {
+    await closeDeclaration(session);
+    await sendSiteStalled({ ctx, chatId, session, strings, InputFile, log });
+    return { asked: false, stalled: true };
   }
 
-  asked = await askCaptcha(ctx, chatId, strings.arrivalCaptcha, opened.page);
+  const asked = await askCaptcha(
+    ctx,
+    chatId,
+    strings.arrivalCaptcha,
+    opened.page
+  );
   log(
     chatId,
     `declaration captcha ${asked ? 'sent to the chat' : 'not found'}`
@@ -1284,6 +1313,13 @@ async function captureThePage({
       : at === 1
         ? await readTrip(page).catch(() => ({}))
         : {};
+  await checkpointBrowser(
+    page,
+    `prearrival-${String(title)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')}`,
+    { actor: 'automation', reason: 'confirmation' }
+  );
   return { at, title, result, onThePage, shot };
 }
 
@@ -1458,6 +1494,7 @@ export async function closeDeclaration(session = {}) {
     return false;
   }
   session.arrival = null;
+  await stopBrowserFeatures(held.page).catch(() => {});
   await held.browser.close().catch(() => {});
   return true;
 }

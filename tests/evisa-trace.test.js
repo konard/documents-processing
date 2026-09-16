@@ -98,12 +98,69 @@ describe('the record of a run', () => {
     });
   });
 
+  it('withholds captcha values from full-state snapshots too', () => {
+    withTrace((trace) => {
+      trace.state(4, { basic_captcha: 'A1B2C3', ordinary: 'visible' });
+      const text = trace.read(4);
+      expect(text.includes('A1B2C3')).toBe(false);
+      expect(text.includes('ordinary visible')).toBe(true);
+      expect(text.includes('withheld')).toBe(true);
+    });
+  });
+});
+
+describe('portable browser records', () => {
+  it('mirrors browser checkpoints and semantic changes into Links Notation', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-trace-test-'));
+    try {
+      const trace = openTrace(dir, { notation });
+      let state = { passenger: 'before' };
+      const page = { evaluate: async () => state };
+      const observe = trace.browserObserver(12);
+      await observe({
+        page,
+        name: 'prearrival-opened',
+        actor: 'site',
+        reason: 'initial',
+        tracePath: trace.browserPathFor(12, 'prearrival', 1),
+        entry: {
+          index: 1,
+          members: { html: 'checkpoints/0001.html' },
+        },
+      });
+      state = { passenger: 'after' };
+      await observe({
+        page,
+        name: 'prearrival-passenger',
+        actor: 'automation',
+        reason: 'confirmation',
+        tracePath: trace.browserPathFor(12, 'prearrival', 1),
+        entry: {
+          index: 2,
+          members: { state: 'checkpoints/0002.state.json' },
+        },
+      });
+
+      const text = trace.read(12);
+      expect(text.includes('state prearrival-opened')).toBe(true);
+      expect(text.includes('field passenger')).toBe(true);
+      expect(text.includes('  was before')).toBe(true);
+      expect(text.includes('  now after')).toBe(true);
+      expect(text.includes('browser prearrival-passenger')).toBe(true);
+      expect(text.includes('checkpoints/0002.state.json')).toBe(true);
+      expect(readTrace(text, notation).length > 0).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('writes nothing at all when values are being withheld', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evisa-trace-off-'));
     try {
       const trace = openTrace(dir, { enabled: false, notation });
       trace.step(5, 'form');
       expect(trace.read(5)).toBe('');
+      expect(trace.browserPathFor(5, 'prearrival')).toBe(null);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -136,10 +193,36 @@ describe('the record of a run', () => {
     });
   });
 
+  it('sweeps old portable browser bundles under the same retention policy', () => {
+    withTrace((trace, dir) => {
+      const old = trace.browserPathFor(8, 'visa', 1);
+      const fresh = trace.browserPathFor(8, 'visa', Date.now());
+      fs.mkdirSync(old, { recursive: true });
+      fs.mkdirSync(fresh, { recursive: true });
+      fs.writeFileSync(path.join(old, 'manifest.json'), '{}');
+      fs.writeFileSync(path.join(fresh, 'manifest.json'), '{}');
+      const longAgo = Date.now() - 5 * 86400000;
+      fs.utimesSync(old, longAgo / 1000, longAgo / 1000);
+      expect(sweepTraces(dir, 1)).toBe(1);
+      expect(fs.existsSync(old)).toBe(false);
+      expect(fs.existsSync(fresh)).toBe(true);
+    });
+  });
+
   it('names the steps an application passes, in order', () => {
     expect(STEPS[0]).toBe('form');
     expect(STEPS[STEPS.length - 1]).toBe('paid');
     expect(STEPS.includes('payment')).toBe(true);
+  });
+
+  it('gives each browser run its own portable trace bundle', () => {
+    withTrace((trace) => {
+      const first = trace.browserPathFor(7, 'visa', 1000);
+      const second = trace.browserPathFor(7, 'visa', 2000);
+      expect(first.endsWith('chat-7-visa-1000.bc-trace')).toBe(true);
+      expect(second.endsWith('chat-7-visa-2000.bc-trace')).toBe(true);
+      expect(first === second).toBe(false);
+    });
   });
 });
 

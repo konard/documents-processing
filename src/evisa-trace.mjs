@@ -36,6 +36,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkpointBrowser } from './evisa-browser-features.mjs';
 
 /** The steps an application passes, in the order it passes them. */
 export const STEPS = [
@@ -49,6 +50,11 @@ export const STEPS = [
 
 /** Fields whose value is a secret and is recorded only as its shape. */
 const NEVER_RECORDED = ['captcha'];
+
+const hiddenValue = (id, value) =>
+  NEVER_RECORDED.some((secret) => String(id).toLowerCase().includes(secret))
+    ? '(withheld)'
+    : value;
 
 /**
  * A value written so the notation carries it whole and reads it back the
@@ -96,6 +102,19 @@ export function readPageState(page) {
       for (const element of document.querySelectorAll('input, textarea')) {
         const id = element.id;
         if (!id) {
+          continue;
+        }
+        const identifiesCaptcha = [
+          element.id,
+          element.name,
+          element.placeholder,
+        ].some((part) => /captcha/i.test(part ?? ''));
+        if (
+          element.type === 'password' ||
+          element.autocomplete === 'one-time-code' ||
+          identifiesCaptcha
+        ) {
+          state[id] = '(withheld)';
           continue;
         }
         if (element.type === 'checkbox' || element.type === 'radio') {
@@ -180,7 +199,61 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
     }
   };
 
-  return {
+  const browserStates = new WeakMap();
+
+  const api = {
+    /**
+     * A unique Browser Commander bundle beside the concise Links Notation
+     * record. The bundle owns HTML, screenshots and DOM mutations; the .lino
+     * file owns semantic field changes and their actor.
+     */
+    browserPathFor(chatId, journey = 'browser', now = Date.now()) {
+      if (!enabled) {
+        return null;
+      }
+      const safeJourney = String(journey).replace(/[^a-z0-9_-]+/gi, '-');
+      return path.join(
+        directory,
+        'browser',
+        `chat-${chatId}-${safeJourney}-${now}.bc-trace`
+      );
+    },
+
+    /**
+     * Mirror portable checkpoints into the Links Notation record. The bundle
+     * contains the complete page artifacts; this stream contains their
+     * semantic field delta, actor and bundle-relative member references.
+     */
+    browserObserver(chatId) {
+      if (!enabled) {
+        return async () => {};
+      }
+      return async ({ page, name, actor, reason, tracePath, entry = {} }) => {
+        const state = await readPageState(page);
+        const before = browserStates.get(page);
+        if (before) {
+          api.changes(chatId, changesBetween(before, state), actor);
+        } else {
+          api.state(chatId, state, name);
+        }
+        browserStates.set(page, state);
+
+        put(chatId, () => [
+          record(`browser ${value(name)}`, [
+            ['at', new Date().toISOString()],
+            ['index', entry.index],
+            ['actor', actor],
+            ['reason', reason],
+            [
+              'trace',
+              tracePath ? path.relative(directory, tracePath) : undefined,
+            ],
+            ...Object.entries(entry.members ?? {}),
+          ]),
+        ]);
+      };
+    },
+
     /**
      * Records that an application reached a step, and what the page held
      * when it did.
@@ -206,15 +279,11 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
       if (!changes.length) {
         return;
       }
-      const hidden = (id, value) =>
-        NEVER_RECORDED.some((secret) => id.includes(secret))
-          ? '(withheld)'
-          : value;
       put(chatId, () =>
         changes.map(({ id, was, now }) =>
           record(`field ${value(id)}`, [
-            ['was', hidden(id, was)],
-            ['now', hidden(id, now)],
+            ['was', hiddenValue(id, was)],
+            ['now', hiddenValue(id, now)],
             ['by', by],
           ])
         )
@@ -223,7 +292,10 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
 
     /** Records the page's whole state, as the ground a replay starts from. */
     state(chatId, state, moment = 'start') {
-      const entries = Object.entries(state);
+      const entries = Object.entries(state).map(([id, said]) => [
+        id,
+        hiddenValue(id, said),
+      ]);
       if (!entries.length) {
         return;
       }
@@ -246,6 +318,7 @@ export function openTrace(directory, { enabled = true, notation = null } = {}) {
 
     pathFor: fileFor,
   };
+  return api;
 }
 
 /**
@@ -275,12 +348,15 @@ export function sweepTracesIn(storeDirectory, days) {
  * Returns the page as it now stands, which is the ground the next fill's
  * comparison is made against.
  */
-export async function recordFill(trace, chatId, page, { before, result }) {
+export async function recordFill(trace, chatId, page, { result }) {
   const now = await readPageState(page);
-  trace.changes(chatId, changesBetween(before ?? {}, now), 'bot');
   trace.step(chatId, 'form', {
     moment: 'filled',
     detail: { filled: result.filled.length, failed: result.failures.length },
+  });
+  await checkpointBrowser(page, 'visa-form-filled', {
+    actor: 'automation',
+    reason: 'filled',
   });
   return now;
 }
@@ -295,12 +371,13 @@ export async function recordFill(trace, chatId, page, { before, result }) {
  */
 export async function recordArrival(trace, chatId, page, last) {
   const found = await readPageState(page);
-  if (last) {
-    trace.changes(chatId, changesBetween(last, found), 'applicant');
-  } else {
+  if (!last) {
     trace.step(chatId, 'form', { moment: 'opened' });
-    trace.state(chatId, found, 'start');
   }
+  await checkpointBrowser(page, 'visa-before-fill', {
+    actor: last ? 'user' : 'site',
+    reason: last ? 'human-edits' : 'initial',
+  });
   return found;
 }
 
@@ -319,7 +396,10 @@ export async function recordStep(trace, chatId, page, step, label) {
       said: step.notices.join(' | ') || undefined,
     },
   });
-  trace.state(chatId, await readPageState(page), step.stage);
+  await checkpointBrowser(page, `visa-${step.stage}`, {
+    actor: 'site',
+    reason: step.moved ? 'navigation' : 'refused',
+  });
 }
 
 /**
@@ -350,6 +430,30 @@ export function sweepTraces(directory, days) {
     } catch {
       // A file that vanished is not worth failing over.
     }
+  }
+
+  // Portable trace directories contain the same applicant data and obey the
+  // same retention window as the concise .lino record beside them.
+  const browserDirectory = path.join(directory, 'browser');
+  try {
+    for (const entry of fs.readdirSync(browserDirectory, {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory() || !/^chat-.*\.bc-trace$/.test(entry.name)) {
+        continue;
+      }
+      const full = path.join(browserDirectory, entry.name);
+      try {
+        if (fs.statSync(full).mtimeMs < cutoff) {
+          fs.rmSync(full, { recursive: true, force: true });
+          removed += 1;
+        }
+      } catch {
+        // A bundle that vanished during the sweep is already gone.
+      }
+    }
+  } catch {
+    // No browser traces have been recorded yet.
   }
   return removed;
 }

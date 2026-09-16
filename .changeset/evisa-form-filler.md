@@ -39,3 +39,11 @@ in the configured data volume and are removed by retention sweeps. A filed
 application PDF can be converted back to Links Notation for comparison. The
 package also includes Docker deployment, privacy checks, safer PDF generation,
 sanitized email-to-PDF rendering, and corrected passport-expiry year handling.
+
+Browser sessions now use Browser Commander 0.18 for persistent managed
+downloads and portable continuous trace bundles. Each significant form stage
+has a full HTML, live-control-state and screenshot checkpoint, intervening DOM
+mutations are recorded, a local replay viewer is generated, and a concise
+actor-aware checkpoint stream is mirrored in Links Notation 0.20. CAPTCHA and
+email-code controls are redacted, traces share the existing retention policy,
+and all browser tracing is disabled together with personal-data diagnostics.
